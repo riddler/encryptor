@@ -10,9 +10,30 @@ Ergonomic envelope encryption for Elixir - a vault module, pluggable key
 providers, and per-tenant keys - on the
 [aws_encryption_sdk](https://hex.pm/packages/aws_encryption_sdk) engine.
 
-**Status: scaffold.** Nothing is implemented yet. The package skeleton is in
-place; the contracts below are being decided in ADRs before any of them is
-built.
+## Status: designed, not built
+
+The five founding architecture decision records were **accepted on
+2026-08-27**. They fix the contracts this package is made of. **No
+implementation has landed yet**: `lib/` holds a moduledoc, the package is not
+published, and nothing below is a promise about a function you can call today.
+
+| Record | Decides |
+|---|---|
+| [ADR-0001](docs/adr/0001-vault-layer.md) | The vault layer: one host-owned module that wraps the engine completely, what it supervises, how it is configured, how its cache is bounded, and its error vocabulary |
+| [ADR-0002](docs/adr/0002-key-providers.md) | The key-provider behaviour: a provider resolves a selector to a key descriptor, and only the vault turns a descriptor into a keyring |
+| [ADR-0003](docs/adr/0003-per-tenant-envelope.md) | The per-tenant envelope: a tenant key is 32 random bytes wrapped into an ordinary message, and the host stores the wrapping |
+| [ADR-0004](docs/adr/0004-encryption-context.md) | The encryption-context convention: the canonical keys, who supplies each, and how a vault enforces them |
+| [ADR-0005](docs/adr/0005-rotation-and-crypto-shred.md) | Rotation and crypto-shred: three independent lifecycles, four operator procedures, and the one step that cannot be undone |
+
+The implementation graph derived from them is
+[`docs/plans/260827-enc-2y3-b3-implementation-graph.md`](docs/plans/260827-enc-2y3-b3-implementation-graph.md).
+Work is tracked in this repository's own beads database, under the epic
+"Implement the vault core".
+
+Read the records before writing code here. Until a contract is fixed by an
+accepted record, it is open - and a cryptographic choice made inline in an
+implementation is a defect even when the choice happens to be a good one,
+because the record is what makes it reviewable.
 
 ## The charter
 
@@ -25,31 +46,57 @@ where does the key material actually come from. This package is the layer that
 answers them:
 
 - **A vault module.** `use Encryptor.Vault, otp_app: :my_app` gives a
-  supervised client, configured from app config, with `encrypt/decrypt`
+  supervised client, configured from app config, with `encrypt`/`decrypt`
   entry points a call site can use without naming a keyring, a client, or a
   cryptographic materials manager. One place to configure, one surface to
-  call.
+  call, and consumers never type the engine's namespace.
 
 - **Pluggable key providers.** Where key material comes from is a behaviour,
-  not a hard-coded choice. A static key in config, a key column in the
-  database, a KMS call - each is an adapter behind the same contract, so the
-  call sites do not change when the source does.
+  not a hard-coded choice. A static key resolved at boot, a wrapped key column
+  in the database, a KMS call - each is an adapter behind the same contract,
+  so the call sites do not change when the source does.
 
 - **Per-tenant keys and rotation.** A multi-tenant host app needs each
   tenant's data encrypted under that tenant's own key, and needs to roll that
-  key on its own schedule. Key identity and key version are first-class here:
-  ciphertext records which key encrypted it, decryption resolves the key it
+  key on its own schedule. Key identity and key version are first-class:
+  a ciphertext records which key encrypted it, decryption resolves the key it
   names, and rotation is re-encryption against a new version rather than a
-  flag day.
+  flag day. Because a tenant key is random rather than derived, destroying its
+  wrapping destroys the key, so a crypto-shred is honest.
 
 - **AWS Encryption SDK message format** - ciphertexts are interoperable with
   the official ESDKs, so data written from Elixir is readable from Java,
   Python, JavaScript, or the AWS CLI, and vice versa.
 
-The engine stays `aws_encryption_sdk`. The vault wraps it fully, so consumers
-never type the engine's namespace. Raw-keyring usage pulls no AWS, HTTP, or
-XML libraries - the AWS client stack is optional in the engine, and only
+The engine stays `aws_encryption_sdk`. Raw-keyring usage pulls no AWS, HTTP,
+or XML libraries - that client stack is optional in the engine, and only
 KMS-backed providers will bring it in.
+
+## The family
+
+| Package | Owns |
+|---|---|
+| `encryptor` (here) | The vault surface, the key-provider behaviour, the envelope and key-derivation scheme, the encryption-context convention, the rotation model |
+| [`encryptor_ecto`](https://github.com/riddler/encryptor_ecto) | The Ecto types, the schema conventions, the wrapped-key storage and its migration, the re-encryption migrator |
+
+The split is deliberate and it is a boundary, not a layering convenience: no
+function in this package takes a repo, a query, a table, or a batch size, and
+this package defines no storage schema at all.
+
+## Engine notes
+
+The design is written against `aws_encryption_sdk` v1.0.0 as published, with
+module paths cited so every claim can be re-checked. Two upstream issues are
+open and the design works around both until they move:
+
+- [#95](https://github.com/riddler/aws-encryption-sdk-elixir/issues/95) - the
+  materials cache is unbounded and is not substitutable through the cache
+  behaviour, so this package bounds it by recycling the cache process.
+- [#96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96) - a
+  warm decryption cache bypasses reproduced-context validation, so this
+  package performs the value comparison itself, above the engine. That is what
+  makes anti-substitution a property of this package rather than one it
+  happens to inherit.
 
 ## Installation
 
@@ -65,5 +112,5 @@ Not yet published to Hex.
 
 ## License
 
-MIT - see
+Apache-2.0 - see
 [LICENSE](https://github.com/riddler/encryptor/blob/main/LICENSE).

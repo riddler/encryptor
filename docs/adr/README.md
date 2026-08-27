@@ -2,11 +2,11 @@
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](0001-vault-layer.md) | A vault is a supervised, host-owned module that wraps the engine completely | proposed |
-| [0002](0002-key-providers.md) | A key provider resolves a selector to key descriptors, and the vault alone builds keyrings | proposed |
-| [0003](0003-per-tenant-envelope.md) | A tenant key is a random key wrapped into an ordinary message, and the host stores the wrapping | proposed |
-| [0004](0004-encryption-context.md) | The encryption context is a vault-composed, profile-enforced set of identifying keys | proposed |
-| [0005](0005-rotation-and-crypto-shred.md) | Rotation is three independent lifecycles, and only the shred is irreversible | proposed |
+| [0001](0001-vault-layer.md) | A vault is a supervised, host-owned module that wraps the engine completely | accepted (2026-08-27) |
+| [0002](0002-key-providers.md) | A key provider resolves a selector to key descriptors, and the vault alone builds keyrings | accepted (2026-08-27) |
+| [0003](0003-per-tenant-envelope.md) | A tenant key is a random key wrapped into an ordinary message, and the host stores the wrapping | accepted (2026-08-27, amended) |
+| [0004](0004-encryption-context.md) | The encryption context is a vault-composed, profile-enforced set of identifying keys | accepted (2026-08-27, amended) |
+| [0005](0005-rotation-and-crypto-shred.md) | Rotation is three independent lifecycles, and only the shred is irreversible | accepted (2026-08-27) |
 
 New ADRs: next number, same three-section format (Context, Decision,
 Consequences), plus typespecs, at least one worked example, and any open
