@@ -17,7 +17,14 @@ defmodule Encryptor.MixProject do
         "Ergonomic envelope encryption for Elixir - vault module, pluggable key providers, per-tenant keys",
       source_url: @source_url,
       docs: docs(),
-      package: package()
+      package: package(),
+      test_coverage: [tool: ExCoveralls],
+      dialyzer: [plt_add_apps: [:ex_unit]],
+      preferred_cli_env: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.html": :test
+      ]
     ]
   end
 
@@ -58,11 +65,17 @@ defmodule Encryptor.MixProject do
     ]
   end
 
-  # The quality tooling (ex_quality, credo, dialyxir, excoveralls) and ex_doc
-  # are added by the beads that follow this one in the bootstrap stack.
+  # ex_doc is added by the docs bead that follows this one in the bootstrap
+  # stack.
   defp deps do
     [
-      {:aws_encryption_sdk, "~> 1.0"}
+      {:aws_encryption_sdk, "~> 1.0"},
+
+      # Dev / test
+      {:ex_quality, "~> 0.14", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test}
     ]
   end
 end
