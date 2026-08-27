@@ -80,9 +80,13 @@ defmodule Encryptor.Vault.Config do
     * On a `:tenant` vault `:reference_subkey` is required, and when the
       deployment has pinned a `:reference_check` value the subkey must
       reproduce it (ADR-0004 decision 4).
-    * `:static_encryption_context` is validated and bounded here: at most 32
-      pairs, at most 4 KiB serialized, non-empty UTF-8 strings throughout, and
-      no reserved key (ADR-0004 decisions 1, 2 and 9).
+    * `:static_encryption_context` is validated and bounded here, against the
+      vocabulary and the bounds `Encryptor.Context` owns: at most
+      `Encryptor.Context.max_pairs/0` pairs, at most
+      `Encryptor.Context.max_bytes/0` serialized, non-empty UTF-8 strings
+      throughout, and no reserved key (ADR-0004 decisions 1, 2 and 9). This
+      module applies them at start; the per-call half is
+      `Encryptor.Context.compose/3`.
 
   ## Choosing an algorithm suite
 
@@ -117,6 +121,7 @@ defmodule Encryptor.Vault.Config do
   ADR-0005 decision 4.
   """
 
+  alias Encryptor.Context
   alias Encryptor.Error
 
   @default_commitment_policy :require_encrypt_require_decrypt
@@ -131,11 +136,6 @@ defmodule Encryptor.Vault.Config do
   @default_max_bytes 1_073_741_824
   @recycle_after_multiplier 20
   @cache_bounds [:max_age, :max_messages, :max_bytes, :recycle_after]
-
-  @max_context_pairs 32
-  @max_context_bytes 4096
-  @reserved_context_prefixes ["aws-crypto-", "encryptor-"]
-  @tenant_context_keys ["tenant_ref", "tenant_id"]
 
   @key_material_options [:key, :keys, :root_key, :private_key, :passphrase, :reference_subkey]
   @reference_subkey_bytes 32
@@ -361,7 +361,7 @@ defmodule Encryptor.Vault.Config do
   # ADR-0004 decision 3: the profile contributes its own required keys ahead
   # of the host's, and the effective set is frozen so the hot path reads it
   # rather than recomputing it.
-  defp required_keys(:tenant, required), do: Enum.uniq(["tenant_ref" | required])
+  defp required_keys(:tenant, required), do: Enum.uniq([Context.tenant_ref_key() | required])
   defp required_keys(:single, required), do: Enum.uniq(required)
 
   defp provider(vault, opts) do
@@ -506,11 +506,14 @@ defmodule Encryptor.Vault.Config do
       invalid = Enum.find(keys, &(not context_key?(&1))) ->
         {:error, error(vault, {:invalid_config, :required_context, {:invalid_key, invalid}})}
 
-      profile == :single and "tenant_ref" in keys ->
+      profile == :single and Context.tenant_ref_key() in keys ->
         # ADR-0004 decision 2: `tenant_ref` is refused on a `:single` vault, so
         # requiring it there is a vault that can never encrypt.
         {:error,
-         error(vault, {:invalid_config, :required_context, {:reserved_key, "tenant_ref"}})}
+         error(
+           vault,
+           {:invalid_config, :required_context, {:reserved_key, Context.tenant_ref_key()}}
+         )}
 
       true ->
         {:ok, keys}
@@ -535,10 +538,10 @@ defmodule Encryptor.Vault.Config do
       reserved = Enum.find(Map.keys(static), &reserved_context_key?(&1, profile)) ->
         {:error, error(vault, {:reserved_context_key, reserved})}
 
-      length(pairs) > @max_context_pairs ->
+      length(pairs) > Context.max_pairs() ->
         {:error, error(vault, {:invalid_config, :encryption_context, :too_many_pairs})}
 
-      serialized_context_size(pairs) > @max_context_bytes ->
+      Context.serialized_size(pairs) > Context.max_bytes() ->
         {:error, error(vault, {:invalid_config, :encryption_context, :too_large})}
 
       true ->
@@ -546,22 +549,12 @@ defmodule Encryptor.Vault.Config do
     end
   end
 
-  # ADR-0004 decision 9 bounds the *serialized* context, and the engine's
-  # serialization is a 16-bit pair count followed by a 16-bit length prefix on
-  # every key and value. Computed arithmetically so this stays a size check
-  # rather than a second dependency on the message format.
-  defp serialized_context_size(pairs) do
-    Enum.reduce(pairs, 2, fn {key, value}, total ->
-      total + 2 + byte_size(key) + 2 + byte_size(value)
-    end)
-  end
+  # The vocabulary, the prefixes and the bounds all live in `Encryptor.Context`
+  # (ADR-0004 decisions 1, 2 and 9). This module is where they are applied at
+  # start; it does not carry a second copy of them.
+  defp reserved_context_key?(key, profile), do: Context.reserved_key?(key, profile)
 
-  defp reserved_context_key?(key, profile) do
-    Enum.any?(@reserved_context_prefixes, &String.starts_with?(key, &1)) or
-      (profile == :tenant and key in @tenant_context_keys)
-  end
-
-  defp context_key?(value), do: is_binary(value) and value != "" and String.valid?(value)
+  defp context_key?(value), do: Context.valid_string?(value)
 
   defp reference_subkey(vault, :tenant, opts) do
     case Keyword.fetch(opts, :reference_subkey) do
