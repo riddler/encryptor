@@ -44,13 +44,14 @@ defmodule Encryptor.Vault.Keyring do
   # defect in this module's validation, and it should be visible as one.
 
   alias AwsEncryptionSdk.Keyring.Behaviour, as: EngineKeyring
+  alias AwsEncryptionSdk.Keyring.Multi
   alias AwsEncryptionSdk.Keyring.RawAes
   alias Encryptor.Error
   alias Encryptor.Key.Aes
   alias Encryptor.Key.Kms
 
   @typedoc false
-  @type t :: RawAes.t()
+  @type t :: RawAes.t() | Multi.t()
 
   @doc false
   @spec build(module(), Error.operation(), term()) :: {:ok, t()} | {:error, Error.t()}
@@ -79,6 +80,56 @@ defmodule Encryptor.Vault.Keyring do
 
   def build(vault, operation, other) do
     {:error, invalid(vault, operation, {:not_a_descriptor, shape(other)})}
+  end
+
+  # The decrypt-side counterpart: a candidate list becomes one keyring.
+  #
+  # A one-element list builds a plain RawAes rather than a Multi of one, which
+  # would be an extra struct and an extra error-wrapping layer for nothing. A
+  # longer one builds a Multi with `generator: nil` - permitted by the engine
+  # whenever there is at least one child - which walks its children in order
+  # and returns the first success. That walk is the whole rotation mechanism:
+  # a message written under an older name still decrypts, and a name removed
+  # from the list is a message nobody can read again.
+  #
+  # An empty list is a provider defect rather than a rotation state. The
+  # contract types the callback's success as a non-empty list, and a vault
+  # that built a keyring from nothing would report "no key" as "wrong
+  # ciphertext" one layer later.
+  @doc false
+  @spec build_all(module(), Error.operation(), term()) :: {:ok, t()} | {:error, Error.t()}
+  def build_all(vault, operation, [descriptor]), do: build(vault, operation, descriptor)
+
+  def build_all(vault, operation, [_ | _] = descriptors) do
+    with {:ok, keyrings} <- build_each(vault, operation, descriptors),
+         {:ok, multi} <- Multi.new(generator: nil, children: keyrings) do
+      {:ok, multi}
+    else
+      {:error, %Error{} = error} -> {:error, error}
+      {:error, detail} -> {:error, invalid(vault, operation, detail)}
+    end
+  end
+
+  def build_all(vault, operation, []),
+    do: {:error, invalid(vault, operation, :empty_candidate_list)}
+
+  def build_all(vault, operation, other),
+    do: {:error, invalid(vault, operation, {:not_a_candidate_list, shape(other)})}
+
+  @spec build_each(module(), Error.operation(), [term(), ...]) ::
+          {:ok, [t(), ...]} | {:error, Error.t()}
+  defp build_each(vault, operation, descriptors) do
+    descriptors
+    |> Enum.reduce_while({:ok, []}, fn descriptor, {:ok, acc} ->
+      case build(vault, operation, descriptor) do
+        {:ok, keyring} -> {:cont, {:ok, [keyring | acc]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      {:error, error} -> {:error, error}
+    end
   end
 
   @spec validate_header_string(term(), :namespace | :name) :: :ok | {:error, term()}
