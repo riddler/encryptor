@@ -25,5 +25,11 @@ defmodule Encryptor do
   labelled subkeys the key hierarchy is built from. `Encryptor.Key` is the
   third: the closed set of key descriptors a provider answers a selector with,
   and which the vault alone turns into an engine keyring.
+
+  `Encryptor.Vault` is the surface those contracts meet at: `use
+  Encryptor.Vault, otp_app: :my_app` defines a supervised vault, resolves and
+  freezes its configuration at start, and answers a vault that is not running
+  with a typed error rather than an exit from inside a library. Its
+  `encrypt/2`, `decrypt/2` and `rekey/2` entry points are not built yet.
   """
 end
