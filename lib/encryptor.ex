@@ -21,6 +21,7 @@ defmodule Encryptor do
 
   `Encryptor.Error` is the first of those contracts in code: the one error
   struct every entry point returns, and the closed vocabulary of reasons it
-  carries.
+  carries. `Encryptor.Kdf` is the second: HKDF-SHA256 expansion into the
+  labelled subkeys the key hierarchy is built from.
   """
 end
