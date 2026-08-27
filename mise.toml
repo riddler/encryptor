@@ -1,0 +1,17 @@
+# mise config for encryptor: toolchain only.
+#
+#   mise install        provision the toolchain below
+#
+# This repository is not part of the statifier package family, but it adopts
+# the family's satellite conventions wholesale (see CLAUDE.md), and the
+# toolchain pin is one of them: the same erlang/elixir pair the satellites
+# pin, so one developer machine serves every repo without switching. It also
+# satisfies mix.exs's `elixir: "~> 1.18"`.
+#
+# The corpus, spec, and env blocks statifier-ex carries have no counterpart
+# here, and neither does its Java entry - nothing in lib/ or test/ needs a
+# JRE.
+
+[tools]
+erlang = "27.3"
+elixir = "1.18.3-otp-27"

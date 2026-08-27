@@ -1,5 +1,11 @@
 # Encryptor
 
+[![CI](https://github.com/riddler/encryptor/actions/workflows/ci.yml/badge.svg)](https://github.com/riddler/encryptor/actions/workflows/ci.yml)
+[![Hex.pm Version](https://img.shields.io/hexpm/v/encryptor.svg)](https://hex.pm/packages/encryptor)
+[![Hex Downloads](https://img.shields.io/hexpm/dt/encryptor.svg)](https://hex.pm/packages/encryptor)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/encryptor/)
+[![License](https://img.shields.io/hexpm/l/encryptor.svg)](https://github.com/riddler/encryptor/blob/main/LICENSE)
+
 Ergonomic envelope encryption for Elixir - a vault module, pluggable key
 providers, and per-tenant keys - on the
 [aws_encryption_sdk](https://hex.pm/packages/aws_encryption_sdk) engine.
