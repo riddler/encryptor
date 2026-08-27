@@ -1,6 +1,7 @@
 defmodule Encryptor.Vault.KeyringTest do
   use ExUnit.Case, async: true
 
+  alias AwsEncryptionSdk.Keyring.Multi
   alias AwsEncryptionSdk.Keyring.RawAes
   alias Encryptor.Error
   alias Encryptor.Key.Aes
@@ -155,6 +156,54 @@ defmodule Encryptor.Vault.KeyringTest do
 
         assert detail == {:not_a_descriptor, :not_a_struct}
       end
+    end
+  end
+
+  describe "build_all/3" do
+    # sabotage: deleted the single-element clause so every list built a Multi
+    # - this goes red. A Multi of one is an extra struct and an extra
+    # error-wrapping layer for the single-key vault, which is most of them.
+    test "builds a bare RawAes from a one-element candidate list" do
+      assert {:ok, %RawAes{key_name: "card/v1"}} =
+               Keyring.build_all(TestVault, :decrypt, [aes(name: "card/v1")])
+    end
+
+    # sabotage: passed the head as generator: instead of nil - this goes red.
+    # A generator wraps the data key on encrypt, so a decrypt-side candidate
+    # list with one would emit an extra encrypted data key per message.
+    test "builds a Multi with no generator from a longer one, in order" do
+      candidates = [aes(name: "card/v3"), aes(name: "card/v2"), aes(name: "card/v1")]
+
+      assert {:ok, %Multi{generator: nil, children: children}} =
+               Keyring.build_all(TestVault, :decrypt, candidates)
+
+      assert Enum.map(children, & &1.key_name) == ["card/v3", "card/v2", "card/v1"]
+    end
+
+    # sabotage: made build_each/3 skip descriptors it could not build - this
+    # goes red. A candidate list quietly missing an entry is a message that
+    # stops decrypting for a reason nothing reports.
+    test "fails on the first candidate the vault cannot build" do
+      candidates = [aes(name: "card/v2"), aes(namespace: ""), aes(name: "card/v1")]
+
+      assert {:error, %Error{reason: reason, operation: :decrypt}} =
+               Keyring.build_all(TestVault, :decrypt, candidates)
+
+      assert reason == {:invalid_key_descriptor, {:invalid_key_field, :namespace, :empty}}
+    end
+
+    # sabotage: deleted the [] and catch-all clauses of build_all/3 - this
+    # goes red with a FunctionClauseError. An empty candidate list is a
+    # provider defect and has to arrive as one, not as a keyring built from
+    # nothing.
+    test "refuses an empty list and a term that is not a list" do
+      assert {:error, %Error{reason: {:invalid_key_descriptor, :empty_candidate_list}}} =
+               Keyring.build_all(TestVault, :decrypt, [])
+
+      assert {:error, %Error{reason: {:invalid_key_descriptor, detail}}} =
+               Keyring.build_all(TestVault, :decrypt, aes([]))
+
+      assert detail == {:not_a_candidate_list, Encryptor.Key.Aes}
     end
   end
 
