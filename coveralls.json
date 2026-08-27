@@ -1,0 +1,10 @@
+{
+  "_comment_treat_no_relevant_lines_as_covered": "Scaffold-stage deviation from the satellite shape, carried from statifier_blocks (sb-p6s). This package is currently moduledoc-only, so excoveralls sees zero relevant lines and reports 0.0% rather than 'nothing to cover', which fails the 90% bar with no way to fix it short of lowering the bar. The flag keeps the threshold at the fleet's 90 and only changes the empty-file case. Drop this flag once the package has real code.",
+  "skip_files": [
+    "test/support/"
+  ],
+  "coverage_options": {
+    "minimum_coverage": 90,
+    "treat_no_relevant_lines_as_covered": true
+  }
+}
