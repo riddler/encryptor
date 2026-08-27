@@ -59,7 +59,7 @@ defmodule Encryptor.MixProject do
   defp package do
     [
       name: "encryptor",
-      licenses: ["MIT"],
+      licenses: ["Apache-2.0"],
       files: ~w(lib mix.exs README.md LICENSE CHANGELOG.md),
       links: %{
         "GitHub" => @source_url,
