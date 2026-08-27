@@ -1,0 +1,4 @@
+%{
+  "aws_encryption_sdk": {:hex, :aws_encryption_sdk, "1.0.0", "ad08f7960c3a20cf7ed7dce784225d06be15254f9c3d6b4e1e260f4d66f896fe", [:mix], [{:ex_aws, "~> 2.7", [hex: :ex_aws, repo: "hexpm", optional: true]}, {:ex_aws_kms, "~> 2.6", [hex: :ex_aws_kms, repo: "hexpm", optional: true]}, {:hackney, "~> 4.0", [hex: :hackney, repo: "hexpm", optional: true]}, {:jason, "~> 1.4", [hex: :jason, repo: "hexpm", optional: false]}, {:sweet_xml, "~> 0.7", [hex: :sweet_xml, repo: "hexpm", optional: true]}], "hexpm", "20ace0e288a415db68b60c7a55a24bc29bb2d9fefb17a4f17fe46aebd27f0222"},
+  "jason": {:hex, :jason, "1.4.5", "2e3a008590b0b8d7388c20293e9dcc9cf3e5d642fd2a114e4cbbb52e595d940a", [:mix], [{:decimal, "~> 1.0 or ~> 2.0 or ~> 3.0", [hex: :decimal, repo: "hexpm", optional: true]}], "hexpm", "b0c823996102bcd0239b3c2444eb00409b72f6a140c1950bc8b457d836b30684"},
+}
