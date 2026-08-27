@@ -49,8 +49,10 @@ defmodule Encryptor.MixProject do
       source_url: @source_url,
       main: "readme",
       extras: [
-        "README.md"
-      ]
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      skip_undefined_reference_warnings_on: ["CHANGELOG.md"]
     ]
   end
 
@@ -58,15 +60,14 @@ defmodule Encryptor.MixProject do
     [
       name: "encryptor",
       licenses: ["MIT"],
-      files: ~w(lib mix.exs README.md LICENSE),
+      files: ~w(lib mix.exs README.md LICENSE CHANGELOG.md),
       links: %{
-        "GitHub" => @source_url
+        "GitHub" => @source_url,
+        "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
       }
     ]
   end
 
-  # ex_doc is added by the docs bead that follows this one in the bootstrap
-  # stack.
   defp deps do
     [
       {:aws_encryption_sdk, "~> 1.0"},
@@ -75,7 +76,8 @@ defmodule Encryptor.MixProject do
       {:ex_quality, "~> 0.14", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:excoveralls, "~> 0.18", only: :test}
+      {:excoveralls, "~> 0.18", only: :test},
+      {:ex_doc, "~> 0.40", only: :dev, runtime: false}
     ]
   end
 end
