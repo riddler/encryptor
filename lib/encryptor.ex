@@ -14,8 +14,13 @@ defmodule Encryptor do
   Ciphertexts carry the AWS Encryption SDK message format, so anything written
   here is readable by the official ESDKs in any language.
 
-  Nothing is implemented yet. This module exists so the package has a root;
-  the vault surface, the key-provider behaviour, and the per-tenant key record
-  are each being decided in an ADR before any of them is built.
+  The contracts are decided and implementation is under way. This module
+  exists so the package has a root; the vault surface, the key-provider
+  behaviour, the per-tenant envelope, the encryption-context convention and
+  the rotation model each have an accepted decision record behind them.
+
+  `Encryptor.Error` is the first of those contracts in code: the one error
+  struct every entry point returns, and the closed vocabulary of reasons it
+  carries.
   """
 end
