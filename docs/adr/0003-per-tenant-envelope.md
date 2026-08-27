@@ -1,6 +1,8 @@
 # ADR-0003: A tenant key is a random key wrapped into an ordinary message, and the host stores the wrapping
 
-Status: proposed (2026-08-26)
+Status: accepted (2026-08-27, amended at acceptance: the `tenant_ref/2`
+signature takes the reference subkey rather than a root vault, per
+ADR-0005 decision 5 and its open question 1)
 
 ## Context
 
@@ -479,8 +481,18 @@ defmodule Encryptor.Envelope do
   @spec rewrap(root_vault(), Encryptor.Envelope.WrappedKey.t()) ::
           {:ok, Encryptor.Envelope.WrappedKey.t()} | {:error, Encryptor.Error.t()}
 
-  @doc "The keyed, stable, public reference for a tenant identifier."
-  @spec tenant_ref(root_vault(), selector()) :: {:ok, String.t()} | {:error, Encryptor.Error.t()}
+  @doc """
+  The keyed, stable, public reference for a tenant identifier.
+
+  Amended at acceptance (2026-08-27): takes the reference subkey, not a root
+  vault. A root vault holds only the wrapping subkey as its provider
+  material, and after ADR-0005 decision 5 splits the roots the reference
+  derives from the pinned reference root, which no vault holds. The
+  reference subkey is a configured input (see ADR-0004's amended decision 4
+  for where it lives and the start-time known-answer check on it).
+  """
+  @spec tenant_ref(reference_subkey :: binary(), selector()) ::
+          {:ok, String.t()} | {:error, Encryptor.Error.t()}
 
   @doc "Expand one of decision 6's labelled subkeys from the supplied root key."
   @spec root_subkey(root_key :: binary(), label :: String.t()) :: binary()
@@ -663,6 +675,15 @@ Recorded rather than guessed. Each names who should settle it.
    tenant anyway, and which inherits ADR-0002 open question 5 on the same
    subject.
 
+   *Resolved at acceptance (2026-08-27): the derivation stays keyed, and
+   ADR-0004's amended decision 4 puts the derived `tenant_ref` - not the raw
+   identifier - into the application-data context, so the keying now
+   protects application-row attribution as well as the key store and the
+   key names. One correction to consequence four's framing: the reference
+   is published in every application message header via the EDK key name,
+   so the reference subkey is effectively permanent from the first
+   application message, not merely the first wrapped-key blob.*
+
 3. **How a root rotation that changes the root key material is staged.**
    Decision 6 makes the wrapping subkey rotatable via `rekey/2`, but a rewrap
    pass is not atomic: mid-pass, some rows are under the old subkey and some
@@ -682,6 +703,12 @@ Recorded rather than guessed. Each names who should settle it.
    provisioning step. `encryptor_ecto`'s blind-index record owns the decision;
    this record's job was to leave both doors open, and it should be re-read
    before that one is accepted.
+
+   *Resolved at acceptance (2026-08-27): derived subkeys for now, door held
+   open. Index keys derive under `"encryptor/v1/blind-index"` per decision 7;
+   the search-only capability claim in the blind-index record is softened
+   accordingly, and independently wrapped index keys remain the recorded
+   upgrade path if a search-only consumer materializes.*
 
 5. **Whether one tenant master key per tenant is the right granularity.**
    Everything here assumes one key covers all of a tenant's data. A host might

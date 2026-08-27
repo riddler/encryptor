@@ -1,6 +1,6 @@
 # ADR-0001: A vault is a supervised, host-owned module that wraps the engine completely
 
-Status: proposed (2026-08-26)
+Status: accepted (2026-08-27)
 
 ## Context
 

@@ -1,6 +1,39 @@
 # ADR-0004: The encryption context is a vault-composed, profile-enforced set of identifying keys
 
-Status: proposed (2026-08-26)
+Status: accepted (2026-08-27, with amendments)
+
+## Acceptance amendments (2026-08-27)
+
+Two substantive changes were made at acceptance, after an adversarial
+review of open question 1; the decision text below is already amended.
+
+1. **The application-data context carries the derived `tenant_ref`, not the
+   raw tenant identifier.** As proposed, decision 4 published the raw
+   selector in every message header - beside the EDK key name
+   `"t/<tenant_ref>/v<n>"`, which meant every ciphertext published an
+   authenticated (identifier, reference) pair and voided ADR-0003
+   decision 5's keying for every tenant that had ever written a row. The
+   vault now derives the reference from the `:key` selector and injects
+   `"tenant_ref"` instead. Riders bundled with the amendment: the reference
+   subkey is tenant-vault configuration (the store-backed provider computes
+   references from selectors with the same subkey, so the wrapped-key store
+   is keyed by reference only); the vault performs a start-time known-answer
+   check on the subkey against a pinned check value, because a node holding
+   a wrong reference subkey would otherwise fail every decrypt as
+   `:decrypt_failed` shaped like corruption; and the shred consequences in
+   ADR-0005 carry the honest wording - a header carries a permanent
+   pseudonym that the subkey holder can re-identify by guess-and-confirm.
+
+2. **`table` and `column` are frozen at declaration, not re-derived at
+   read time.** As proposed, `encryptor_ecto` derived both from the live
+   schema on every operation, so an ordinary table or column rename made
+   every existing row's reproduced context disagree with its stored context
+   and fail as `:decrypt_failed`, recoverable only by an R3 re-encrypt.
+   The Ecto layer now freezes the derived names as explicit, overridable
+   declared values at type-declaration time (its ADR-0001 owns the
+   mechanics, including a uniqueness check across declarations); renaming
+   the physical source while pinning the declared value is free, and
+   changing the declared value remains an R3.
 
 ## Context
 
@@ -133,9 +166,9 @@ pair in, and is a contract, not a suggestion.
 
 | Key | Value | Supplied by | Class |
 |---|---|---|---|
-| `tenant_id` | the `:key` selector, verbatim | **the vault**, from `:key` (decision 4) | required on a `:tenant` profile; refused on `:single` |
-| `table` | storage relation name, unqualified | the caller, or `encryptor_ecto` from `schema.__schema__(:source)` | required when configured; advisory otherwise |
-| `column` | field name | the caller, or `encryptor_ecto` from `:field` | required when configured; advisory otherwise |
+| `tenant_ref` | the keyed reference derived from the `:key` selector (ADR-0003 decision 5) | **the vault**, from `:key` (decision 4) | required on a `:tenant` profile; refused on `:single` |
+| `table` | logical relation name, frozen at declaration (defaults to the physical source name at declaration time) | the caller, or `encryptor_ecto` from its frozen declared value | required when configured; advisory otherwise |
+| `column` | logical field name, frozen at declaration (defaults to the field name at declaration time) | the caller, or `encryptor_ecto` from its frozen declared value | required when configured; advisory otherwise |
 | `blob` | logical name for a payload with no table (a file, an export, a queue message) | the caller | advisory |
 | `purpose` | coarse classification of what the value is (`"pii"`, `"oauth_token"`) | vault configuration, static | advisory |
 | `app` | the host application's own name, for messages that outlive one deployment | vault configuration, static | advisory |
@@ -169,7 +202,7 @@ whose value is `:single` or `:tenant`, and one list, `:required_context`.
 | Profile | Selector | Vault-supplied keys | Required set |
 |---|---|---|---|
 | `:single` | the atom `:default`, and nothing else | none | `:required_context` as configured |
-| `:tenant` | a non-empty `String.t()` | `tenant_id` | `["tenant_id"]` ++ `:required_context` |
+| `:tenant` | a non-empty `String.t()` | `tenant_ref` | `["tenant_ref"]` ++ `:required_context` |
 
 A `:tenant` vault handed `:default` is `{:error, {:invalid_selector, :default}}`.
 A `:single` vault handed a string is `{:error, {:invalid_selector, selector}}`.
@@ -191,12 +224,14 @@ profile's own - `["table", "column"]` for a vault behind `encryptor_ecto`,
 at start and frozen with the rest (ADR-0001 decision 5), never per call. A
 per-call required set is a caller choosing how strictly to be checked.
 
-**4. `tenant_id` is supplied by the vault from the `:key` selector, and a
-caller that supplies it is refused.** On a `:tenant` vault, every `encrypt/2`,
-`decrypt/2`, and `rekey/2` gets `"tenant_id" => selector` injected. A caller
-passing `"tenant_id"` in `:encryption_context` gets
-`{:error, {:reserved_context_key, "tenant_id"}}`, with generated documentation
-that says to pass `key:` instead.
+**4. `tenant_ref` is supplied by the vault, derived from the `:key` selector,
+and a caller that supplies a tenant pair is refused.** On a `:tenant` vault,
+every `encrypt/2`, `decrypt/2`, and `rekey/2` gets
+`"tenant_ref" => tenant_ref(reference_subkey, selector)` injected, using
+ADR-0003 decision 5's keyed derivation. A caller passing `"tenant_ref"` or
+`"tenant_id"` in `:encryption_context` gets
+`{:error, {:reserved_context_key, key}}`, with generated documentation that
+says to pass `key:` instead.
 
 The reason is ADR-0001 decision 4's own goal, taken literally: *`:key` is the
 whole of per-tenant routing, and there is no second place to get tenancy
@@ -204,13 +239,41 @@ wrong*. If the tenant appears in two arguments, they can disagree, and the
 interesting disagreement is silent: encrypting under tenant A's key with
 tenant B's context produces a row that decrypts for nobody and looks like
 corruption a year later. Deriving the context pair from the routing argument
-makes the two incapable of disagreeing.
+makes the two incapable of disagreeing. The derived reference preserves that
+property - it is a pure function of `:key` - conditional on one new input
+being right: the reference subkey.
 
-It also removes the pair from the surface a host can forget. ADR-0001's and
-ADR-0003's worked examples both write
-`encryption_context: %{"tenant_id" => tenant.id, ...}` by hand; under this
-decision they write `key: tenant.id` and the pair appears anyway. The examples
-in this record show the shape.
+Two mechanics come with the derivation, and both are part of this decision:
+
+- **The reference subkey is tenant-vault configuration**, resolved at start
+  like every other key-material input (through `init/1`, never `use`
+  options), frozen into the vault's `Config`. The store-backed provider
+  holds the same subkey and computes references from selectors for its row
+  lookups, so the wrapped-key store is keyed by reference only and never
+  stores a raw tenant identifier. The cost is that a hot-path secret now
+  sits in every tenant vault that was previously reachable only from
+  provisioning; the derivation itself is one HMAC-SHA256 per call, and no
+  per-selector memo of it may be added without honoring ADR-0002
+  decision 2's bounded-cache rule.
+- **The vault performs a start-time known-answer check on the reference
+  subkey.** Configuration carries a pinned check value (the reference
+  derived for a fixed probe selector at first provisioning); a vault whose
+  subkey does not reproduce it refuses to start with
+  `{:error, {:invalid_config, :reference_subkey, :known_answer_mismatch}}`.
+  Without the check, a node deployed with a wrong reference subkey writes
+  messages no correct reader can open and fails every correct message as
+  `:decrypt_failed` - corruption-shaped, fleet-wide, and silent. The
+  reference subkey is permanent (ADR-0003 consequence four, as corrected at
+  acceptance), so this is the one misconfiguration this design cannot
+  afford to discover at decrypt time.
+
+It also removes the pair from the surface a host can forget: a caller writes
+`key: tenant.id` and the pair appears anyway. And it keeps the raw tenant
+identifier out of the message header entirely, which is what makes ADR-0003
+decision 5's keying worth its cost - the EDK key name already carries the
+reference, so the context adds a second copy of a published string rather
+than publishing its preimage beside it. The examples in this record show the
+shape.
 
 **5. Enforcement is `Cmm.RequiredEncryptionContext` wrapping the caching CMM,
 and the vault always builds it.** ADR-0001 decision 2 builds the keyring, CMM,
@@ -243,7 +306,7 @@ them intact and `validate_required_keys_in_materials/2` is satisfied.
 What "required" buys, precisely, and what it does not:
 
 - **At encrypt**: the operation fails if a required key is missing from the
-  composed context. Since decision 4 supplies `tenant_id` itself, the realistic
+  composed context. Since decision 4 supplies `tenant_ref` itself, the realistic
   failure is a host that configured `required_context: ["table", "column"]` and
   a call site that forgot one. That is the failure it is for.
 - **At decrypt**: the operation fails if the reader omits a required key from
@@ -293,7 +356,7 @@ The reach of the comparison, once it is ours:
 - It covers only keys present in *both* maps, which is deliberate and matches
   the engine's semantics rather than tightening them silently. A reader may
   supply a key the message does not carry, and it is ignored. Under this design
-  that cannot silently pass a tenant check, because `tenant_id` is in the
+  that cannot silently pass a tenant check, because `tenant_ref` is in the
   required set on a `:tenant` vault, so a message written without it is
   rejected for missing the key rather than accepted for the wrong reason.
 - A reader may omit a key the message does carry, and that is ignored too.
@@ -383,9 +446,13 @@ The division of labour, stated from this side so both records agree:
   a tenant pair in `:encryption_context` - decision 4 refuses that pair - and
   its `MissingTenantError` fires before this package is called at all, which is
   the right place for it.
-- The Ecto layer supplies `table` and `column`, derived from
-  `Ecto.ParameterizedType.init/1`'s `:schema` and `:field`, and merges the
-  host's static `:context` option.
+- The Ecto layer supplies `table` and `column` from its frozen declared
+  values - derived once from `Ecto.ParameterizedType.init/1`'s `:schema` and
+  `:field` at declaration time, made explicit and overridable there
+  (acceptance amendment 2; the mechanics are its ADR-0001's) - and merges
+  the host's static `:context` option. Renaming a physical table or column
+  while keeping the declared value pinned does not invalidate stored rows;
+  changing the declared value is an R3 re-encrypt.
 - The host's vault configuration is what makes them required
   (`required_context: ["table", "column"]`), and the generated documentation of
   both packages recommends it. Enforcement lives here because it is a property
@@ -466,24 +533,20 @@ question 2's unmeasured cache bounds are now unmeasured against a larger
 number, and open question 6 carries that forward rather than quietly
 re-defaulting them here.
 
-**The tenant identifier is published in every application message.** Decision 4
-puts the raw selector into the header in the clear. ADR-0002 decision 4 and
-ADR-0003 decision 5 went to some length to keep the raw identifier *out* of the
-EDK's key name, deriving a keyed `tenant_ref` instead, on the argument that a
-name travels in the clear in every message header. The context travels in
-exactly the same header. So in the profile this package expects most hosts to
-run, the raw tenant identifier is disclosed by any stolen ciphertext, and the
-keyed derivation protects the wrapped-key store's index and the key names, not
-the tenant attribution of application rows.
-
-This record chooses that trade deliberately rather than by omission (open
-question 1 states the reasoning and the alternative), and it is the single
-biggest thing an acceptance reviewer should push back on if they disagree.
-Nothing in the threat-model table of ADR-0003 decision 10 changes: the
-disclosure is metadata, every "can read" cell is still about plaintext, and a
-ciphertext-only attacker still reads nothing. But "ciphertext only reveals
-nothing" is not a sentence this package can say any more, and it should stop
-saying it.
+**The tenant attribution of a message is a permanent pseudonym, not an
+identity - and not an erasure.** As amended at acceptance, decision 4 puts
+the derived `tenant_ref` in the header rather than the raw selector, so a
+stolen ciphertext discloses that two messages belong to the same tenant
+without disclosing which tenant that is - the same property ADR-0003
+decision 5 bought for the key names, now holding for the context too, which
+is what makes the keying investment coherent. Two honest limits remain. The
+reference is permanent: it cannot be rotated (ADR-0003 consequence four),
+so the pseudonym in every header and every backup is forever, and the
+holder of the reference subkey can re-identify it by guess-and-confirm at
+any time, including after a crypto-shred. And the anti-disagreement
+property of decision 4 is now conditional on the reference subkey being
+correct on every node, which is why the start-time known-answer check is
+part of the decision rather than an implementation nicety.
 
 **This package now reads the message header on every decrypt, and owns a
 security check the engine appeared to provide.** Decision 6 is the largest
@@ -590,7 +653,7 @@ place in the code and not a string repeated across three packages:
 
 ```elixir
 defmodule Encryptor.Context do
-  @tenant_id "tenant_id"
+  @tenant_ref "tenant_ref"
   @table "table"
   @column "column"
   @blob "blob"
@@ -633,10 +696,10 @@ clear, all of it authenticated by the header tag:
 
 ```elixir
 %{
-  "tenant_id" => "acct_A",   # vault-supplied from :key, decision 4
-  "table"     => "customers",
-  "column"    => "tax_id",
-  "app"       => "my_app"    # static, from configuration
+  "tenant_ref" => "6Qk2_1xZ...",  # vault-derived from :key, decision 4
+  "table"      => "customers",
+  "column"     => "tax_id",
+  "app"        => "my_app"        # static, from configuration
 }
 ```
 
@@ -656,8 +719,8 @@ MyApp.TenantVault.decrypt(ct,
 #    before the keyring is consulted.
 MyApp.TenantVault.decrypt(ct,
   key: "acct_A",
-  encryption_context: %{"tenant_id" => "acct_B", ...})
-#=> {:error, %Encryptor.Error{reason: {:reserved_context_key, "tenant_id"}}}
+  encryption_context: %{"tenant_ref" => "...", ...})
+#=> {:error, %Encryptor.Error{reason: {:reserved_context_key, "tenant_ref"}}}
 #   There is no way to claim a tenant other than through :key, which is
 #   decision 4's whole point.
 
@@ -690,7 +753,7 @@ And the operator's view of the same row, with no key material anywhere:
 {:ok, info} = MyApp.TenantVault.describe(ct)
 
 info.encryption_context
-#=> %{"tenant_id" => "acct_A", "table" => "customers",
+#=> %{"tenant_ref" => "6Qk2_1xZ...", "table" => "customers",
 #     "column" => "tax_id", "app" => "my_app"}
 
 info.encrypted_data_keys
@@ -767,7 +830,7 @@ a review item at acceptance. Taken in order, against the decisions above.
 |---|---|---|
 | A1 | Vault exports `encrypt(plaintext, context)` / `decrypt(message, context)` returning `{:ok, binary}` / `{:error, reason}` | **Confirmed, with the second argument named** |
 | A2 | `context` is a flat map of string keys to string values | **Confirmed** |
-| A3 | Canonical keys include `tenant_id`, `table`, `column` | **Confirmed as vocabulary; denied as to who supplies `tenant_id`** |
+| A3 | Canonical keys include `tenant_id`, `table`, `column` | **Confirmed in shape; the tenant pair is `tenant_ref` and vault-supplied** |
 | A4 | Required-vs-advisory enforcement lives upstream, so the Ecto layer supplies and never enforces | **Confirmed** |
 | A5 | Decrypt reports AAD mismatch as a distinguishable error reason | **Denied in `:reason`; available in `:engine`** |
 | A6 | The message is self-describing, so the column needs no framing | **Confirmed** |
@@ -784,16 +847,19 @@ sites in its worked example need the keyword form.
 **A2 - confirmed.** Decision 1. Flat, `String.t()` to `String.t()`, and
 anything else is refused before the engine is called.
 
-**A3 - confirmed as vocabulary, denied as to supply.** The three names are
-canonical (decision 2) and spelled exactly as assumed. But `tenant_id` is
+**A3 - confirmed in shape, corrected in two particulars.** `table` and
+`column` are canonical and spelled as assumed. The tenant pair is
 vault-supplied from the `:key` selector and *refused* from a caller
 (decision 4), so the Ecto layer passes the tenant as `key:` rather than as a
-context pair. This is a small mechanical change to that record's decision 5
+context pair - and as amended at acceptance, the pair written is
+`"tenant_ref"` (the keyed derivation), never the raw identifier, which
+changes nothing further on the Ecto side since it never supplied the pair
+anyway. This is a small mechanical change to that record's decision 5
 and 5f - the `TenantContext` behaviour, the process scope, `wrap/2`, the
 `MissingTenantError`, and the option table are all unaffected; only the shape
 of the call in `dump/3` and `load/3` changes. Its decision 5e (`tenant: :none`)
 is the one substantive consequence: a global field cannot be a tenant vault
-with the pair omitted, because a `:tenant` profile has `tenant_id` in its
+with the pair omitted, because a `:tenant` profile has `tenant_ref` in its
 required set. Such fields declare a `:single` vault. That is a change to that
 record, not a change here, and it is flagged for its author rather than made
 by this record.
@@ -869,6 +935,15 @@ are inherited; the rest are opened by this record.
    The operator should settle it at acceptance of these two records together;
    this record chose the ergonomic contract the sibling packages are already
    built against, and stated the leak rather than hiding it.
+
+   *Resolved at acceptance (2026-08-27): settled in favour of `tenant_ref`,
+   after an adversarial review found the proposed shape published the
+   (identifier, reference) mapping in every header - the EDK key name
+   carries the reference, so the raw id beside it was the preimage of a
+   keyed derivation the family pays real cost for. Decision 4 above is
+   amended, with the reference subkey as tenant-vault configuration, the
+   store keyed by reference only, and a start-time known-answer check. See
+   the acceptance amendments section at the top of this record.*
 
 2. **Answered: `decrypt/2` does not return the context; `describe/1` does.**
    *(Inherited: ADR-0001 open question 1.)* Decision 12. Recorded here so the
