@@ -1,6 +1,6 @@
 # ADR-0002: A key provider resolves a selector to key descriptors, and the vault alone builds keyrings
 
-Status: proposed (2026-08-26)
+Status: accepted (2026-08-27)
 
 ## Context
 
@@ -574,6 +574,11 @@ Recorded rather than guessed. Each names who should settle it.
    violate decisions 2 and 4 without noticing. The alternative is to ship
    only `Static` and make every host write a behaviour implementation. An
    operator call, and a reasonable one to defer to first-user feedback.
+
+   *Resolved at acceptance (2026-08-27): `Provider.Function` ships in the
+   day-one set as written. A behaviour implementation is no better enforced
+   than a closure pair, and `Function` is the only day-one per-tenant path
+   before the storage adapter exists.*
 
 3. **Where a provider's failures should be observed.** Nothing here emits
    telemetry, and `{:key_unavailable, _}` is exactly the event an operator

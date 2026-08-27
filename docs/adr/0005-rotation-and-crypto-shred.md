@@ -1,6 +1,6 @@
 # ADR-0005: Rotation is three independent lifecycles, and only the shred is irreversible
 
-Status: proposed (2026-08-26)
+Status: accepted (2026-08-27)
 
 ## Context
 
@@ -543,6 +543,16 @@ whose compliance story is "we crypto-shred on offboarding" has committed to a
 backup retention and replica story that this package cannot see and does not
 verify. Stating the limit is the most this record can honestly do.
 
+*(Added at acceptance, 2026-08-27.)* A shred destroys plaintext, not
+attribution. Every message header carries the tenant's permanent pseudonym -
+the `tenant_ref`, in the EDK key name and (per ADR-0004's amended
+decision 4) in the encryption context - and deleting the wrapping does not
+touch it. Outsiders cannot resolve the pseudonym; the holder of the
+reference subkey can, by guess-and-confirm, forever, in every retained
+backup. P3 step 4's row deletion is therefore compliance-mandatory wherever
+tenant attribution itself is personal data, not hygiene, and the shred
+claim must never be stated as full erasure.
+
 **Root rotation now requires two secrets where there was one.** Decision 5's
 split is a real operational cost: a deployment provisioned before its first
 rotation has one root secret and must grow a second, and getting step 0 wrong -
@@ -811,6 +821,13 @@ that this record deliberately did not make itself.
    envelope's own configuration, or as a bare argument. Owner: ADR-0003, at
    acceptance, with this record in front of the reviewer.
 
+   *Resolved at acceptance (2026-08-27): ADR-0003's `tenant_ref/2` is amended
+   to take the reference subkey. The subkey lives in tenant-vault
+   configuration (ADR-0004's amended decision 4, which also puts the derived
+   reference into the application-data context and adds a start-time
+   known-answer check on the subkey); the store-backed provider derives
+   references from selectors with the same subkey.*
+
 2. **ece-ADR-0002's assumption A14 should read "needs nothing from the
    migrator".** R1 and R4 need to enumerate, update, and delete rows in the
    wrapped-key table, which ADR-0003 decision 9 places in `encryptor_ecto`. The
@@ -819,6 +836,10 @@ that this record deliberately did not make itself.
    decision 9 exactly. This is that record's open question Q3, answered from
    this side. Owner: ece-56a, at acceptance; the API itself is enc-2u6's
    store-backed provider work.
+
+   *Resolved at acceptance (2026-08-27): ece-ADR-0002's A14 is reworded to
+   "needs nothing from the migrator" at its own acceptance, with the narrow
+   key-store API recorded as this consequence proposes.*
 
 3. **Whether a message's key `name` can be read without a decrypt, and at a
    stable offset.** P1's and P2's verifications are censuses over the wrapping
