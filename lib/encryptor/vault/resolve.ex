@@ -125,13 +125,23 @@ defmodule Encryptor.Vault.Resolve do
   # carry; at decrypt it is the context the reader claims the message carries,
   # and the two are built the same way on purpose - a reader that composed its
   # claim differently from the writer would disagree with correct messages.
-  @spec context(Config.t(), Error.selector(), keyword(), Error.operation()) ::
+  #
+  # `reserved` is the top layer: the `encryptor-*` pairs this package sets on
+  # its **own** messages, which today is `Encryptor.Envelope`'s wrapped-key
+  # binding (ADR-0003 decision 4). It is a positional argument rather than an
+  # option in `opts` on purpose. `opts` is the caller's keyword list, so a
+  # reserved layer reachable through it would be a route for a host to write
+  # under a prefix `Encryptor.Context` refuses it - which is the whole content
+  # of `{:reserved_context_key, key}`. Nothing on the public vault surface
+  # passes it; only the envelope does.
+  @spec context(Config.t(), Error.selector(), keyword(), Error.operation(), Context.context()) ::
           {:ok, Context.context()} | {:error, Error.t()}
-  def context(config, selector, opts, operation) do
+  def context(config, selector, opts, operation, reserved \\ %{}) do
     per_call = Keyword.get(opts, :encryption_context, %{})
 
     Context.compose(config, per_call,
       supplied: vault_supplied(config, selector),
+      reserved: reserved,
       operation: operation
     )
   end

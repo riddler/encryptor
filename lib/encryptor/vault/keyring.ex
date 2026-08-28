@@ -56,11 +56,7 @@ defmodule Encryptor.Vault.Keyring do
   @doc false
   @spec build(module(), Error.operation(), term()) :: {:ok, t()} | {:error, Error.t()}
   def build(vault, operation, %Aes{} = key) do
-    with :ok <- validate_header_string(key.namespace, :namespace),
-         :ok <- validate_namespace(key.namespace),
-         :ok <- validate_header_string(key.name, :name),
-         :ok <- validate_bits(key.bits),
-         :ok <- validate_material(key.material, key.bits),
+    with :ok <- checks(key),
          {:ok, keyring} <-
            RawAes.new(key.namespace, key.name, key.material, wrapping_algorithm(key.bits)) do
       {:ok, keyring}
@@ -129,6 +125,32 @@ defmodule Encryptor.Vault.Keyring do
     |> case do
       {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
       {:error, error} -> {:error, error}
+    end
+  end
+
+  @doc false
+  # ADR-0002 decision 3's checks, without the construction. `build/3` runs them
+  # on the way to a keyring; `Encryptor.Envelope` runs them on a descriptor it
+  # is about to hand back, so a stored row whose fields cannot form a
+  # descriptor is `{:invalid_key_descriptor, detail}` at unwrap rather than an
+  # EDK mismatch on some later read (ADR-0003 decision 9). One spelling of the
+  # checks, two callers - a second copy would drift, and the drift would be a
+  # descriptor one path accepts and the other refuses.
+  @spec validate(module(), Error.operation(), Aes.t()) :: :ok | {:error, Error.t()}
+  def validate(vault, operation, %Aes{} = key) do
+    case checks(key) do
+      :ok -> :ok
+      {:error, detail} -> {:error, invalid(vault, operation, detail)}
+    end
+  end
+
+  @spec checks(Aes.t()) :: :ok | {:error, term()}
+  defp checks(%Aes{} = key) do
+    with :ok <- validate_header_string(key.namespace, :namespace),
+         :ok <- validate_namespace(key.namespace),
+         :ok <- validate_header_string(key.name, :name),
+         :ok <- validate_bits(key.bits) do
+      validate_material(key.material, key.bits)
     end
   end
 
