@@ -26,6 +26,11 @@ defmodule Encryptor.Vault.Encrypt do
   #   5. `Encryptor.Context` composes the four layers, with `tenant_ref`
   #      injected by the vault on a `:tenant` vault and refused from a caller
   #      (ADR-0004 decision 4).
+  #
+  # Steps 2, 3 and 5 are `Encryptor.Vault.Resolve`'s, because the decrypt path
+  # takes them identically and a check that ran on one side only would not be
+  # a check at all. What is this module's alone is step 4's single descriptor,
+  # the stack below, and the engine call.
   #   6. `Encryptor.Vault.Partition` derives the cache partition id from the
   #      same selector that chose the key, which is what keeps one tenant's
   #      data key out of another tenant's cache lookup (ADR-0001 decision 7).
@@ -98,112 +103,21 @@ defmodule Encryptor.Vault.Encrypt do
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Keyring
   alias Encryptor.Vault.Partition
-  alias Encryptor.Vault.Reference
-
-  # ADR-0002 decision 6's provider vocabulary. A provider answering with one
-  # of these is answering in contract, and its term is carried through
-  # unchanged; anything else is a defect in the provider.
-  @provider_reasons [
-    :unknown_key,
-    :key_unavailable,
-    :invalid_key_descriptor,
-    :provider_not_started,
-    :missing_optional_dependency
-  ]
+  alias Encryptor.Vault.Resolve
 
   @doc false
   @spec call(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
   def call(vault, plaintext, opts) when is_binary(plaintext) and is_list(opts) do
     with {:ok, config} <- Vault.ready(vault, :encrypt),
-         {:ok, selector} <- selector(config, opts),
-         {:ok, descriptor} <- encryption_key(config, selector),
+         {:ok, selector} <- Resolve.selector(config, opts, :encrypt),
+         {:ok, descriptor} <- Resolve.encryption_key(config, selector, :encrypt),
          {:ok, keyring} <- Keyring.build(vault, :encrypt, descriptor),
-         {:ok, context} <- context(config, selector, opts) do
+         {:ok, context} <- Resolve.context(config, selector, opts, :encrypt) do
       config
       |> client(keyring, selector)
       |> engine_encrypt(config, plaintext, context)
     end
   end
-
-  # ADR-0004 decision 3: the profile fixes the selector type, and both
-  # refusals are caller-argument failures that depend on no ciphertext.
-  #
-  # An absent `:key` is `:default`, which is what makes the single-key vault's
-  # "no per-call ceremony" ergonomics of ADR-0001 decision 4 true. A `:tenant`
-  # vault therefore refuses an absent `:key` as `{:invalid_selector, :default}`,
-  # which is the same refusal it gives for an explicit one: there is no shape
-  # of the call in which a tenant vault encrypts without a tenant.
-  @spec selector(Config.t(), keyword()) :: {:ok, Error.selector()} | {:error, Error.t()}
-  defp selector(%Config{context_profile: :single} = config, opts) do
-    case Keyword.get(opts, :key, :default) do
-      :default -> {:ok, :default}
-      other -> {:error, error(config, {:invalid_selector, other})}
-    end
-  end
-
-  defp selector(%Config{context_profile: :tenant} = config, opts) do
-    case Keyword.get(opts, :key, :default) do
-      selector when is_binary(selector) and selector != "" -> {:ok, selector}
-      other -> {:error, error(config, {:invalid_selector, other})}
-    end
-  end
-
-  # The provider is called on the caller's process, with the state frozen at
-  # start, and it sees a selector and nothing else - no plaintext, no context,
-  # no configuration (ADR-0002 decision 1).
-  @spec encryption_key(Config.t(), Error.selector()) :: {:ok, term()} | {:error, Error.t()}
-  defp encryption_key(%Config{provider: {module, _opts}} = config, selector) do
-    case module.encryption_key(config.provider_state, selector) do
-      {:ok, descriptor} ->
-        {:ok, descriptor}
-
-      {:error, reason} ->
-        if provider_reason?(reason),
-          do: {:error, error(config, reason)},
-          else: {:error, off_contract(config, reason)}
-
-      other ->
-        {:error, off_contract(config, other)}
-    end
-  end
-
-  @spec provider_reason?(term()) :: boolean()
-  defp provider_reason?(reason) when is_tuple(reason) and tuple_size(reason) == 2,
-    do: elem(reason, 0) in @provider_reasons
-
-  defp provider_reason?(_reason), do: false
-
-  # A provider that answers outside its contract is a bug in the provider, not
-  # in the caller, which is exactly what `{:invalid_key_descriptor, detail}`
-  # means. The term itself goes in `:engine`, which is never rendered: a
-  # provider's return can hold anything, including key material.
-  @spec off_contract(Config.t(), term()) :: Error.t()
-  defp off_contract(config, term) do
-    error(config, {:invalid_key_descriptor, :provider_off_contract}, term)
-  end
-
-  @spec context(Config.t(), Error.selector(), keyword()) ::
-          {:ok, Context.context()} | {:error, Error.t()}
-  defp context(config, selector, opts) do
-    per_call = Keyword.get(opts, :encryption_context, %{})
-
-    Context.compose(config, per_call,
-      supplied: vault_supplied(config, selector),
-      operation: :encrypt
-    )
-  end
-
-  # ADR-0004 decision 4: on a `:tenant` vault the pair is derived from the
-  # `:key` selector rather than accepted from the caller, so the routing
-  # argument and the context pair are incapable of disagreeing. A caller that
-  # supplies `tenant_ref` or `tenant_id` is refused by `Encryptor.Context`,
-  # which is where the reserved vocabulary lives.
-  @spec vault_supplied(Config.t(), Error.selector()) :: Context.context()
-  defp vault_supplied(%Config{context_profile: :tenant} = config, selector) do
-    %{Context.tenant_ref_key() => Reference.derive(config.reference_subkey, selector)}
-  end
-
-  defp vault_supplied(%Config{context_profile: :single}, _selector), do: %{}
 
   @typedoc false
   @type cmm :: Default.t() | Caching.t() | RequiredEncryptionContext.t()
@@ -300,7 +214,7 @@ defmodule Encryptor.Vault.Encrypt do
   end
 
   @spec error(Config.t(), Error.reason(), term()) :: Error.t()
-  defp error(%Config{vault: vault}, reason, engine \\ nil) do
+  defp error(%Config{vault: vault}, reason, engine) do
     %Error{reason: reason, vault: vault, operation: :encrypt, engine: engine}
   end
 end
