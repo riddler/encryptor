@@ -115,7 +115,7 @@ defmodule Encryptor.Vault.Encrypt do
          {:ok, context} <- Resolve.context(config, selector, opts, :encrypt) do
       config
       |> client(keyring, selector)
-      |> engine_encrypt(config, plaintext, context)
+      |> engine_encrypt(config, plaintext, context, :encrypt)
     end
   end
 
@@ -181,13 +181,21 @@ defmodule Encryptor.Vault.Encrypt do
   defp suite(%Config{algorithm_suite_id: 0x0478}),
     do: AlgorithmSuite.aes_256_gcm_hkdf_sha512_commit_key()
 
+  @doc false
   # ADR-0001 decision 4: the vault returns the ciphertext binary and nothing
   # else. The engine's result also carries the header, the context and the
   # suite, and returning them would invite callers to persist a second copy of
   # facts the message already carries authenticated.
-  @spec engine_encrypt(Client.t(), Config.t(), binary(), Context.context()) ::
+  #
+  # Public so `rekey/2` (`enc-gsd`) has one write half to call rather than a
+  # second copy of the suite lookup and this failure mapping to keep in step
+  # with it. `operation` is threaded rather than fixed at `:encrypt` for the
+  # reason it is threaded through `Encryptor.Vault.Resolve`: a rekey reports
+  # `:rekey` on both halves, because what failed is the operation the caller
+  # asked for and not the half of it the failure landed in.
+  @spec engine_encrypt(Client.t(), Config.t(), binary(), Context.context(), Error.operation()) ::
           {:ok, binary()} | {:error, Error.t()}
-  defp engine_encrypt(client, config, plaintext, context) do
+  def engine_encrypt(client, config, plaintext, context, operation) do
     case Client.encrypt(client, plaintext,
            encryption_context: context,
            algorithm_suite: suite(config)
@@ -199,8 +207,14 @@ defmodule Encryptor.Vault.Encrypt do
       # caller can act on: a call site that omitted a key the host configured
       # as required. It depends on the caller's own arguments and the vault's
       # own configuration, so it stays distinct (ADR-0004 decision 8).
+      #
+      # On a rekey it is the one failure that is not the caller's argument at
+      # all: the context comes from the message, so this says the vault now
+      # requires a key the stored message was never written with. That is an
+      # R3 re-encrypt rather than a rotation (ADR-0005 decision 1), and it is
+      # right that it is loud.
       {:error, {:missing_required_encryption_context_keys, keys} = engine} ->
-        {:error, error(config, {:missing_required_context_keys, keys}, engine)}
+        {:error, error(config, operation, {:missing_required_context_keys, keys}, engine)}
 
       # Everything else the engine can refuse at encrypt is a disagreement
       # between validated configuration and the message being built - a suite
@@ -208,13 +222,18 @@ defmodule Encryptor.Vault.Encrypt do
       # exceed. The context, the descriptor and every configuration key were
       # checked above, so reaching here means one of those checks is wrong.
       # The engine's term is carried for the operator; it is never matched on.
+      #
+      # The reason's `:encrypt` stays `:encrypt` on a rekey while `:operation`
+      # becomes `:rekey`. The two say different things: `:operation` is the
+      # call the caller made, and the reason names the half of it that the
+      # engine refused, which for a rekey is always the write half.
       {:error, engine} ->
-        {:error, error(config, {:invalid_config, :encrypt, :engine_refused}, engine)}
+        {:error, error(config, operation, {:invalid_config, :encrypt, :engine_refused}, engine)}
     end
   end
 
-  @spec error(Config.t(), Error.reason(), term()) :: Error.t()
-  defp error(%Config{vault: vault}, reason, engine) do
-    %Error{reason: reason, vault: vault, operation: :encrypt, engine: engine}
+  @spec error(Config.t(), Error.operation(), Error.reason(), term()) :: Error.t()
+  defp error(%Config{vault: vault}, operation, reason, engine) do
+    %Error{reason: reason, vault: vault, operation: operation, engine: engine}
   end
 end
