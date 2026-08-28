@@ -50,7 +50,12 @@ defmodule Encryptor.MixProject do
       main: "readme",
       extras: [
         "README.md",
+        "guides/getting-started.md",
+        "guides/rotation-runbook.md",
         "CHANGELOG.md"
+      ],
+      groups_for_extras: [
+        Guides: ~r{^guides/}
       ],
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"]
     ]

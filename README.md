@@ -10,12 +10,23 @@ Ergonomic envelope encryption for Elixir - a vault module, pluggable key
 providers, and per-tenant keys - on the
 [aws_encryption_sdk](https://hex.pm/packages/aws_encryption_sdk) engine.
 
-## Status: designed, not built
+## Status: built, not released
 
 The five founding architecture decision records were **accepted on
-2026-08-27**. They fix the contracts this package is made of. **No
-implementation has landed yet**: `lib/` holds a moduledoc, the package is not
-published, and nothing below is a promise about a function you can call today.
+2026-08-27**. They fix the contracts this package is made of, and the vault
+core and the per-tenant envelope are implemented against them: the `use
+Encryptor.Vault` macro and its supervision tree, the configuration freeze,
+`encrypt/2`, `decrypt/2`, `rekey/2`, the key-provider behaviour with its
+`Static` and `Function` adapters, `Encryptor.Envelope`'s
+`provision/3`/`unwrap/2`/`rewrap/2`, and `Encryptor.Message.describe/1`.
+
+**Nothing is released.** The package is not published to Hex - the reserved
+`encryptor 0.1.0` there is a name reservation holding no implementation - so
+consume it as a git dependency until the first real release. See
+[Installation](#installation).
+
+Start with the **[getting-started guide](guides/getting-started.md)** and the
+**[rotation runbook](guides/rotation-runbook.md)**.
 
 | Record | Decides |
 |---|---|
@@ -100,15 +111,32 @@ open and the design works around both until they move:
 
 ## Installation
 
+The package is **not published to Hex**. `encryptor 0.1.0` on Hex is a name
+reservation and holds no implementation; do not depend on it. Until the first
+real release, consume this package as a git dependency pinned to a full SHA:
+
 ```elixir
 def deps do
   [
-    {:encryptor, "~> 0.1"}
+    {:encryptor, github: "riddler/encryptor", ref: "<full 40-character sha>"}
   ]
 end
 ```
 
-Not yet published to Hex.
+Pin a SHA rather than a branch. A moving dependency on a package that decides
+ciphertext layout is a package that can change what your stored rows mean
+between two `mix deps.get` runs.
+
+## Guides
+
+- **[Getting started](guides/getting-started.md)** - a single-key vault and a
+  per-tenant vault, where key material is allowed to come from, why a host
+  chooses `0x0478`, why `max_age` has no default, and the two root secrets a
+  deployment provisions on day one.
+- **[Rotation runbook](guides/rotation-runbook.md)** - the four operator
+  procedures, what each step destroys, which steps this package ships as
+  functions and which are actions on a store it does not own, and what a
+  crypto-shred does and does not achieve.
 
 ## License
 
