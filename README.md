@@ -274,15 +274,15 @@ good one, because the record is what makes it reviewable.
 
 | Record | Decides | Status |
 |---|---|---|
-| [ADR-0001](docs/adr/0001-vault-layer.md) | The vault layer: one host-owned module that wraps the engine completely, what it supervises, how it is configured, how its cache is bounded, and its error vocabulary | accepted |
-| [ADR-0002](docs/adr/0002-key-providers.md) | The key-provider behaviour: a provider resolves a selector to a key descriptor, and only the vault turns a descriptor into a keyring | accepted |
-| [ADR-0003](docs/adr/0003-per-tenant-envelope.md) | The per-tenant envelope: a tenant key is 32 random bytes wrapped into an ordinary message, and the host stores the wrapping | accepted, amended |
-| [ADR-0004](docs/adr/0004-encryption-context.md) | The encryption-context convention: the canonical keys, who supplies each, and how a vault enforces them | accepted, amended |
-| [ADR-0005](docs/adr/0005-rotation-and-crypto-shred.md) | Rotation and crypto-shred: three independent lifecycles, four operator procedures, and the one step that cannot be undone | accepted |
-| [ADR-0006](docs/adr/0006-telemetry-and-observability.md) | Telemetry: a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | **proposed** |
+| [ADR-0001](https://github.com/riddler/encryptor/blob/main/docs/adr/0001-vault-layer.md) | The vault layer: one host-owned module that wraps the engine completely, what it supervises, how it is configured, how its cache is bounded, and its error vocabulary | accepted |
+| [ADR-0002](https://github.com/riddler/encryptor/blob/main/docs/adr/0002-key-providers.md) | The key-provider behaviour: a provider resolves a selector to a key descriptor, and only the vault turns a descriptor into a keyring | accepted |
+| [ADR-0003](https://github.com/riddler/encryptor/blob/main/docs/adr/0003-per-tenant-envelope.md) | The per-tenant envelope: a tenant key is 32 random bytes wrapped into an ordinary message, and the host stores the wrapping | accepted, amended |
+| [ADR-0004](https://github.com/riddler/encryptor/blob/main/docs/adr/0004-encryption-context.md) | The encryption-context convention: the canonical keys, who supplies each, and how a vault enforces them | accepted, amended |
+| [ADR-0005](https://github.com/riddler/encryptor/blob/main/docs/adr/0005-rotation-and-crypto-shred.md) | Rotation and crypto-shred: three independent lifecycles, four operator procedures, and the one step that cannot be undone | accepted |
+| [ADR-0006](https://github.com/riddler/encryptor/blob/main/docs/adr/0006-telemetry-and-observability.md) | Telemetry: a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | **proposed** |
 
 The index, including the citation grammar for cross-repo references, is
-[`docs/adr/README.md`](docs/adr/README.md).
+[`docs/adr/README.md`](https://github.com/riddler/encryptor/blob/main/docs/adr/README.md).
 
 ## The family
 
