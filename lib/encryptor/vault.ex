@@ -95,8 +95,9 @@ defmodule Encryptor.Vault do
   its own encryption context, so a rotation needs no row, no table and no
   second copy of what the ciphertext was bound to. That property is the
   engine's deviation from the specification rather than the specification, and
-  `Encryptor.Vault.Rekey` records what changes if it is ever corrected
-  (ADR-0004 decision 11 and open question 5).
+  the rekey path's implementation (`lib/encryptor/vault/rekey.ex`) records
+  what changes if it is ever corrected (ADR-0004 decision 11 and open
+  question 5).
 
   Records: ADR-0001 decisions 1, 2, 3, 4, 5 and 10; ADR-0002 decision 6;
   ADR-0004 decision 11; ADR-0005 decision 7.
@@ -305,7 +306,8 @@ defmodule Encryptor.Vault do
   The encrypt path, behind a vault module's generated `encrypt/2`.
 
   The order of operations, the CMM stack this builds, and the reason the stack
-  order is not configurable are all in `Encryptor.Vault.Encrypt`.
+  order is not configurable are all in the encrypt path's implementation,
+  `lib/encryptor/vault/encrypt.ex`.
 
   A non-binary plaintext is a `FunctionClauseError` rather than an
   `Encryptor.Error`: the closed reason vocabulary describes what can go wrong
@@ -336,7 +338,7 @@ defmodule Encryptor.Vault do
 
   The order of operations, the value comparison this package performs above
   the engine, and the reason that comparison cannot be left to the engine are
-  all in `Encryptor.Vault.Decrypt`.
+  all in the decrypt path's implementation, `lib/encryptor/vault/decrypt.ex`.
 
   A non-binary ciphertext is a `FunctionClauseError` rather than an
   `Encryptor.Error`, for the same reason `encrypt/3`'s non-binary plaintext
@@ -367,7 +369,7 @@ defmodule Encryptor.Vault do
   The order of operations, the reason the encryption context comes from the
   message rather than from the caller, and the reason the vault-side value
   comparison still runs when the reproduced context is the stored one are all
-  in `Encryptor.Vault.Rekey`.
+  in the rekey path's implementation, `lib/encryptor/vault/rekey.ex`.
 
   A non-binary ciphertext is a `FunctionClauseError` rather than an
   `Encryptor.Error`, for the same reason `encrypt/3` and `decrypt/3` make it
@@ -398,8 +400,8 @@ defmodule Encryptor.Vault do
   ADR-0003 amendment A. The scope is `{ikm_selector, salt, info, length}`:
   `purpose` and `opts[:key]` are the two halves of the selector, the salt is
   the vault's `:derivation_salt` and never the caller's, and `:info` and
-  `:length` are the caller's. `Encryptor.Vault.Derive` holds the order and the
-  reasons.
+  `:length` are the caller's. The derivation path's implementation
+  (`lib/encryptor/vault/derive.ex`) holds the order and the reasons.
 
   There is no `derive!/3`. Every other bang variant here exists for an
   application call site that would rather let a supervisor see the failure;

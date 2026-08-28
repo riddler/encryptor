@@ -15,7 +15,8 @@ defmodule Encryptor.Vault.Partition do
 
   ## Why the width is fixed, and why it is 16
 
-  `AwsEncryptionSdk.Cmm.Caching.compute_encryption_cache_id/3` concatenates
+  The engine's cache-id computation (`compute_encryption_cache_id/3` in the
+  `aws_encryption_sdk` caching CMM) concatenates
   the partition id into the cache id pre-image **with no length prefix**. A
   variable-width partition id therefore makes the pre-image ambiguous, and two
   different partitions could in principle hash to one cache id - which is two
