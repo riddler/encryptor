@@ -276,9 +276,10 @@ defmodule Encryptor.Envelope do
     * a selector that is not a non-empty string - `{:invalid_selector, term}`.
       A tenant reference has no meaning for `:default`.
     * a `:namespace` the engine or this package will not carry in a header -
-      `{:invalid_key_descriptor, detail}`, from the same checks
-      `Encryptor.Vault.Keyring` runs, so a row is refused at minting rather
-      than at the first encrypt that tries to use it.
+      `{:invalid_key_descriptor, detail}`, from the same checks the vault's
+      keyring builder (`lib/encryptor/vault/keyring.ex`) runs, so a row is
+      refused at minting rather than at the first encrypt that tries to use
+      it.
   """
   @spec provision(root_vault(), selector(), opts()) ::
           {:ok, WrappedKey.t()} | {:error, Error.t()}

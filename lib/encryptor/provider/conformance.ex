@@ -52,9 +52,10 @@ defmodule Encryptor.Provider.Conformance do
   ## What it checks
 
     * The options resolve to a state through `Encryptor.Provider.init/2`,
-      whether or not the provider exports `c:init/1`.
-    * `c:encryption_key/2` answers a descriptor the vault can build a keyring
-      from, and `c:decryption_keys/2` answers a non-empty candidate list of
+      whether or not the provider exports `c:Encryptor.Provider.init/1`.
+    * `c:Encryptor.Provider.encryption_key/2` answers a descriptor the vault
+      can build a keyring from, and `c:Encryptor.Provider.decryption_keys/2`
+      answers a non-empty candidate list of
       them. "The vault can build a keyring from it" is the real bar and it is
       checked by asking the vault's builder, not by re-implementing its rules.
     * **The encryption key is the head of the candidate list.** The candidates
@@ -156,8 +157,9 @@ defmodule Encryptor.Provider.Conformance do
   @doc """
   Resolves the case's options into provider state, and returns it.
 
-  Every other assertion below starts here, so a provider whose `c:init/1`
-  refuses its own documented options fails once rather than eight times.
+  Every other assertion below starts here, so a provider whose
+  `c:Encryptor.Provider.init/1` refuses its own documented options fails once
+  rather than eight times.
   """
   @spec assert_state(case_spec()) :: Provider.state()
   def assert_state(spec) do
@@ -166,7 +168,8 @@ defmodule Encryptor.Provider.Conformance do
     state
   end
 
-  @doc "Asserts `c:encryption_key/2` answers a buildable descriptor."
+  @doc "Asserts `c:Encryptor.Provider.encryption_key/2` answers a buildable
+  descriptor."
   @spec assert_encryption_key(case_spec()) :: :ok
   def assert_encryption_key(spec) do
     state = assert_state(spec)
@@ -179,7 +182,8 @@ defmodule Encryptor.Provider.Conformance do
     :ok
   end
 
-  @doc "Asserts `c:decryption_keys/2` answers a non-empty list of buildable descriptors."
+  @doc "Asserts `c:Encryptor.Provider.decryption_keys/2` answers a non-empty
+  list of buildable descriptors."
   @spec assert_decryption_keys(case_spec()) :: :ok
   def assert_decryption_keys(spec) do
     state = assert_state(spec)
