@@ -73,6 +73,7 @@ defmodule Encryptor.Vault do
   `use Encryptor.Vault` defines, on the host's module:
 
     * `encrypt/2` and `encrypt!/2` - the write half of the door,
+    * `decrypt/2` and `decrypt!/2` - the read half,
     * `child_spec/1` and `start_link/1` - the supervision-tree surface,
     * `stop/0` - stops the vault and erases its frozen configuration,
     * `config/0` - the frozen configuration, or `{:vault_not_started, _}`,
@@ -82,15 +83,16 @@ defmodule Encryptor.Vault do
   intended place to read key material out of the environment or a secrets
   manager, following the pattern hosts already know from `Ecto.Repo.init/2`.
 
-  The `decrypt/2` and `rekey/2` entry points are **not** defined yet: their
-  bodies are the work of later beads, and each is built on `ready/2` from
-  here, as `encrypt/2` already is.
+  The `rekey/2` entry point is **not** defined yet: its body is the work of a
+  later bead, and it is built on `ready/2` from here, as `encrypt/2` and
+  `decrypt/2` already are.
 
   Records: ADR-0001 decisions 1, 2, 3, 4, 5 and 10; ADR-0002 decision 6.
   """
 
   alias Encryptor.Error
   alias Encryptor.Vault.Config
+  alias Encryptor.Vault.Decrypt
   alias Encryptor.Vault.Encrypt
 
   @typedoc """
@@ -128,6 +130,19 @@ defmodule Encryptor.Vault do
   `c:encrypt/2`, raising the same `Encryptor.Error` it would have returned.
   """
   @callback encrypt!(plaintext :: binary(), opts :: keyword()) :: binary()
+
+  @doc """
+  Decrypts a message this vault's currently resolved materials can open.
+
+  Returns the plaintext and nothing else (ADR-0001 decision 4).
+  """
+  @callback decrypt(ciphertext :: binary(), opts :: keyword()) ::
+              {:ok, binary()} | {:error, Error.t()}
+
+  @doc """
+  `c:decrypt/2`, raising the same `Encryptor.Error` it would have returned.
+  """
+  @callback decrypt!(ciphertext :: binary(), opts :: keyword()) :: binary()
 
   @optional_callbacks init: 1
 
@@ -191,6 +206,56 @@ defmodule Encryptor.Vault do
       @spec encrypt!(binary(), keyword()) :: binary()
       def encrypt!(plaintext, opts \\ []) do
         Encryptor.Vault.encrypt!(__MODULE__, plaintext, opts)
+      end
+
+      @doc """
+      Decrypts a message written under this vault's key material.
+
+      Returns `{:ok, plaintext}` and nothing else: the verified encryption
+      context the engine also reports is deliberately not returned, because a
+      caller that wants it has `Encryptor.Message.describe/1`, which is honest
+      about being an unverified claim.
+
+      Every failure that depends on what is *in* the message - a wrong key, a
+      failed authentication tag, a context value that disagrees with the
+      stored one - is the single reason `:decrypt_failed`, with the detail in
+      the error's `:engine` field for an operator's log line and not for a
+      `case`. Distinguishable decrypt failures are a decryption oracle.
+
+      ## Options
+
+        * `:key` - the selector handed to the key provider, typed by the
+          vault's profile exactly as `encrypt/2` types it. The provider
+          answers with **every** key a stored message might have been written
+          under, so a message written before a rotation still opens.
+
+        * `:encryption_context` - the **reproduced** context: the caller's
+          claim about what the message was bound to, merged over the vault's
+          configured static context the same way the writer's was. For every
+          key present in both the claim and the message, the values must
+          agree, or the read fails - and that comparison is this vault's, run
+          before the engine and before any cache, so it holds on the first
+          read of a row and on the thousandth alike.
+
+          A key the message does not carry is ignored, and a key the message
+          carries that the claim omits is ignored too. What closes that gap is
+          the vault's configured `:required_context`: omitting one of those is
+          `{:missing_required_context_keys, keys}`, which is the one context
+          failure a caller can act on. On a `:tenant` vault the tenant pair is
+          the vault's, derived from `:key`, so `"tenant_ref"` and
+          `"tenant_id"` are refused from a caller here as they are at encrypt.
+      """
+      @spec decrypt(binary(), keyword()) :: {:ok, binary()} | {:error, Encryptor.Error.t()}
+      def decrypt(ciphertext, opts \\ []) do
+        Encryptor.Vault.decrypt(__MODULE__, ciphertext, opts)
+      end
+
+      @doc """
+      `decrypt/2`, raising the `Encryptor.Error` it would have returned.
+      """
+      @spec decrypt!(binary(), keyword()) :: binary()
+      def decrypt!(ciphertext, opts \\ []) do
+        Encryptor.Vault.decrypt!(__MODULE__, ciphertext, opts)
       end
 
       @doc """
@@ -282,6 +347,36 @@ defmodule Encryptor.Vault do
   def encrypt!(vault, plaintext, opts \\ []) do
     case encrypt(vault, plaintext, opts) do
       {:ok, ciphertext} -> ciphertext
+      {:error, %Error{} = error} -> raise error
+    end
+  end
+
+  @doc """
+  The decrypt path, behind a vault module's generated `decrypt/2`.
+
+  The order of operations, the value comparison this package performs above
+  the engine, and the reason that comparison cannot be left to the engine are
+  all in `Encryptor.Vault.Decrypt`.
+
+  A non-binary ciphertext is a `FunctionClauseError` rather than an
+  `Encryptor.Error`, for the same reason `encrypt/3`'s non-binary plaintext
+  is: a value that is not a binary is wrong in the source, not at runtime.
+  """
+  @spec decrypt(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
+  def decrypt(vault, ciphertext, opts \\ []) when is_binary(ciphertext) and is_list(opts) do
+    Decrypt.call(vault, ciphertext, opts)
+  end
+
+  @doc """
+  `decrypt/3`, raising the `Encryptor.Error` it would have returned.
+
+  The struct raised is the same one the non-bang variant returns, so a rescue
+  clause matches on `:reason` exactly as a `case` would.
+  """
+  @spec decrypt!(module(), binary(), keyword()) :: binary()
+  def decrypt!(vault, ciphertext, opts \\ []) do
+    case decrypt(vault, ciphertext, opts) do
+      {:ok, plaintext} -> plaintext
       {:error, %Error{} = error} -> raise error
     end
   end

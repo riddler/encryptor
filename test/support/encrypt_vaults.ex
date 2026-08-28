@@ -82,7 +82,13 @@ defmodule Encryptor.EncryptVaults do
        selector ->
          {:error, {:unknown_key, selector}}
      end,
-     decryption_keys: fn selector -> {:ok, [merchant_descriptor(selector)]} end}
+     decryption_keys: fn
+       selector when selector in ["merchant_a", "merchant_b"] ->
+         {:ok, [merchant_descriptor(selector)]}
+
+       selector ->
+         {:error, {:unknown_key, selector}}
+     end}
   end
 
   defmodule Rogue do
