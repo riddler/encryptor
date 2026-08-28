@@ -6,9 +6,11 @@ defmodule Encryptor.KdfTest do
   doctest Encryptor.Kdf
 
   # RFC 5869 appendix A, the three SHA-256 cases. Each case states the PRK
-  # directly, so they exercise HKDF-Expand on its own - which is the whole of
-  # what this module implements, and why the SHA-1 cases (4, 5, 6) are absent
-  # rather than skipped.
+  # directly, so they exercise HKDF-Expand on its own. The SHA-1 cases (4, 5,
+  # 6) are absent rather than skipped: this module is SHA-256 only.
+  #
+  # The extract half of the same three cases is `@rfc_5869_extract_sha256`
+  # below, added with ADR-0003 amendment A.
   @rfc_5869_sha256 [
     %{
       name: "A.1 basic test case with SHA-256",
@@ -49,6 +51,173 @@ defmodule Encryptor.KdfTest do
           "9D201395FAA4B61A96C8"
     }
   ]
+
+  # The same three cases, on the extract side. Each states the salt and the
+  # input key material, and the PRK the `@rfc_5869_sha256` cases above take as
+  # given - so the two tables together cover HKDF end to end against the RFC's
+  # own numbers rather than against a reimplementation of it (ADR-0003
+  # amendment A decision 1).
+  #
+  # A.1's salt is 13 bytes and A.3's is empty. Both are shorter than the
+  # 32-byte deployment guard, which is exactly why that guard lives on
+  # `salted_subkey/5` and on the vault configuration rather than on this
+  # primitive: a guard here would make these vectors unrunnable.
+  @rfc_5869_extract_sha256 [
+    %{
+      name: "A.1 basic test case with SHA-256",
+      ikm: String.duplicate("0B", 22),
+      salt: "000102030405060708090A0B0C",
+      prk: "077709362C2E32DF0DDC3F0DC47BBA6390B6C73BB50F9C3122EC844AD7C2B3E5"
+    },
+    %{
+      name: "A.2 test with SHA-256 and longer inputs/outputs",
+      ikm:
+        "000102030405060708090A0B0C0D0E0F" <>
+          "101112131415161718191A1B1C1D1E1F" <>
+          "202122232425262728292A2B2C2D2E2F" <>
+          "303132333435363738393A3B3C3D3E3F" <>
+          "404142434445464748494A4B4C4D4E4F",
+      salt:
+        "606162636465666768696A6B6C6D6E6F" <>
+          "707172737475767778797A7B7C7D7E7F" <>
+          "808182838485868788898A8B8C8D8E8F" <>
+          "909192939495969798999A9B9C9D9E9F" <>
+          "A0A1A2A3A4A5A6A7A8A9AAABACADAEAF",
+      prk: "06A6B88C5853361A06104C9CEB35B45CEF760014904671014A193F40C15FC244"
+    },
+    %{
+      name: "A.3 test with SHA-256 and zero-length salt/info",
+      ikm: String.duplicate("0B", 22),
+      salt: "",
+      prk: "19EF24A32C717B167F33A91D6F648BDF96596776AFDB6377AC434C1C293CCB04"
+    }
+  ]
+
+  describe "extract/2 against RFC 5869" do
+    # sabotage: swapped the HMAC key and message in extract/2, so the input
+    # key material became the key - all three vectors go red, and A.2 is the
+    # one that catches it even when both arguments happen to be 32 bytes.
+    for vector <- @rfc_5869_extract_sha256 do
+      test "matches #{vector.name}" do
+        vector = unquote(Macro.escape(vector))
+
+        assert Base.decode16!(vector.prk) ==
+                 Kdf.extract(Base.decode16!(vector.salt), Base.decode16!(vector.ikm))
+      end
+    end
+
+    # sabotage: returned the first 16 bytes of the MAC - red, and it is worth
+    # its own test because a short PRK would still satisfy expand/3's guard
+    # nowhere and fail confusingly one call later.
+    test "always returns HashLen bytes" do
+      for salt <- ["", :binary.copy(<<0x5A>>, 4), :binary.copy(<<0x5A>>, 1000)] do
+        assert byte_size(Kdf.extract(salt, "input key material")) == 32
+      end
+    end
+  end
+
+  describe "salted_subkey/5" do
+    setup do
+      %{material: :binary.copy(<<0x0B>>, 32), salt: :binary.copy(<<0x5A>>, 32)}
+    end
+
+    # sabotage: dropped the extract step and expanded directly from the
+    # material - red, because the salt then makes no difference.
+    test "the salt separates two deployments holding the same key", context do
+      %{material: material} = context
+
+      a = Kdf.salted_subkey(material, :binary.copy(<<0x5A>>, 32), "blind-index", "orders", 32)
+      b = Kdf.salted_subkey(material, :binary.copy(<<0x5B>>, 32), "blind-index", "orders", 32)
+
+      assert a != b
+    end
+
+    # sabotage: concatenated the label and the info into one expansion - red,
+    # because purpose "a"/info "b" then collides with purpose "ab"/info "".
+    test "the label and the caller info cannot collide", context do
+      %{material: material, salt: salt} = context
+
+      assert Kdf.salted_subkey(material, salt, "a", "b", 32) !=
+               Kdf.salted_subkey(material, salt, "ab", "", 32)
+    end
+
+    # sabotage: returned the intermediate purpose key when info was empty -
+    # red. Amendment A decision 4: the middle value never leaves the package.
+    test "an empty info still runs the final expansion", context do
+      %{material: material, salt: salt} = context
+
+      purpose_key = Kdf.expand(Kdf.extract(salt, material), "encryptor/v1/blind-index", 32)
+
+      assert Kdf.salted_subkey(material, salt, "blind-index", "", 32) != purpose_key
+    end
+
+    # sabotage: dropped the salt guard - red.
+    test "refuses a salt short enough to be a placeholder", context do
+      %{material: material} = context
+
+      assert_raise ArgumentError, "a derivation salt must be at least 32 bytes", fn ->
+        Kdf.salted_subkey(material, :binary.copy(<<0x5A>>, 31), "blind-index", "", 32)
+      end
+    end
+
+    # sabotage: dropped the key-material guard - red.
+    test "refuses key material shorter than 32 bytes", context do
+      %{salt: salt} = context
+
+      assert_raise ArgumentError,
+                   "key material for a labelled derivation must be at least 32 bytes",
+                   fn ->
+                     Kdf.salted_subkey(:binary.copy(<<0x0B>>, 31), salt, "blind-index", "", 32)
+                   end
+    end
+
+    # sabotage: made the default length 16 - red.
+    test "defaults to a 32-byte output", context do
+      %{material: material, salt: salt} = context
+
+      assert byte_size(Kdf.salted_subkey(material, salt, "blind-index", "orders")) == 32
+    end
+
+    # The whole composition against an implementation that is not this one.
+    # RFC 5869's own vectors cover extract and expand separately, and the
+    # tests above check that this function is consistent with those two -
+    # which would stay true if the three steps were composed wrongly. These
+    # two constants come from OpenSSL 3.6.3:
+    #
+    #   IKM=0x0b*32  SALT=0x5a*32
+    #   openssl kdf -keylen 32 -kdfopt digest:SHA256 \
+    #     -kdfopt mode:EXTRACT_AND_EXPAND -kdfopt hexkey:$IKM \
+    #     -kdfopt hexsalt:$SALT -kdfopt hexinfo:<"encryptor/v1/blind-index"> HKDF
+    #   openssl kdf -keylen 32 -kdfopt digest:SHA256 \
+    #     -kdfopt mode:EXPAND_ONLY -kdfopt hexkey:<the above> \
+    #     -kdfopt hexinfo:<"orders.email"> HKDF
+    #
+    # sabotage: reordered the extract and the first expand - red, which is
+    # the class of mistake the self-consistent tests above cannot see.
+    test "matches OpenSSL over the whole construction", context do
+      %{material: material, salt: salt} = context
+
+      assert Kdf.expand(Kdf.extract(salt, material), "encryptor/v1/blind-index", 32) ==
+               Base.decode16!("F6BC17CD8603EA4DDD1880A859413CB6951237E8592A41E142BDBD8E53212653")
+
+      assert Kdf.salted_subkey(material, salt, "blind-index", "orders.email", 32) ==
+               Base.decode16!("F265F58A45FF6B43ABCE983036859DEC57B2ECBD9595A90DB9ACE0B47DB4F31F")
+    end
+
+    # sabotage: expanded the caller's info under the PRK rather than under the
+    # purpose key, which drops the purpose from the derivation - red.
+    test "is exactly extract, expand under the label, expand under the info", context do
+      %{material: material, salt: salt} = context
+
+      expected =
+        salt
+        |> Kdf.extract(material)
+        |> Kdf.expand("encryptor/v1/blind-index", 32)
+        |> Kdf.expand("orders.email", 64)
+
+      assert Kdf.salted_subkey(material, salt, "blind-index", "orders.email", 64) == expected
+    end
+  end
 
   describe "expand/3 against RFC 5869" do
     # sabotage: changed the HMAC input from `previous | info | counter` to

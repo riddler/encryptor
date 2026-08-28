@@ -65,8 +65,14 @@ defmodule Encryptor.Error do
   """
   @type selector :: String.t() | :default
 
-  @typedoc "The vault operation an error arose from."
-  @type operation :: :encrypt | :decrypt | :rekey | :start
+  @typedoc """
+  The vault operation an error arose from.
+
+  `:derive` is ADR-0003 amendment A's addition. A derivation is none of the
+  other four, and reporting it as one of them would make an operator's error
+  line name a call the caller never made.
+  """
+  @type operation :: :encrypt | :decrypt | :rekey | :start | :derive
 
   @typedoc """
   The complete reason vocabulary.

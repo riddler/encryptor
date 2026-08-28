@@ -9,13 +9,16 @@ defmodule Encryptor.Kdf do
   tenant reference subkey, and any purpose-separated subkey of a tenant master
   key - is a call into `derive_subkey/3` with a different purpose.
 
-  ## Expand only, and why
+  ## Expand only on the wrapping trees, and why
 
   RFC 5869 splits HKDF into `extract` (condense arbitrary, possibly biased
   input keying material into a pseudorandom key) and `expand` (stretch a
-  pseudorandom key into labelled output). Only `expand` is implemented here,
-  because every input this package derives from is already a uniformly random
-  key of at least 256 bits:
+  pseudorandom key into labelled output). Both are implemented here, and they
+  are not used on the same trees.
+
+  `"encryptor/v1/root-wrap"` and `"encryptor/v1/tenant-ref"` are **expand
+  only**, because every input those two derive from is already a uniformly
+  random key of at least 256 bits:
 
     * the root key material is supplied to the host vault's `init/1` as
       deployment-supplied key material (ADR-0001 decision 5), and
@@ -25,13 +28,40 @@ defmodule Encryptor.Kdf do
   RFC 5869 section 3.3 names exactly this case - "if the input key material is
   already a good pseudorandom key" - as the one where the extract step may be
   skipped. Both accepted records say `HKDF-Expand` rather than `HKDF`, and
-  this module implements what they say. Adding an extract step later would
-  change every derived key, which is a rewrap of every stored wrapping and a
-  re-index of every stored row; it is an ADR amendment, not a refactor.
+  those two trees implement what they say. Salting them would change the root
+  vault's provider material and every stored `tenant_ref`, which is a rewrap
+  of every stored wrapping and a re-index of every stored row.
 
   The 32-byte guard on the pseudorandom key is what makes that reasoning
   enforceable rather than aspirational: a caller cannot expand from a short
   or low-entropy input by accident.
+
+  ## The salted tree
+
+  ADR-0003 amendment A (proposed, 2026-08-28) adds `extract/2` and one tree
+  that uses it: the derived-subkey surface a downstream consumer reaches
+  through `Encryptor.Vault.derive/3`. Its output leaves this package, so it
+  is salted with a per-deployment value that the consumer cannot supply, and
+  two deployments provisioned from the same tenant key material derive
+  unrelated subkeys.
+
+  `salted_subkey/5` is that whole construction, and it is deliberately three
+  steps rather than two:
+
+      PRK         = HKDF-Extract(salt, key_material)
+      purpose_key = HKDF-Expand(PRK, "encryptor/v1/<purpose>", 32)
+      derived     = HKDF-Expand(purpose_key, caller_info, length)
+
+  The label and the caller's `info` are never concatenated into one expansion,
+  because purpose `"a"` with info `"b"` and purpose `"ab"` with info `""`
+  would spell the same string, and that collision is the label reuse ADR-0003
+  decision 6 forbids. The nesting is unambiguous: the purpose is consumed by a
+  whole expansion before the caller's info is read.
+
+  The final expansion always runs, including when `info` is `""`. That costs
+  one HMAC and keeps `purpose_key` from ever leaving the package: every byte
+  a caller receives is one expansion further from the tree's root than
+  anything held internally.
 
   ## The label grammar
 
@@ -50,7 +80,7 @@ defmodule Encryptor.Kdf do
   |---|---|---|
   | `"encryptor/v1/root-wrap"` | the root vault's `Static` provider material | ADR-0003 d6 |
   | `"encryptor/v1/tenant-ref"` | the keyed tenant reference derivation | ADR-0003 d5, d6 |
-  | `"encryptor/v1/blind-index"` | reserved for downstream index keys | ADR-0003 d7 |
+  | `"encryptor/v1/blind-index"` | downstream index keys, through `Encryptor.Vault.derive/3` | ADR-0003 d7, amendment A |
 
   **The reservation is one-way.** Any future purpose-separated key takes a
   *new* `"encryptor/v<n>/<purpose>"` label and never reuses an existing one
@@ -118,7 +148,8 @@ defmodule Encryptor.Kdf do
   key-length violation is the one place a raise could otherwise put key
   material into a log line or a test failure report.
 
-  Records: ADR-0003 decisions 5, 6, 7. RFC 5869 sections 2.3 and 3.3.
+  Records: ADR-0003 decisions 5, 6, 7 and amendment A. RFC 5869 sections 2.2,
+  2.3 and 3.3.
   """
 
   # RFC 5869 with SHA-256: HashLen is 32, and L may not exceed 255 * HashLen.
@@ -257,6 +288,100 @@ defmodule Encryptor.Kdf do
     prk
     |> okm(info, blocks)
     |> binary_part(0, length)
+  end
+
+  @doc """
+  HKDF-Extract with SHA-256, per RFC 5869 section 2.2.
+
+  `PRK = HMAC-SHA256(salt, ikm)`: the salt is the HMAC key and the input key
+  material is the message, which is the way round that trips people up.
+
+  This is the unguarded primitive. It accepts any salt length, including the
+  empty salt, because RFC 5869 does and because that is what makes the RFC's
+  own appendix A vectors runnable against this function rather than against a
+  reimplementation of it. The 32-byte deployment guard belongs to
+  `salted_subkey/5` and to `Encryptor.Vault.Config`, which is where a salt
+  stops being an HKDF argument and starts being configuration.
+
+  RFC 5869 appendix A.1, the basic SHA-256 case:
+
+      iex> ikm = :binary.copy(<<0x0B>>, 22)
+      iex> salt = Base.decode16!("000102030405060708090A0B0C")
+      iex> Encryptor.Kdf.extract(salt, ikm) |> Base.encode16(case: :lower)
+      "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5"
+
+  Appendix A.3, with an empty salt - the case the RFC defines as `HashLen`
+  zero bytes:
+
+      iex> ikm = :binary.copy(<<0x0B>>, 22)
+      iex> Encryptor.Kdf.extract("", ikm) |> Base.encode16(case: :lower)
+      "19ef24a32c717b167f33a91d6f648bdf96596776afdb6377ac434c1c293ccb04"
+
+  The output is always 32 bytes, which is `HashLen` for SHA-256 and therefore
+  a valid pseudorandom key for `expand/3` without any further check.
+  """
+  @spec extract(binary(), binary()) :: binary()
+  def extract(salt, ikm) when is_binary(salt) and is_binary(ikm) do
+    :crypto.mac(:hmac, :sha256, salt, ikm)
+  end
+
+  @doc """
+  The salted derived-subkey construction of ADR-0003 amendment A.
+
+  Extract under the deployment's salt, expand once under this package's label
+  for `purpose`, then expand again under the caller's `info` for `length`
+  bytes. The moduledoc's "The salted tree" section says why it is three steps
+  and not two, and why the middle value never leaves the package.
+
+  This is the only derivation in the package that takes a salt, and the only
+  one whose output is handed to a caller outside it.
+
+      iex> master = :binary.copy(<<0x0B>>, 32)
+      iex> salt = :binary.copy(<<0x5A>>, 32)
+      iex> byte_size(Encryptor.Kdf.salted_subkey(master, salt, "blind-index", "orders.email", 32))
+      32
+
+  A different salt is a different deployment, and the same scope derives an
+  unrelated key under it:
+
+      iex> master = :binary.copy(<<0x0B>>, 32)
+      iex> a = Encryptor.Kdf.salted_subkey(master, :binary.copy(<<0x5A>>, 32), "blind-index", "orders.email", 32)
+      iex> b = Encryptor.Kdf.salted_subkey(master, :binary.copy(<<0x5B>>, 32), "blind-index", "orders.email", 32)
+      iex> a == b
+      false
+
+  An empty `info` is a scope like any other, not a missing argument, and it
+  does not yield the intermediate purpose key:
+
+      iex> master = :binary.copy(<<0x0B>>, 32)
+      iex> salt = :binary.copy(<<0x5A>>, 32)
+      iex> derived = Encryptor.Kdf.salted_subkey(master, salt, "blind-index", "", 32)
+      iex> purpose_key = Encryptor.Kdf.expand(Encryptor.Kdf.extract(salt, master), "encryptor/v1/blind-index", 32)
+      iex> derived == purpose_key
+      false
+
+  A salt short enough to be a placeholder rather than a deployment constant is
+  refused here, where the constraint is this package's rather than the RFC's:
+
+      iex> Encryptor.Kdf.salted_subkey(:binary.copy(<<0x0B>>, 32), :binary.copy(<<0x5A>>, 31), "blind-index", "", 32)
+      ** (ArgumentError) a derivation salt must be at least 32 bytes
+  """
+  @spec salted_subkey(binary(), binary(), purpose(), binary(), pos_integer()) :: binary()
+  def salted_subkey(key_material, salt, purpose, info, length \\ @hash_length)
+      when is_binary(key_material) and is_binary(salt) and is_binary(info) do
+    if byte_size(key_material) < @hash_length do
+      raise ArgumentError,
+            "key material for a labelled derivation must be at least #{@hash_length} bytes"
+    end
+
+    if byte_size(salt) < @hash_length do
+      raise ArgumentError, "a derivation salt must be at least #{@hash_length} bytes"
+    end
+
+    salt
+    |> extract(key_material)
+    |> expand(label(purpose), @hash_length)
+    |> expand(info, length)
   end
 
   # T(1) | T(2) | ... | T(n), where T(0) is empty and
