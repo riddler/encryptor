@@ -152,4 +152,54 @@ defmodule Encryptor.Vault.Docs do
     names before calling.
     """
   end
+
+  @doc false
+  def derive do
+    """
+    Derives labelled key bytes for a scope, without exporting the key
+    material they come from.
+
+    This is ADR-0003 amendment A's surface, and its caller is another
+    library rather than an application call site: `encryptor_ecto`'s blind
+    index is the first. An application encrypting a column wants
+    `encrypt/2`, not this.
+
+    `purpose` is the label purpose of ADR-0003 decision 6 - `"blind-index"`,
+    or a new one a later record adds. It may not be `"root-wrap"` or
+    `"tenant-ref"`, which name the trees this package derives for itself,
+    and it may not contain `"/"`.
+
+    Returns `{:ok, bytes}`. The key material the bytes were derived from is
+    never returned, never carried in an error, and never rendered.
+
+    ## Options
+
+      * `:key` - the selector handed to the key provider, typed by the
+        vault's profile exactly as `encrypt/2` types it. A `:tenant` vault
+        refuses `:default` here too: a derivation that fell back to a
+        default key would hand every tenant the same subkey.
+      * `:info` - the caller's own scope string within the purpose, used
+        verbatim and opaque to this package. Defaults to `""`, which is a
+        legitimate scope rather than a missing argument.
+      * `:length` - output bytes, defaulting to `32`.
+
+    ## What the derivation is
+
+        PRK         = HKDF-Extract(:derivation_salt, key material)
+        purpose_key = HKDF-Expand(PRK, "encryptor/v1/<purpose>", 32)
+        derived     = HKDF-Expand(purpose_key, info, length)
+
+    The salt is the vault's `:derivation_salt` and a caller cannot supply or
+    override it. A vault configured without one starts normally and fails
+    this call with `{:missing_config, [:derivation_salt]}`.
+
+    ## What this does not buy
+
+    Capability separation. Deriving requires the key material, so a
+    component that can derive a tenant's index key holds that tenant's
+    master key and can therefore also decrypt (ADR-0003 decision 7). The
+    surface hides the material from the *caller*; it does not create a
+    search-only capability.
+    """
+  end
 end

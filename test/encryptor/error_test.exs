@@ -167,9 +167,11 @@ defmodule Encryptor.ErrorTest do
     end
 
     # sabotage: added :describe to operation/0 - red. ADR-0001 decision 10
-    # fixes four operations; enc-o1x may need a fifth, via a record.
-    test "operation/0 is exactly the four ADR-0001 fixes" do
-      assert union_size(:operation) == 4
+    # fixes four operations and ADR-0003 amendment A adds the fifth,
+    # `:derive`. The fifth arrived through a record, which is what this test
+    # exists to require; a sixth needs one too.
+    test "operation/0 is exactly the four ADR-0001 fixes plus :derive" do
+      assert union_size(:operation) == 5
     end
   end
 

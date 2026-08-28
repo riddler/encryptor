@@ -52,6 +52,11 @@ defmodule Encryptor.Vault.Config do
 
   That list is closed and is extended by an ADR, not by a call site.
 
+  `:derivation_salt` is refused there too, and for a different reason that the
+  refusal message states: it is not secret, but it is per deployment, and a
+  per-deployment value compiled into a `.beam` is shared by every deployment
+  built from that artifact (ADR-0003 amendment A decision 3).
+
   ## What is checked at start
 
   Every check below produces an `Encryptor.Error` with `operation: :start` and
@@ -84,6 +89,11 @@ defmodule Encryptor.Vault.Config do
     * On a `:tenant` vault `:reference_subkey` is required, and when the
       deployment has pinned a `:reference_check` value the subkey must
       reproduce it (ADR-0004 decision 4).
+    * `:derivation_salt` is optional on both profiles, and when present is a
+      binary of at least 32 bytes. It is the one check here that is not
+      complete at start: a vault without it starts, and only
+      `Encryptor.Vault.derive/3` fails, with `{:missing_config,
+      [:derivation_salt]}` (ADR-0003 amendment A decision 3).
     * `:static_encryption_context` is validated and bounded here, against the
       vocabulary and the bounds `Encryptor.Context` owns: at most
       `Encryptor.Context.max_pairs/0` pairs, at most
@@ -146,6 +156,14 @@ defmodule Encryptor.Vault.Config do
   @key_material_options [:key, :keys, :root_key, :private_key, :passphrase, :reference_subkey]
   @reference_subkey_bytes 32
 
+  # ADR-0003 amendment A decision 3. Refused in `use` options for a different
+  # reason than key material is, and the message says which: a salt is not
+  # secret, but a per-deployment value compiled into a `.beam` is shared by
+  # every deployment built from that artifact, which is the one property it
+  # must not have.
+  @deployment_options [:derivation_salt]
+  @derivation_salt_bytes 32
+
   # The probe the known-answer check derives against. It is a package
   # constant rather than configuration because ADR-0004 decision 4 describes
   # configuration as carrying one pinned value, not a pair, which only closes
@@ -183,7 +201,8 @@ defmodule Encryptor.Vault.Config do
           required_context: [String.t()],
           required_keys: [String.t()],
           reference_subkey: binary() | nil,
-          reference_check: String.t() | nil
+          reference_check: String.t() | nil,
+          derivation_salt: binary() | nil
         }
 
   defstruct [
@@ -200,7 +219,8 @@ defmodule Encryptor.Vault.Config do
     :required_context,
     :required_keys,
     :reference_subkey,
-    :reference_check
+    :reference_check,
+    :derivation_salt
   ]
 
   @doc """
@@ -260,6 +280,7 @@ defmodule Encryptor.Vault.Config do
 
   defp refuse_key_material!(vault, {key, _value}) do
     if key in @key_material_options, do: raise_key_material!(vault, "option :#{key}")
+    if key in @deployment_options, do: raise_deployment_value!(vault, key)
   end
 
   defp nested_keys(provider_opts) do
@@ -279,6 +300,20 @@ defmodule Encryptor.Vault.Config do
     committed to the host's build artifacts. Key material belongs in the \
     vault's `init/1` callback, read from the environment or a secrets \
     manager at start (ADR-0001 decision 5).
+    """
+  end
+
+  defp raise_deployment_value!(vault, key) do
+    raise ArgumentError, """
+    #{inspect(vault)}: option :#{key} is a per-deployment value and may not be \
+    passed to `use Encryptor.Vault`.
+
+    It is not secret, so this is not the key-material refusal. It is refused \
+    because options given to `use` are compiled into the module's .beam file, \
+    and every deployment built from that artifact would then share one value \
+    whose whole purpose is to differ between them. It belongs in the vault's \
+    `init/1` callback, in application environment, or in `start_link/1` \
+    options (ADR-0003 amendment A decision 3).
     """
   end
 
@@ -347,7 +382,8 @@ defmodule Encryptor.Vault.Config do
          {:ok, required} <- required_context(vault, profile, opts),
          {:ok, static} <- static_encryption_context(vault, profile, opts),
          {:ok, subkey} <- reference_subkey(vault, profile, opts),
-         {:ok, check} <- reference_check(vault, profile, subkey, opts) do
+         {:ok, check} <- reference_check(vault, profile, subkey, opts),
+         {:ok, salt} <- derivation_salt(vault, opts) do
       {:ok,
        %__MODULE__{
          vault: vault,
@@ -363,7 +399,8 @@ defmodule Encryptor.Vault.Config do
          required_context: required,
          required_keys: required_keys(profile, required),
          reference_subkey: subkey,
-         reference_check: check
+         reference_check: check,
+         derivation_salt: salt
        }}
     end
   end
@@ -627,6 +664,27 @@ defmodule Encryptor.Vault.Config do
     end
   end
 
+  # ADR-0003 amendment A decision 3. Optional at start and required at
+  # derivation: a vault with no salt starts exactly as it did before the
+  # amendment and fails only `Encryptor.Vault.derive/3`, which is what keeps
+  # this from breaking every existing vault for a surface most never call.
+  #
+  # Both profiles take it. A `:single` vault derives from its one key just as
+  # a `:tenant` vault derives from a tenant's, and there is no reason the
+  # salted tree should exist for one and not the other.
+  defp derivation_salt(vault, opts) do
+    case Keyword.fetch(opts, :derivation_salt) do
+      {:ok, salt} when is_binary(salt) and byte_size(salt) >= @derivation_salt_bytes ->
+        {:ok, salt}
+
+      {:ok, _other} ->
+        {:error, error(vault, {:invalid_config, :derivation_salt, :invalid_length})}
+
+      :error ->
+        {:ok, nil}
+    end
+  end
+
   defp reference_check(vault, :tenant, subkey, opts) do
     case Keyword.fetch(opts, :reference_check) do
       {:ok, pinned} when is_binary(pinned) ->
@@ -750,6 +808,10 @@ defmodule Encryptor.Vault.Config do
         config
         |> Map.from_struct()
         |> Map.put(:reference_subkey, redact(config.reference_subkey))
+        # Not secret, and redacted anyway: a redacted non-secret costs
+        # nothing, and an operator who cannot tell a salt from a subkey at a
+        # glance will eventually paste the wrong one.
+        |> Map.put(:derivation_salt, redact(config.derivation_salt))
         |> Map.put(:provider, redact_provider(config.provider))
         # The provider's frozen state is whatever its `init/1` built out of
         # its options, so it holds everything the options held and usually a

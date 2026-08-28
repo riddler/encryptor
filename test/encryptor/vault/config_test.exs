@@ -11,6 +11,8 @@ defmodule Encryptor.Vault.ConfigTest do
   # on its own - the struct's Inspect implementation redacts it, and that
   # redaction is asserted at the bottom of this file.
   @subkey String.duplicate("s", 32)
+  # Not key material, and redacted anyway - see "the derivation salt" below.
+  @salt String.duplicate("p", 32)
   @provider {TestVaults.Provider, key: "fixture"}
 
   defp single(opts \\ []) do
@@ -486,6 +488,49 @@ defmodule Encryptor.Vault.ConfigTest do
 
       assert {:invalid_config, :reference_check, :single_profile} =
                reason(single(reference_check: "pinned"))
+    end
+  end
+
+  describe "the derivation salt" do
+    # sabotage: gave :derivation_salt a default in defaults/0 - red, because
+    # an unconfigured vault then reports a salt it was never given, and the
+    # missing-config failure amendment A defers to `derive/3` never happens.
+    test "is optional on both profiles, and absent means nil" do
+      assert {:ok, %Config{derivation_salt: nil}} = single()
+      assert {:ok, %Config{derivation_salt: nil}} = tenant()
+    end
+
+    # sabotage: dropped the byte_size guard from derivation_salt/2 - red on
+    # both refusals.
+    test "is a binary of at least 32 bytes when present" do
+      assert {:invalid_config, :derivation_salt, :invalid_length} =
+               reason(single(derivation_salt: String.duplicate("p", 31)))
+
+      assert {:invalid_config, :derivation_salt, :invalid_length} =
+               reason(single(derivation_salt: :not_a_binary))
+
+      assert {:ok, %Config{derivation_salt: salt}} = single(derivation_salt: @salt)
+      assert byte_size(salt) == 32
+    end
+
+    # sabotage: removed :derivation_salt from @deployment_options - red,
+    # because the per-deployment value then compiles into the .beam.
+    test "is refused in use options, as a deployment value rather than a secret" do
+      message =
+        assert_raise ArgumentError, fn ->
+          Config.validate_use_opts!(TestVaults.NoInit, derivation_salt: @salt)
+        end
+
+      assert message.message =~ "per-deployment value"
+      refute message.message =~ "key material"
+    end
+
+    # sabotage: dropped the salt from the Inspect redaction map - red.
+    test "is redacted when rendered, though it is not secret" do
+      {:ok, config} = single(derivation_salt: @salt)
+
+      refute inspect(config) =~ @salt
+      assert inspect(config) =~ "derivation_salt: \"[redacted]\""
     end
   end
 

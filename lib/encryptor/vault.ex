@@ -105,6 +105,7 @@ defmodule Encryptor.Vault do
   alias Encryptor.Error
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Decrypt
+  alias Encryptor.Vault.Derive
   alias Encryptor.Vault.Encrypt
   alias Encryptor.Vault.Rekey
 
@@ -228,6 +229,13 @@ defmodule Encryptor.Vault do
       @spec rekey!(binary(), keyword()) :: binary()
       def rekey!(ciphertext, opts \\ []) do
         Encryptor.Vault.rekey!(__MODULE__, ciphertext, opts)
+      end
+
+      @doc Encryptor.Vault.Docs.derive()
+      @spec derive(String.t(), keyword()) ::
+              {:ok, binary()} | {:error, Encryptor.Error.t()}
+      def derive(purpose, opts \\ []) do
+        Encryptor.Vault.derive(__MODULE__, purpose, opts)
       end
 
       @doc """
@@ -382,6 +390,29 @@ defmodule Encryptor.Vault do
       {:ok, ciphertext} -> ciphertext
       {:error, %Error{} = error} -> raise error
     end
+  end
+
+  @doc """
+  The derivation path, behind a vault module's generated `derive/2`.
+
+  ADR-0003 amendment A. The scope is `{ikm_selector, salt, info, length}`:
+  `purpose` and `opts[:key]` are the two halves of the selector, the salt is
+  the vault's `:derivation_salt` and never the caller's, and `:info` and
+  `:length` are the caller's. `Encryptor.Vault.Derive` holds the order and the
+  reasons.
+
+  There is no `derive!/3`. Every other bang variant here exists for an
+  application call site that would rather let a supervisor see the failure;
+  this surface's caller is a library, which has a tagged tuple to thread and
+  an error vocabulary of its own to map onto.
+
+  A non-binary purpose is a `FunctionClauseError` rather than an
+  `Encryptor.Error`, for the same reason `encrypt/3` makes a non-binary
+  plaintext one: it is wrong in the source, not at runtime.
+  """
+  @spec derive(module(), String.t(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
+  def derive(vault, purpose, opts \\ []) when is_binary(purpose) and is_list(opts) do
+    Derive.call(vault, purpose, opts)
   end
 
   @doc """

@@ -4,6 +4,11 @@ Status: accepted (2026-08-27, amended at acceptance: the `tenant_ref/2`
 signature takes the reference subkey rather than a root vault, per
 ADR-0005 decision 5 and its open question 1)
 
+**Amendment A (2026-08-28) is proposed, not accepted.** It is appended at the
+end of this record, it is additive, and it changes none of decisions 1 to 9
+below. Read the decisions as accepted and the amendment as a proposal
+awaiting the operator's acceptance reading.
+
 ## Context
 
 ADR-0001 fixed the vault and ADR-0002 fixed the provider contract. Both stop
@@ -734,3 +739,223 @@ Recorded rather than guessed. Each names who should settle it.
    should be re-examined once there is a real workload, alongside ADR-0001
    open question 2's cache bounds, rather than being treated as settled by
    repetition.
+
+## Amendment A (proposed, 2026-08-28): the salted derived-subkey surface
+
+Status: **proposed**. Nothing below is accepted; the acceptance reading is the
+operator's. The decisions above are unchanged, and this amendment only adds.
+
+### Why now
+
+`encryptor_ecto`'s blind index (its ADR-0003, assumptions A8 and A11) needs a
+per-scope derived key and must not receive the key material it is derived
+from. Decision 7 above reserved the label space for exactly that tree, but the
+package exposes no way to reach it: `Encryptor.Kdf` expands from material the
+caller already holds, and `Encryptor.Envelope.subkey/2` takes an unwrapped
+`%Encryptor.Key.Aes{}` that downstream code has no path to. `enc-ix8` is that
+gap.
+
+The amended `encryptor_ecto` derivation also names a vault-configured
+per-deployment salt (its A10, which further requires that salt be distinct
+from any encryption salt). `Encryptor.Kdf` is deliberately HKDF-**Expand**
+only, with no salt parameter, and its moduledoc records why: every input this
+package derives from is already a uniformly random 256-bit key, which is the
+case RFC 5869 section 3.3 names as the one where the extract step may be
+skipped. That module also records the cost of changing its mind - "adding an
+extract step later would change every derived key" - and calls the change an
+ADR amendment rather than a refactor.
+
+The operator settled it on 2026-08-28, in these words:
+
+> I agree with the salt ruling - add the salt now via an upstream HKDF-Extract
+> amendment, shaped to A8's {ikm_selector, salt, info, length}
+
+The timing argument is the whole reason this is cheap: nothing derived through
+this package is published or persisted anywhere real. The Hex 0.1.0 is a
+stub, no host has stored a wrapped tenant key, and no blind index value
+exists. The compatibility consequence below is therefore a consequence on
+paper only, and it will not be again.
+
+### The decisions
+
+**A1. `Encryptor.Kdf` grows HKDF-Extract, as a separate primitive.**
+`extract/2` implements RFC 5869 section 2.2 with SHA-256:
+`PRK = HMAC-SHA256(salt, IKM)`, where the salt is the HMAC key and the input
+key material is the HMAC message. It is added beside `expand/3` rather than
+folded into it, so that the two RFC halves stay separately nameable and
+separately testable against the RFC's own vectors.
+
+**`extract/2` itself is the unguarded RFC primitive, and the 32-byte salt
+guard sits above it.** RFC 5869 permits a salt of any length, including none
+at all, because HMAC absorbs any length; the RFC's own appendix A vectors use
+a 13-byte salt and an empty one. Putting a length guard on `extract/2` would
+make those vectors unrunnable against this package's own function, and a
+golden vector that has to be checked against a reimplementation of the thing
+under test is not a golden vector.
+
+So the guard lives at the two places that are about this package's use rather
+than about HKDF: `salted_subkey/5` refuses a salt under 32 bytes, and A3's
+configuration validation refuses one at start. A salt is a per-deployment
+constant supplied by an operator, and a short or absent one is a
+misconfiguration rather than a runtime event; the guard is what makes the
+"per-deployment" claim enforceable rather than aspirational. `extract/2`
+stays a faithful, directly testable RFC 5869 section 2.2.
+
+**A2. Exactly one derivation tree is salted, and it is the new one.** Two
+trees stay unsalted and keep the expand-only guarantee decision 6 gave them:
+
+| Tree | Salted | Why |
+|---|---|---|
+| `"encryptor/v1/root-wrap"` | no | Its input is deployment-supplied root key material, already uniform. Salting it changes the root vault's provider material, which is a rewrap of every wrapped tenant key. |
+| `"encryptor/v1/tenant-ref"` | no | Its input is the same root material. Salting it changes every stored `tenant_ref`, which is an identity column in every row and a value published in every message header (open question 2's resolution). |
+| The exported tree of A4 | **yes** | Its output leaves the package, and it is the only tree a downstream consumer names a scope in. |
+
+The salt buys nothing cryptographically on the first two - RFC 5869 section
+3.3's argument still applies to them verbatim - and costs a migration this
+package has no way to run for a host. It buys two real things on the third:
+independent derivation domains for two deployments that were provisioned with
+the same tenant master key material (a restored backup, a cloned staging
+environment), and a deployment-scoped input the consumer cannot supply,
+which is what makes an index value from one deployment meaningless in
+another.
+
+So the moduledoc's expand-only argument is narrowed, not withdrawn. It
+remains the recorded reason those two trees have no extract step.
+
+**A3. The salt is vault configuration, named `:derivation_salt`.** It is one
+value per deployment, it is not per tenant and not per call, and a caller
+cannot supply it or override it - which is the point. Four properties:
+
+- It is refused in `use Encryptor.Vault` options, the way key material is
+  (decision-adjacent to ADR-0001 decision 5). The reason is different, and the
+  refusal message says so: a salt is not secret, but a per-deployment value
+  compiled into a `.beam` is shared by every deployment built from that
+  artifact, which is the one thing it must not be. It arrives through
+  `init/1`, application environment, or `start_link/1` options.
+- It is optional at start, and required at derivation. A vault with no salt
+  starts exactly as it does today and fails only a `derive/3` call, with
+  `{:missing_config, [:derivation_salt]}`. Making it required at start would
+  break every existing vault for a surface most of them never call.
+- It is at least 32 bytes, per A1. `{:invalid_config, :derivation_salt,
+  :invalid_length}` is the refusal, and it renders without the value.
+- It is **distinct from any encryption salt**, per `encryptor_ecto`'s A10.
+  This package has no other salt today, so the distinctness is currently
+  guaranteed by there being nothing to collide with; the name is chosen so
+  that a future encryption-side salt cannot land on the same option by
+  accident.
+
+It is not treated as secret in `Inspect` terms, but it is redacted anyway,
+because a redacted non-secret costs nothing and an operator who cannot tell
+the two apart at a glance will eventually paste the wrong one.
+
+**A4. The exported surface is `Encryptor.Vault.derive/3`, and it takes a scope
+of `{ikm_selector, salt, info, length}`.** The operator's ruling fixes that
+shape. Mapped onto this package's existing surfaces:
+
+| A8 element | Where it comes from |
+|---|---|
+| `ikm_selector` | `{purpose, selector}`: the label purpose of decision 7, plus the vault's own selector - `:default` on a `:single` vault, the tenant id on a `:tenant` vault. Both halves are caller-supplied and neither is key material. |
+| `salt` | The vault's `:derivation_salt`. **Never the caller's** - A3. |
+| `info` | The caller's, verbatim, opaque to this package. This is the nesting the `Encryptor.Kdf` moduledoc already describes: what the inner info string identifies belongs to whichever package owns the tree. |
+| `length` | The caller's, bounded by `expand/3`'s existing RFC limit. |
+
+The construction, in full:
+
+```
+PRK          = HKDF-Extract(salt: derivation_salt, ikm: tenant_master_key)
+purpose_key  = HKDF-Expand(PRK, info: "encryptor/v1/<purpose>", 32)
+derived      = HKDF-Expand(purpose_key, info: <caller info>, length)
+```
+
+Three points about it are deliberate.
+
+*The two expands are never collapsed into one.* Concatenating the label and
+the caller's info into a single info string is ambiguous - purpose `"a"` with
+info `"b"` and purpose `"ab"` with info `""` would spell the same string - and
+the collision is exactly the label-reuse failure decision 6 forbids. Nesting
+is unambiguous because the purpose is consumed by a whole expansion before
+the caller's info is read.
+
+*The second expand always runs, including when `info` is `""`.* A caller
+asking for the bare purpose key gets `HKDF-Expand(purpose_key, "", length)`,
+not `purpose_key`. This costs one HMAC and buys a real property: the
+intermediate purpose key never leaves the package, so every exported byte is
+one expansion further from the tree's root than anything the package holds
+internally. `info: ""` is a legitimate scope, not a missing argument.
+
+*The input key material is never returned, and never reaches the caller in
+any form.* This is A8 and A11's whole content. The vault resolves the
+descriptor through its provider, derives inside the call, and returns
+`{:ok, binary()}` holding derived bytes only.
+
+**A5. A descriptor the package cannot derive from is a typed refusal, not a
+fallback.** `derive/3` resolves through `Encryptor.Vault.Resolve`'s existing
+`encryption_key/3`, so it sees whatever the provider answers. An
+`%Encryptor.Key.Aes{}` derives. An `%Encryptor.Key.Kms{}` does not: its
+material is not in this process, and obtaining it would mean asking a key
+manager to export a key, which is the property a key manager exists to
+refuse. That is `{:invalid_key_descriptor, :not_derivable}` - an existing
+reason, so this amendment adds no vocabulary there.
+
+**A6. `Error.operation` gains `:derive`.** A derivation is not an encrypt, a
+decrypt, a rekey, or a start, and reporting it as one of those would make an
+operator's error line lie about which call failed. This is the only vocabulary
+addition in the amendment.
+
+**A7. Only the encryption key is consulted, never the decryption candidates.**
+`derive/3` calls `encryption_key/2`, the single current key, and not
+`decryption_keys/2`. A derived subkey is recomputed on demand rather than
+stored (decision 7), so there is no historical value to reproduce here; a
+consumer that needs an index under a superseded tenant key version is asking
+for the re-index pass that decision 6 already describes, not for a second
+candidate list. Recorded because the asymmetry with the encrypt and decrypt
+paths is deliberate and would otherwise read as an omission.
+
+### Consequences
+
+**Every key derived through the salted tree changes, and that is accepted
+now.** Concretely: a value derived through `derive/3` before this amendment
+and after it differs, so any stored blind index computed against a
+pre-amendment build is unreadable. Today that set is empty - `derive/3` did
+not exist, no index value has been computed anywhere, the published 0.1.0 is
+a scaffold, and no host has stored a wrapped tenant key. This is the one
+moment the change is free, which is why the ruling was made at it.
+
+**The capability warning of decision 7 is unchanged, and now has a caller.**
+`derive/3` requires the vault that holds the tenant master key, so a
+component granted the ability to derive an index key is a component that can
+also decrypt. The salt does not change this and nothing in this amendment
+provides capability separation; open question 4's resolution - independently
+wrapped index keys, if a genuine search-only consumer materializes - remains
+the recorded upgrade path.
+
+**`Encryptor.Kdf` is no longer expand-only, and its moduledoc is narrowed
+rather than rewritten.** The RFC 5869 section 3.3 argument still holds for
+`root-wrap` and `tenant-ref`, and the moduledoc keeps it for them.
+
+**A host that rotates its `:derivation_salt` re-indexes.** The salt is
+effectively permanent from the first stored derived value, in the same way
+and for the same reason the reference subkey is (open question 2's
+resolution). This is worth an explicit line in `enc-53a`'s runbook, and it is
+flagged here rather than assumed.
+
+### Open questions this amendment adds
+
+A-1. **Whether the salt should also cover the `root-wrap` and `tenant-ref`
+trees at some future version bump.** A2 says no on migration-cost grounds
+while the cost is real, but the cost is only real once a host stores
+something. If a `v2` label space is ever minted for another reason, salting
+those two trees at the same time is nearly free and should be reconsidered
+then rather than rediscovered.
+
+A-2. **Whether `:derivation_salt` should be per tenant rather than per
+deployment.** Per deployment is what `encryptor_ecto`'s A10 asks for and what
+A3 implements. A per-tenant salt would give an extra domain separation the
+tenant master key already provides, at the cost of a second per-tenant column;
+it is probably redundant, and it is recorded rather than dismissed.
+
+A-3. **Whether `derive/3` belongs on the generated vault surface at all.**
+It is generated as `MyVault.derive/2` for symmetry with `encrypt/2` and
+`decrypt/2`, but unlike those it is not something a call site invokes -
+its caller is another library. Leaving it on `Encryptor.Vault` alone would
+make that clearer. Settle with `encryptor_ecto`'s first real consumer.
