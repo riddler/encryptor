@@ -106,13 +106,20 @@ defmodule Encryptor.Vault.Encrypt do
   alias Encryptor.Vault.Resolve
 
   @doc false
-  @spec call(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
-  def call(vault, plaintext, opts) when is_binary(plaintext) and is_list(opts) do
+  # `reserved` is the package-reserved context layer, and it is a positional
+  # argument rather than an option so that no caller of the public vault
+  # surface can reach it - see `Encryptor.Vault.Resolve.context/5`. Its only
+  # caller is `Encryptor.Envelope`, writing ADR-0003 decision 4's binding onto
+  # a wrapped tenant key.
+  @spec call(module(), binary(), keyword(), Context.context()) ::
+          {:ok, binary()} | {:error, Error.t()}
+  def call(vault, plaintext, opts, reserved \\ %{})
+      when is_binary(plaintext) and is_list(opts) and is_map(reserved) do
     with {:ok, config} <- Vault.ready(vault, :encrypt),
          {:ok, selector} <- Resolve.selector(config, opts, :encrypt),
          {:ok, descriptor} <- Resolve.encryption_key(config, selector, :encrypt),
          {:ok, keyring} <- Keyring.build(vault, :encrypt, descriptor),
-         {:ok, context} <- Resolve.context(config, selector, opts, :encrypt) do
+         {:ok, context} <- Resolve.context(config, selector, opts, :encrypt, reserved) do
       config
       |> client(keyring, selector)
       |> engine_encrypt(config, plaintext, context, :encrypt)

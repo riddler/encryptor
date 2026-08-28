@@ -115,13 +115,21 @@ defmodule Encryptor.Vault.Decrypt do
   alias Encryptor.Vault.Resolve
 
   @doc false
-  @spec call(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
-  def call(vault, ciphertext, opts) when is_binary(ciphertext) and is_list(opts) do
+  # `reserved` is the package-reserved context layer the reader reproduces,
+  # positional for the reason `Encryptor.Vault.Resolve.context/5` gives. Its
+  # only caller is `Encryptor.Envelope.unwrap/2`, reproducing ADR-0003
+  # decision 4's binding. Note that reproducing it here is not the same as
+  # *requiring* it: `agree/4` below compares only keys present in both maps,
+  # so the envelope performs its own presence check before calling in.
+  @spec call(module(), binary(), keyword(), Context.context()) ::
+          {:ok, binary()} | {:error, Error.t()}
+  def call(vault, ciphertext, opts, reserved \\ %{})
+      when is_binary(ciphertext) and is_list(opts) and is_map(reserved) do
     with {:ok, config} <- Vault.ready(vault, :decrypt),
          {:ok, selector} <- Resolve.selector(config, opts, :decrypt),
          {:ok, candidates} <- Resolve.decryption_keys(config, selector, :decrypt),
          {:ok, keyring} <- Keyring.build_all(vault, :decrypt, candidates),
-         {:ok, context} <- Resolve.context(config, selector, opts, :decrypt),
+         {:ok, context} <- Resolve.context(config, selector, opts, :decrypt, reserved),
          :ok <- agree(config, ciphertext, context) do
       config
       |> Encrypt.client(keyring, selector)
