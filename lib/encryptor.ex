@@ -14,10 +14,14 @@ defmodule Encryptor do
   Ciphertexts carry the AWS Encryption SDK message format, so anything written
   here is readable by the official ESDKs in any language.
 
-  The contracts are decided and implementation is under way. This module
-  exists so the package has a root; the vault surface, the key-provider
-  behaviour, the per-tenant envelope, the encryption-context convention and
-  the rotation model each have an accepted decision record behind them.
+  Two guides are the way in: `guides/getting-started.md` stands up a
+  single-key vault and then a per-tenant one, and `guides/rotation-runbook.md`
+  is the four operator procedures and what each of them destroys.
+
+  This module exists so the package has a root; the vault surface, the
+  key-provider behaviour, the per-tenant envelope, the encryption-context
+  convention and the rotation model each have an accepted decision record
+  behind them.
 
   `Encryptor.Error` is the first of those contracts in code: the one error
   struct every entry point returns, and the closed vocabulary of reasons it
@@ -30,6 +34,12 @@ defmodule Encryptor do
   Encryptor.Vault, otp_app: :my_app` defines a supervised vault, resolves and
   freezes its configuration at start, and answers a vault that is not running
   with a typed error rather than an exit from inside a library. Its
-  `encrypt/2`, `decrypt/2` and `rekey/2` entry points are not built yet.
+  `encrypt/2`, `decrypt/2` and `rekey/2` entry points are the whole of the
+  everyday surface.
+
+  `Encryptor.Envelope` is the level 1 to level 2 relationship above that
+  surface: how a tenant master key is minted, what protects it at rest, and
+  how it gets back into memory. `Encryptor.Message.describe/1` reads what a
+  stored message says about itself, without a key and without verifying it.
   """
 end
