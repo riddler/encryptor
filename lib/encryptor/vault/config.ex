@@ -59,7 +59,11 @@ defmodule Encryptor.Vault.Config do
   encrypt: a vault that cannot be configured correctly does not start.
 
     * `:provider` is required, is a `{module, opts}` pair, and may not carry
-      both `:key` and `:keys` (ADR-0005 decision 4).
+      both `:key` and `:keys` (ADR-0005 decision 4). Its `c:Encryptor.Provider.init/1`
+      runs here, once, and what it returns is frozen as `:provider_state` -
+      the state every later resolution callback is handed (ADR-0002
+      decision 1). A provider exporting no `init/1` keeps its option list as
+      its state, which is the fallback `Encryptor.Provider.init/2` owns.
     * `:commitment_policy` defaults to `:require_encrypt_require_decrypt` and
       may be relaxed to `:require_encrypt_allow_decrypt`.
       `:forbid_encrypt_allow_decrypt` is refused outright: that policy exists
@@ -123,6 +127,8 @@ defmodule Encryptor.Vault.Config do
 
   alias Encryptor.Context
   alias Encryptor.Error
+  alias Encryptor.Provider
+  alias Encryptor.Vault.Reference
 
   @default_commitment_policy :require_encrypt_require_decrypt
   @allowed_commitment_policies [:require_encrypt_require_decrypt, :require_encrypt_allow_decrypt]
@@ -167,6 +173,7 @@ defmodule Encryptor.Vault.Config do
           vault: module(),
           otp_app: atom(),
           provider: {module(), term()},
+          provider_state: term(),
           cache: cache(),
           commitment_policy: :require_encrypt_require_decrypt | :require_encrypt_allow_decrypt,
           algorithm_suite_id: 0x0578 | 0x0478,
@@ -183,6 +190,7 @@ defmodule Encryptor.Vault.Config do
     :vault,
     :otp_app,
     :provider,
+    :provider_state,
     :cache,
     :commitment_policy,
     :algorithm_suite_id,
@@ -330,6 +338,7 @@ defmodule Encryptor.Vault.Config do
 
   defp build(vault, otp_app, opts) do
     with {:ok, provider} <- provider(vault, opts),
+         {:ok, provider_state} <- provider_state(vault, provider),
          {:ok, policy} <- commitment_policy(vault, opts),
          {:ok, suite} <- algorithm_suite_id(vault, opts),
          {:ok, edks} <- max_encrypted_data_keys(vault, opts),
@@ -344,6 +353,7 @@ defmodule Encryptor.Vault.Config do
          vault: vault,
          otp_app: otp_app,
          provider: provider,
+         provider_state: provider_state,
          cache: cache,
          commitment_policy: policy,
          algorithm_suite_id: suite,
@@ -388,6 +398,43 @@ defmodule Encryptor.Vault.Config do
       {:ok, {module, provider_opts}}
     end
   end
+
+  # ADR-0002 decision 1: `init/1` runs once, at vault start, and what it
+  # returns becomes the state the vault freezes and hands every later
+  # resolution callback. Running it here rather than on the first encrypt is
+  # what makes a provider's resolution a lock-free read on the hot path, and
+  # what makes a provider that cannot configure itself a vault that does not
+  # start.
+  #
+  # Provider options that are not a keyword list are passed through as the
+  # state unchanged. `Encryptor.Provider.init/2` types its options as a list,
+  # and a provider handed an opaque term is a provider holding a value the
+  # vault has no opinion about; refusing it here would be a new start-time
+  # refusal, which is an ADR rather than a call site.
+  defp provider_state(vault, {module, provider_opts}) when is_list(provider_opts) do
+    case Provider.init(module, provider_opts) do
+      {:ok, state} -> {:ok, state}
+      {:error, reason} -> {:error, provider_init_error(vault, reason)}
+    end
+  end
+
+  defp provider_state(_vault, {_module, provider_opts}), do: {:ok, provider_opts}
+
+  # A provider that fails at start in this package's own vocabulary keeps its
+  # term - `Encryptor.Provider.Static` and `Encryptor.Provider.Function` both
+  # answer with `{:missing_config, path}` and `{:invalid_config, key, detail}`
+  # already. Anything else is carried in `:engine`, which is never rendered,
+  # because a provider's own failure term can hold key material.
+  @provider_init_reasons [:missing_config, :invalid_config, :missing_optional_dependency]
+
+  defp provider_init_error(vault, reason) do
+    if own_reason?(reason),
+      do: error(vault, reason),
+      else: engine_error(vault, {:invalid_config, :provider, :init}, reason)
+  end
+
+  defp own_reason?(reason) when is_tuple(reason), do: elem(reason, 0) in @provider_init_reasons
+  defp own_reason?(_reason), do: false
 
   defp commitment_policy(vault, opts) do
     case Keyword.get(opts, :commitment_policy) do
@@ -625,10 +672,7 @@ defmodule Encryptor.Vault.Config do
   """
   @spec known_answer(binary()) :: String.t()
   def known_answer(reference_subkey) when is_binary(reference_subkey) do
-    :hmac
-    |> :crypto.mac(:sha256, reference_subkey, @known_answer_probe)
-    |> binary_part(0, 16)
-    |> Base.url_encode64(padding: false)
+    Reference.derive(reference_subkey, @known_answer_probe)
   end
 
   @doc """
@@ -691,6 +735,11 @@ defmodule Encryptor.Vault.Config do
     %Error{reason: reason, vault: vault, operation: :start, engine: nil}
   end
 
+  @spec engine_error(module(), Error.reason(), term()) :: Error.t()
+  defp engine_error(vault, reason, engine) do
+    %Error{reason: reason, vault: vault, operation: :start, engine: engine}
+  end
+
   defimpl Inspect do
     import Inspect.Algebra
 
@@ -702,6 +751,10 @@ defmodule Encryptor.Vault.Config do
         |> Map.from_struct()
         |> Map.put(:reference_subkey, redact(config.reference_subkey))
         |> Map.put(:provider, redact_provider(config.provider))
+        # The provider's frozen state is whatever its `init/1` built out of
+        # its options, so it holds everything the options held and usually a
+        # descriptor's key material besides.
+        |> Map.put(:provider_state, redact(config.provider_state))
 
       concat(["#Encryptor.Vault.Config<", to_doc(fields, opts), ">"])
     end
