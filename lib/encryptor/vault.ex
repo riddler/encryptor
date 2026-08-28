@@ -315,6 +315,15 @@ defmodule Encryptor.Vault do
   def cache_name(vault), do: Module.concat(vault, "Cache")
 
   @doc """
+  The registered name of a vault's cache recycler.
+
+  Derived the same way the cache name is, and for the same reason: the
+  recycler bounds exactly one vault's cache (ADR-0001 decision 6).
+  """
+  @spec recycler_name(module()) :: atom()
+  def recycler_name(vault), do: Module.concat(vault, "CacheRecycler")
+
+  @doc """
   The registered name of the process that owns a vault's frozen configuration.
   """
   @spec lifecycle_name(module()) :: atom()

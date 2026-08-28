@@ -15,7 +15,13 @@ defmodule Encryptor.Vault.Supervisor do
        that might read it starts.
     2. The materials cache, when `:cache` is configured. Registered under
        `Encryptor.Vault.cache_name/1`, so two vaults never share one.
-    3. The key provider, when its module exports `child_spec/1`. Its child id
+    3. `Encryptor.Vault.CacheRecycler`, when - and only when - there is a
+       cache. It stops the cache child on the configured `:recycle_after`
+       interval and starts it again, which is the only bound the engine
+       permits on a cache that has no capacity limit, no sweeper, and no way
+       for outside code to measure it (ADR-0001 decision 6). It is not a
+       refinement of the cache and it may not be simplified away.
+    4. The key provider, when its module exports `child_spec/1`. Its child id
        is set to the provider module here, which is what lets
        `Encryptor.Vault.ensure_provider_started/2` ask this supervisor whether
        the provider is alive without knowing anything about how the provider
@@ -36,19 +42,14 @@ defmodule Encryptor.Vault.Supervisor do
   crash. It re-runs on a restart, so a vault brought back up reads its
   configuration again.
 
-  ## What is not here yet
-
-  The cache recycler, which bounds the cache the only way the engine permits
-  by stopping the cache child on an interval and letting this supervisor
-  restart it with a fresh table, is the next child in this list. It is not a
-  refinement of the cache and it may not be simplified away: the engine's
-  cache has no capacity limit, no sweeper, and no way for outside code to
-  measure it (ADR-0001 decision 6).
+  The strategy is `:one_for_one`, so a recycled cache does not take the
+  provider or the frozen configuration down with it.
   """
 
   use Supervisor
 
   alias Encryptor.Vault
+  alias Encryptor.Vault.CacheRecycler
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Lifecycle
 
@@ -79,11 +80,28 @@ defmodule Encryptor.Vault.Supervisor do
 
   defp cache_child(%Config{cache: false}), do: []
 
+  # The recycler is listed here rather than beside the provider so that the
+  # thing it recycles and the thing recycling it are added and removed
+  # together: a vault with `cache: false` has neither. `:recycle_after` is in
+  # seconds, like `:max_age` it is derived from; the recycler's timer is in
+  # milliseconds, and this is the only place the two units meet.
   defp cache_child(%Config{vault: vault, cache: bounds}) when is_map(bounds) do
     [
       %{
         id: :cache,
         start: {AwsEncryptionSdk.Cache.LocalCache, :start_link, [[name: Vault.cache_name(vault)]]}
+      },
+      %{
+        id: :cache_recycler,
+        start:
+          {CacheRecycler, :start_link,
+           [
+             [
+               supervisor: Vault.supervisor_name(vault),
+               interval: bounds.recycle_after * 1_000,
+               name: Vault.recycler_name(vault)
+             ]
+           ]}
       }
     ]
   end
