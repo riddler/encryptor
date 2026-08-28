@@ -125,7 +125,7 @@ defmodule Encryptor.Vault.Decrypt do
          :ok <- agree(config, ciphertext, context) do
       config
       |> Encrypt.client(keyring, selector)
-      |> engine_decrypt(config, ciphertext, context)
+      |> engine_decrypt(config, ciphertext, context, :decrypt)
     end
   end
 
@@ -175,9 +175,19 @@ defmodule Encryptor.Vault.Decrypt do
     end
   end
 
-  @spec engine_decrypt(Client.t(), Config.t(), binary(), Context.context()) ::
-          {:ok, binary()} | {:error, Error.t()}
-  defp engine_decrypt(client, config, ciphertext, context) do
+  @doc false
+  # Public for the same reason `agree/4` is: `rekey/2` (`enc-gsd`) has a
+  # decrypt half, and this failure mapping - the oracle collapse and the one
+  # carve-out from it - is the part of it that must not be spelled twice.
+  # `operation` is threaded so a rekey reports `:rekey` here too.
+  @spec engine_decrypt(
+          Client.t(),
+          Config.t(),
+          binary(),
+          Context.context(),
+          Error.operation()
+        ) :: {:ok, binary()} | {:error, Error.t()}
+  def engine_decrypt(client, config, ciphertext, context, operation) do
     case Client.decrypt(client, ciphertext, encryption_context: context) do
       {:ok, %{plaintext: plaintext}} ->
         {:ok, plaintext}
@@ -192,7 +202,7 @@ defmodule Encryptor.Vault.Decrypt do
          %Error{
            reason: {:missing_required_context_keys, keys},
            vault: config.vault,
-           operation: :decrypt,
+           operation: operation,
            engine: engine
          }}
 
@@ -202,7 +212,7 @@ defmodule Encryptor.Vault.Decrypt do
       # could tell these apart would hold an oracle over the header, and could
       # not act differently on the distinctions anyway.
       {:error, engine} ->
-        {:error, Error.decrypt_failed(config.vault, :decrypt, engine)}
+        {:error, Error.decrypt_failed(config.vault, operation, engine)}
     end
   end
 end

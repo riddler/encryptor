@@ -74,6 +74,8 @@ defmodule Encryptor.Vault do
 
     * `encrypt/2` and `encrypt!/2` - the write half of the door,
     * `decrypt/2` and `decrypt!/2` - the read half,
+    * `rekey/2` and `rekey!/2` - the rotation half: one message, re-encrypted
+      under current materials with its context preserved byte for byte,
     * `child_spec/1` and `start_link/1` - the supervision-tree surface,
     * `stop/0` - stops the vault and erases its frozen configuration,
     * `config/0` - the frozen configuration, or `{:vault_not_started, _}`,
@@ -83,17 +85,28 @@ defmodule Encryptor.Vault do
   intended place to read key material out of the environment or a secrets
   manager, following the pattern hosts already know from `Ecto.Repo.init/2`.
 
-  The `rekey/2` entry point is **not** defined yet: its body is the work of a
-  later bead, and it is built on `ready/2` from here, as `encrypt/2` and
-  `decrypt/2` already are.
+  All three entry points are built on `ready/2` from here, which is why the
+  lifecycle checks live in one place rather than three.
 
-  Records: ADR-0001 decisions 1, 2, 3, 4, 5 and 10; ADR-0002 decision 6.
+  ## What the vault stores about a message: nothing
+
+  This module reads the engine's header in exactly one place, through
+  `Encryptor.Message`, and `rekey/2` is the reason it has to. A message carries
+  its own encryption context, so a rotation needs no row, no table and no
+  second copy of what the ciphertext was bound to. That property is the
+  engine's deviation from the specification rather than the specification, and
+  `Encryptor.Vault.Rekey` records what changes if it is ever corrected
+  (ADR-0004 decision 11 and open question 5).
+
+  Records: ADR-0001 decisions 1, 2, 3, 4, 5 and 10; ADR-0002 decision 6;
+  ADR-0004 decision 11; ADR-0005 decision 7.
   """
 
   alias Encryptor.Error
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Decrypt
   alias Encryptor.Vault.Encrypt
+  alias Encryptor.Vault.Rekey
 
   @typedoc """
   A key selector.
@@ -144,6 +157,18 @@ defmodule Encryptor.Vault do
   """
   @callback decrypt!(ciphertext :: binary(), opts :: keyword()) :: binary()
 
+  @doc """
+  Re-encrypts a message under this vault's currently resolved materials,
+  preserving its encryption context byte for byte (ADR-0001 decision 4).
+  """
+  @callback rekey(ciphertext :: binary(), opts :: keyword()) ::
+              {:ok, binary()} | {:error, Error.t()}
+
+  @doc """
+  `c:rekey/2`, raising the same `Encryptor.Error` it would have returned.
+  """
+  @callback rekey!(ciphertext :: binary(), opts :: keyword()) :: binary()
+
   @optional_callbacks init: 1
 
   @doc false
@@ -163,38 +188,7 @@ defmodule Encryptor.Vault do
       def __vault__(:otp_app), do: @encryptor_vault_otp_app
       def __vault__(:use_opts), do: @encryptor_vault_use_opts
 
-      @doc """
-      Encrypts a value under this vault's currently resolved materials.
-
-      Returns `{:ok, ciphertext}`, where `ciphertext` is the complete
-      self-describing engine message and nothing else: the header, the
-      encryption context and the algorithm suite the engine also reports are
-      already inside it, authenticated, and a second stored copy of them is a
-      copy that can disagree with the message.
-
-      ## Options
-
-        * `:key` - the selector handed to the key provider. A `:tenant` vault
-          takes a non-empty `String.t()` and refuses `:default`; a `:single`
-          vault takes `:default`, which is also what an absent `:key` means,
-          and refuses a string. Either refusal is
-          `{:invalid_selector, selector}`, raised before the provider is
-          consulted.
-
-        * `:encryption_context` - a map of `String.t()` to `String.t()`,
-          merged over the vault's configured static context.
-          `Encryptor.Context` owns the canonical vocabulary, the reserved
-          prefixes, the conflict rules and the size bounds, and is the place
-          to read before choosing a key. Two rules are worth carrying here:
-          **nothing that varies per row** may go in a context - a row id
-          multiplies the materials cache by the size of the table - and on a
-          `:tenant` vault the tenant pair is the vault's, derived from `:key`,
-          so `"tenant_ref"` and `"tenant_id"` are refused from a caller.
-
-      `:algorithm_suite`, `:commitment_policy`, `:frame_length` and
-      `:max_encrypted_data_keys` are deliberately not options. All four are
-      configuration, never per call.
-      """
+      @doc Encryptor.Vault.Docs.encrypt()
       @spec encrypt(binary(), keyword()) :: {:ok, binary()} | {:error, Encryptor.Error.t()}
       def encrypt(plaintext, opts \\ []) do
         Encryptor.Vault.encrypt(__MODULE__, plaintext, opts)
@@ -208,43 +202,7 @@ defmodule Encryptor.Vault do
         Encryptor.Vault.encrypt!(__MODULE__, plaintext, opts)
       end
 
-      @doc """
-      Decrypts a message written under this vault's key material.
-
-      Returns `{:ok, plaintext}` and nothing else: the verified encryption
-      context the engine also reports is deliberately not returned, because a
-      caller that wants it has `Encryptor.Message.describe/1`, which is honest
-      about being an unverified claim.
-
-      Every failure that depends on what is *in* the message - a wrong key, a
-      failed authentication tag, a context value that disagrees with the
-      stored one - is the single reason `:decrypt_failed`, with the detail in
-      the error's `:engine` field for an operator's log line and not for a
-      `case`. Distinguishable decrypt failures are a decryption oracle.
-
-      ## Options
-
-        * `:key` - the selector handed to the key provider, typed by the
-          vault's profile exactly as `encrypt/2` types it. The provider
-          answers with **every** key a stored message might have been written
-          under, so a message written before a rotation still opens.
-
-        * `:encryption_context` - the **reproduced** context: the caller's
-          claim about what the message was bound to, merged over the vault's
-          configured static context the same way the writer's was. For every
-          key present in both the claim and the message, the values must
-          agree, or the read fails - and that comparison is this vault's, run
-          before the engine and before any cache, so it holds on the first
-          read of a row and on the thousandth alike.
-
-          A key the message does not carry is ignored, and a key the message
-          carries that the claim omits is ignored too. What closes that gap is
-          the vault's configured `:required_context`: omitting one of those is
-          `{:missing_required_context_keys, keys}`, which is the one context
-          failure a caller can act on. On a `:tenant` vault the tenant pair is
-          the vault's, derived from `:key`, so `"tenant_ref"` and
-          `"tenant_id"` are refused from a caller here as they are at encrypt.
-      """
+      @doc Encryptor.Vault.Docs.decrypt()
       @spec decrypt(binary(), keyword()) :: {:ok, binary()} | {:error, Encryptor.Error.t()}
       def decrypt(ciphertext, opts \\ []) do
         Encryptor.Vault.decrypt(__MODULE__, ciphertext, opts)
@@ -256,6 +214,20 @@ defmodule Encryptor.Vault do
       @spec decrypt!(binary(), keyword()) :: binary()
       def decrypt!(ciphertext, opts \\ []) do
         Encryptor.Vault.decrypt!(__MODULE__, ciphertext, opts)
+      end
+
+      @doc Encryptor.Vault.Docs.rekey()
+      @spec rekey(binary(), keyword()) :: {:ok, binary()} | {:error, Encryptor.Error.t()}
+      def rekey(ciphertext, opts \\ []) do
+        Encryptor.Vault.rekey(__MODULE__, ciphertext, opts)
+      end
+
+      @doc """
+      `rekey/2`, raising the `Encryptor.Error` it would have returned.
+      """
+      @spec rekey!(binary(), keyword()) :: binary()
+      def rekey!(ciphertext, opts \\ []) do
+        Encryptor.Vault.rekey!(__MODULE__, ciphertext, opts)
       end
 
       @doc """
@@ -377,6 +349,37 @@ defmodule Encryptor.Vault do
   def decrypt!(vault, ciphertext, opts \\ []) do
     case decrypt(vault, ciphertext, opts) do
       {:ok, plaintext} -> plaintext
+      {:error, %Error{} = error} -> raise error
+    end
+  end
+
+  @doc """
+  The rekey path, behind a vault module's generated `rekey/2`.
+
+  The order of operations, the reason the encryption context comes from the
+  message rather than from the caller, and the reason the vault-side value
+  comparison still runs when the reproduced context is the stored one are all
+  in `Encryptor.Vault.Rekey`.
+
+  A non-binary ciphertext is a `FunctionClauseError` rather than an
+  `Encryptor.Error`, for the same reason `encrypt/3` and `decrypt/3` make it
+  one: a value that is not a binary is wrong in the source, not at runtime.
+  """
+  @spec rekey(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
+  def rekey(vault, ciphertext, opts \\ []) when is_binary(ciphertext) and is_list(opts) do
+    Rekey.call(vault, ciphertext, opts)
+  end
+
+  @doc """
+  `rekey/3`, raising the `Encryptor.Error` it would have returned.
+
+  The struct raised is the same one the non-bang variant returns, so a rescue
+  clause matches on `:reason` exactly as a `case` would.
+  """
+  @spec rekey!(module(), binary(), keyword()) :: binary()
+  def rekey!(vault, ciphertext, opts \\ []) do
+    case rekey(vault, ciphertext, opts) do
+      {:ok, ciphertext} -> ciphertext
       {:error, %Error{} = error} -> raise error
     end
   end
