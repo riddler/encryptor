@@ -88,26 +88,20 @@ documents:
 
 ## Installation
 
-**Do not depend on `encryptor 0.1.0` on Hex.** That version is a name
-reservation published before the implementation existed; it holds no code. No
-release has been cut from this repository yet - `CHANGELOG.md` says so, and it
-is the authority. The first real release will be **0.2.0**.
-
-Until then, consume this package as a git dependency pinned to a full SHA:
-
 ```elixir
 def deps do
   [
-    {:encryptor, github: "riddler/encryptor", ref: "<full 40-character sha>"}
+    {:encryptor, "== 0.2.0"}
   ]
 end
 ```
 
-Pin a SHA rather than a branch. A moving dependency on a package that decides
-ciphertext layout is a package that can change what your stored rows mean
-between two `mix deps.get` runs. When 0.2.0 is published, move to an exact
-Hex version - `{:encryptor, "== 0.2.0"}` - and keep reading the changelog
-until 1.0.0, per the stability notice above.
+Pin an exact version and read the changelog before upgrading: per the
+stability notice above, public APIs, storage formats, and derivation
+constants may change between releases until 1.0.0. **Do not depend on
+`encryptor 0.1.0`** - that version is a name reservation published before
+the implementation existed and holds no code; 0.2.0 is the first release
+that does.
 
 Requires Elixir ~> 1.18.
 

@@ -16,22 +16,18 @@ claim nobody can review.
 
 ## Installing
 
-The package is **not published to Hex yet**. The reserved `encryptor 0.1.0` on
-Hex is a name reservation and holds no implementation; depending on it gets you
-an empty package. Until the first real release, consume this package as a git
-dependency, pinned to a commit:
-
 ```elixir
 def deps do
   [
-    {:encryptor, github: "riddler/encryptor", ref: "<full 40-character sha>"}
+    {:encryptor, "== 0.2.0"}
   ]
 end
 ```
 
-Pin a full SHA rather than a branch. A moving `branch:` dependency on a package
-that decides ciphertext layout is a package that can change what your stored
-rows mean between two `mix deps.get` runs.
+Pin an exact version and read the changelog before upgrading: until 1.0.0,
+public APIs, storage formats, and derivation constants may change between
+releases. The reserved `encryptor 0.1.0` on Hex predates the implementation
+and holds no code; depending on it gets you an empty package.
 
 `encryptor` pulls in `aws_encryption_sdk` and nothing else at runtime.
 Raw-keyring usage brings in no AWS, HTTP, or XML libraries.
