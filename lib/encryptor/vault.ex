@@ -72,6 +72,7 @@ defmodule Encryptor.Vault do
 
   `use Encryptor.Vault` defines, on the host's module:
 
+    * `encrypt/2` and `encrypt!/2` - the write half of the door,
     * `child_spec/1` and `start_link/1` - the supervision-tree surface,
     * `stop/0` - stops the vault and erases its frozen configuration,
     * `config/0` - the frozen configuration, or `{:vault_not_started, _}`,
@@ -81,15 +82,16 @@ defmodule Encryptor.Vault do
   intended place to read key material out of the environment or a secrets
   manager, following the pattern hosts already know from `Ecto.Repo.init/2`.
 
-  The `encrypt/2`, `decrypt/2` and `rekey/2` entry points are **not** defined
-  yet: their bodies are the work of later beads, and each is built on `ready/2`
-  from here.
+  The `decrypt/2` and `rekey/2` entry points are **not** defined yet: their
+  bodies are the work of later beads, and each is built on `ready/2` from
+  here, as `encrypt/2` already is.
 
-  Records: ADR-0001 decisions 1, 2, 3, 5 and 10; ADR-0002 decision 6.
+  Records: ADR-0001 decisions 1, 2, 3, 4, 5 and 10; ADR-0002 decision 6.
   """
 
   alias Encryptor.Error
   alias Encryptor.Vault.Config
+  alias Encryptor.Vault.Encrypt
 
   @typedoc """
   A key selector.
@@ -113,6 +115,20 @@ defmodule Encryptor.Vault do
   """
   @callback init(config :: keyword()) :: {:ok, keyword()}
 
+  @doc """
+  Encrypts a value under this vault's currently resolved materials.
+
+  Returns the complete self-describing engine message and nothing else
+  (ADR-0001 decision 4).
+  """
+  @callback encrypt(plaintext :: binary(), opts :: keyword()) ::
+              {:ok, binary()} | {:error, Error.t()}
+
+  @doc """
+  `c:encrypt/2`, raising the same `Encryptor.Error` it would have returned.
+  """
+  @callback encrypt!(plaintext :: binary(), opts :: keyword()) :: binary()
+
   @optional_callbacks init: 1
 
   @doc false
@@ -131,6 +147,51 @@ defmodule Encryptor.Vault do
       @doc false
       def __vault__(:otp_app), do: @encryptor_vault_otp_app
       def __vault__(:use_opts), do: @encryptor_vault_use_opts
+
+      @doc """
+      Encrypts a value under this vault's currently resolved materials.
+
+      Returns `{:ok, ciphertext}`, where `ciphertext` is the complete
+      self-describing engine message and nothing else: the header, the
+      encryption context and the algorithm suite the engine also reports are
+      already inside it, authenticated, and a second stored copy of them is a
+      copy that can disagree with the message.
+
+      ## Options
+
+        * `:key` - the selector handed to the key provider. A `:tenant` vault
+          takes a non-empty `String.t()` and refuses `:default`; a `:single`
+          vault takes `:default`, which is also what an absent `:key` means,
+          and refuses a string. Either refusal is
+          `{:invalid_selector, selector}`, raised before the provider is
+          consulted.
+
+        * `:encryption_context` - a map of `String.t()` to `String.t()`,
+          merged over the vault's configured static context.
+          `Encryptor.Context` owns the canonical vocabulary, the reserved
+          prefixes, the conflict rules and the size bounds, and is the place
+          to read before choosing a key. Two rules are worth carrying here:
+          **nothing that varies per row** may go in a context - a row id
+          multiplies the materials cache by the size of the table - and on a
+          `:tenant` vault the tenant pair is the vault's, derived from `:key`,
+          so `"tenant_ref"` and `"tenant_id"` are refused from a caller.
+
+      `:algorithm_suite`, `:commitment_policy`, `:frame_length` and
+      `:max_encrypted_data_keys` are deliberately not options. All four are
+      configuration, never per call.
+      """
+      @spec encrypt(binary(), keyword()) :: {:ok, binary()} | {:error, Encryptor.Error.t()}
+      def encrypt(plaintext, opts \\ []) do
+        Encryptor.Vault.encrypt(__MODULE__, plaintext, opts)
+      end
+
+      @doc """
+      `encrypt/2`, raising the `Encryptor.Error` it would have returned.
+      """
+      @spec encrypt!(binary(), keyword()) :: binary()
+      def encrypt!(plaintext, opts \\ []) do
+        Encryptor.Vault.encrypt!(__MODULE__, plaintext, opts)
+      end
 
       @doc """
       The supervision-tree child specification for this vault.
@@ -193,6 +254,36 @@ defmodule Encryptor.Vault do
   @spec start_link(module(), keyword()) :: Supervisor.on_start()
   def start_link(vault, start_opts \\ []) do
     Encryptor.Vault.Supervisor.start_link(vault, start_opts)
+  end
+
+  @doc """
+  The encrypt path, behind a vault module's generated `encrypt/2`.
+
+  The order of operations, the CMM stack this builds, and the reason the stack
+  order is not configurable are all in `Encryptor.Vault.Encrypt`.
+
+  A non-binary plaintext is a `FunctionClauseError` rather than an
+  `Encryptor.Error`: the closed reason vocabulary describes what can go wrong
+  with a correct program's arguments at runtime, and a value that is not a
+  binary is wrong in the source.
+  """
+  @spec encrypt(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
+  def encrypt(vault, plaintext, opts \\ []) when is_binary(plaintext) and is_list(opts) do
+    Encrypt.call(vault, plaintext, opts)
+  end
+
+  @doc """
+  `encrypt/3`, raising the `Encryptor.Error` it would have returned.
+
+  The struct raised is the same one the non-bang variant returns, so a rescue
+  clause matches on `:reason` exactly as a `case` would.
+  """
+  @spec encrypt!(module(), binary(), keyword()) :: binary()
+  def encrypt!(vault, plaintext, opts \\ []) do
+    case encrypt(vault, plaintext, opts) do
+      {:ok, ciphertext} -> ciphertext
+      {:error, %Error{} = error} -> raise error
+    end
   end
 
   @doc """
