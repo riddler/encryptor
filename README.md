@@ -6,47 +6,17 @@
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/encryptor/)
 [![License](https://img.shields.io/hexpm/l/encryptor.svg)](https://github.com/riddler/encryptor/blob/main/LICENSE)
 
+> **Status: pre-1.0.** This package is under active development ahead of its
+> 1.0.0 release, expected within the next few weeks. Until then, public APIs,
+> storage formats, and derivation constants may change between releases
+> without a deprecation cycle. Pin an exact version and review the changelog
+> before upgrading.
+
 Ergonomic envelope encryption for Elixir - a vault module, pluggable key
 providers, and per-tenant keys - on the
 [aws_encryption_sdk](https://hex.pm/packages/aws_encryption_sdk) engine.
 
-## Status: built, not released
-
-The five founding architecture decision records were **accepted on
-2026-08-27**. They fix the contracts this package is made of, and the vault
-core and the per-tenant envelope are implemented against them: the `use
-Encryptor.Vault` macro and its supervision tree, the configuration freeze,
-`encrypt/2`, `decrypt/2`, `rekey/2`, the key-provider behaviour with its
-`Static` and `Function` adapters, `Encryptor.Envelope`'s
-`provision/3`/`unwrap/2`/`rewrap/2`, and `Encryptor.Message.describe/1`.
-
-**Nothing is released.** The package is not published to Hex - the reserved
-`encryptor 0.1.0` there is a name reservation holding no implementation - so
-consume it as a git dependency until the first real release. See
-[Installation](#installation).
-
-Start with the **[getting-started guide](guides/getting-started.md)** and the
-**[rotation runbook](guides/rotation-runbook.md)**.
-
-| Record | Decides |
-|---|---|
-| [ADR-0001](docs/adr/0001-vault-layer.md) | The vault layer: one host-owned module that wraps the engine completely, what it supervises, how it is configured, how its cache is bounded, and its error vocabulary |
-| [ADR-0002](docs/adr/0002-key-providers.md) | The key-provider behaviour: a provider resolves a selector to a key descriptor, and only the vault turns a descriptor into a keyring |
-| [ADR-0003](docs/adr/0003-per-tenant-envelope.md) | The per-tenant envelope: a tenant key is 32 random bytes wrapped into an ordinary message, and the host stores the wrapping |
-| [ADR-0004](docs/adr/0004-encryption-context.md) | The encryption-context convention: the canonical keys, who supplies each, and how a vault enforces them |
-| [ADR-0005](docs/adr/0005-rotation-and-crypto-shred.md) | Rotation and crypto-shred: three independent lifecycles, four operator procedures, and the one step that cannot be undone |
-
-The implementation graph derived from them is
-[`docs/plans/260827-enc-2y3-b3-implementation-graph.md`](docs/plans/260827-enc-2y3-b3-implementation-graph.md).
-Work is tracked in this repository's own beads database, under the epic
-"Implement the vault core".
-
-Read the records before writing code here. Until a contract is fixed by an
-accepted record, it is open - and a cryptographic choice made inline in an
-implementation is a defect even when the choice happens to be a good one,
-because the record is what makes it reviewable.
-
-## The charter
+## What this is
 
 Application-level encryption in Elixir usually arrives as one of two things: a
 thin wrapper over `:crypto` that leaves key management to the caller, or a
@@ -54,34 +24,265 @@ full ESDK client whose surface is shaped for the cryptography rather than for
 the application. Neither answers the questions a real application asks - which
 key does this tenant's data use, how does that key rotate without a migration,
 where does the key material actually come from. This package is the layer that
-answers them:
+answers them.
 
-- **A vault module.** `use Encryptor.Vault, otp_app: :my_app` gives a
-  supervised client, configured from app config, with `encrypt`/`decrypt`
-  entry points a call site can use without naming a keyring, a client, or a
-  cryptographic materials manager. One place to configure, one surface to
-  call, and consumers never type the engine's namespace.
+- **A vault module is the surface.** `use Encryptor.Vault, otp_app: :my_app`
+  gives a supervised client, configured from application config and frozen at
+  start, with `encrypt`/`decrypt`/`rekey`/`derive` entry points a call site
+  uses without naming a keyring, a client, or a cryptographic materials
+  manager. Consumers never type the engine's namespace.
 
-- **Pluggable key providers.** Where key material comes from is a behaviour,
-  not a hard-coded choice. A static key resolved at boot, a wrapped key column
-  in the database, a KMS call - each is an adapter behind the same contract,
-  so the call sites do not change when the source does.
+- **Key providers are a behaviour.** Where key material comes from - config, a
+  wrapped-key column, a KMS call - is an adapter behind one contract
+  (`Encryptor.Provider`), so call sites do not change when the source does.
 
-- **Per-tenant keys and rotation.** A multi-tenant host app needs each
-  tenant's data encrypted under that tenant's own key, and needs to roll that
-  key on its own schedule. Key identity and key version are first-class:
-  a ciphertext records which key encrypted it, decryption resolves the key it
-  names, and rotation is re-encryption against a new version rather than a
-  flag day. Because a tenant key is random rather than derived, destroying its
-  wrapping destroys the key, so a crypto-shred is honest.
+- **Per-tenant keys and rotation are first-class.** A ciphertext records which
+  key wrote it, decryption resolves the key it names, and rotation is
+  re-encryption against a new version rather than a flag day. A tenant master
+  key is 32 random bytes rather than a derivation of the tenant id, so
+  destroying its wrapping destroys the key and a crypto-shred is honest.
 
-- **AWS Encryption SDK message format** - ciphertexts are interoperable with
-  the official ESDKs, so data written from Elixir is readable from Java,
+- **The message format stays the AWS ESDK's.** Ciphertexts are interoperable
+  with the official ESDKs, so data written from Elixir is readable from Java,
   Python, JavaScript, or the AWS CLI, and vice versa.
 
-The engine stays `aws_encryption_sdk`. Raw-keyring usage pulls no AWS, HTTP,
-or XML libraries - that client stack is optional in the engine, and only
-KMS-backed providers will bring it in.
+Raw-keyring usage pulls in no AWS, HTTP, or XML libraries; only KMS-backed
+providers bring that stack in.
+
+## The security model in brief
+
+A three-level key hierarchy (ADR-0003):
+
+| Level | What | Where it lives |
+|---|---|---|
+| 1, root key | one per deployment | your secrets manager; never encrypts application data |
+| 2, tenant master key | one per tenant per version | 32 random bytes, wrapped by level 1, stored in your key store |
+| 3, data key | one per message | generated by the engine, wrapped by level 2, discarded |
+
+The properties that follow from it, and that this package enforces rather than
+documents:
+
+- **Key material arrives through `init/1` and only through `init/1`.** A `use`
+  option named `:key`, `:keys`, `:root_key`, `:private_key`, `:passphrase` or
+  `:reference_subkey` fails **compilation**, because by the time a vault
+  starts, such a secret is already baked into a `.beam` file.
+- **The encryption context binds a message to where it was written.** It rides
+  in the clear, covered by the header authentication tag, and a vault composes
+  and enforces it (ADR-0004). A vault may require keys - `table`, `column` -
+  and refuses a write that omits one rather than writing it unbound.
+- **Anti-substitution is this package's own property.** The engine's warm
+  decryption cache can bypass reproduced-context validation
+  ([upstream #96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96)),
+  so the comparison is performed here, above the engine.
+- **Decrypt failures collapse.** Every message-dependent decrypt failure -
+  wrong key, failed tag, context mismatch, commitment rejection - returns
+  `reason: :decrypt_failed`, with the detail in `:engine` for logs only.
+  Distinguishable decrypt failures are a decryption oracle. Failures that
+  depend only on caller arguments stay distinct.
+- **Nothing key-shaped is ever rendered.** `Exception.message/1` renders the
+  reason only, never `:engine`, and never the detail of a reason that can hold
+  key material.
+- **Key derivation is HKDF-SHA256, labelled in one place.** `Encryptor.Kdf`
+  composes every label as `"encryptor/" <> version <> "/" <> purpose`; a call
+  site cannot spell the namespace by hand.
+
+## Installation
+
+**Do not depend on `encryptor 0.1.0` on Hex.** That version is a name
+reservation published before the implementation existed; it holds no code. No
+release has been cut from this repository yet - `CHANGELOG.md` says so, and it
+is the authority. The first real release will be **0.2.0**.
+
+Until then, consume this package as a git dependency pinned to a full SHA:
+
+```elixir
+def deps do
+  [
+    {:encryptor, github: "riddler/encryptor", ref: "<full 40-character sha>"}
+  ]
+end
+```
+
+Pin a SHA rather than a branch. A moving dependency on a package that decides
+ciphertext layout is a package that can change what your stored rows mean
+between two `mix deps.get` runs. When 0.2.0 is published, move to an exact
+Hex version - `{:encryptor, "== 0.2.0"}` - and keep reading the changelog
+until 1.0.0, per the stability notice above.
+
+Requires Elixir ~> 1.18.
+
+## Quickstart
+
+A single-key vault, for an application encrypting its own columns. This is
+card processing: one payments application storing card data for its own use.
+
+```elixir
+defmodule MyApp.Vault do
+  use Encryptor.Vault, otp_app: :my_app
+
+  @impl true
+  def init(config) do
+    key = Base.decode64!(System.fetch_env!("MY_APP_CARD_KEY"))
+
+    {:ok,
+     Keyword.put(config, :provider,
+       {Encryptor.Provider.Static,
+        key: key, namespace: "acme_payments", name: "card/v1"})}
+  end
+end
+```
+
+```elixir
+# config/config.exs
+config :my_app, MyApp.Vault,
+  context_profile: :single,
+  algorithm_suite_id: 0x0478,
+  required_context: ["table", "column"],
+  static_encryption_context: %{"app" => "acme_payments"},
+  cache: [max_age: 60]
+```
+
+Add `MyApp.Vault` to your supervision tree, then:
+
+```elixir
+context = %{"table" => "payment_methods", "column" => "number"}
+
+{:ok, ciphertext} = MyApp.Vault.encrypt(card_number, encryption_context: context)
+{:ok, ^card_number} = MyApp.Vault.decrypt(ciphertext, encryption_context: context)
+```
+
+`ciphertext` is the complete self-describing ESDK message and nothing else.
+You store that one binary; there is no second column to keep in step with it.
+`Encryptor.Message.describe/1` reads what it says about itself, without a key
+and without verifying it:
+
+```elixir
+{:ok, info} = Encryptor.Message.describe(ciphertext)
+
+info.encryption_context
+#=> %{"app" => "acme_payments", "column" => "number", "table" => "payment_methods"}
+info.committed?
+#=> true
+info.encrypted_data_keys
+#=> [%{key_name: "card/v1", provider_id: "acme_payments"}]
+```
+
+Two refusals worth seeing, because they are the model working:
+
+```elixir
+MyApp.Vault.encrypt(card_number, encryption_context: %{"table" => "payment_methods"})
+#=> {:error, %Encryptor.Error{reason: {:missing_required_context_keys, ["column"]}}}
+
+MyApp.Vault.decrypt(ciphertext, encryption_context: %{"table" => "t", "column" => "c"})
+#=> {:error, %Encryptor.Error{reason: :decrypt_failed}}
+```
+
+Three configuration notes the quickstart above is making silently:
+
+- `:context_profile` and `:provider` have **no defaults**, because there is no
+  defensible guess at whether a vault is per-tenant or at where key material
+  comes from.
+- `0x0478` keeps key commitment and drops ECDSA P-384 signing. Configure it
+  when the writer and the reader are the same trust domain, which the
+  encrypted-column case is. Keep the default `0x0578` when a ciphertext
+  crosses a trust boundary.
+- `:max_age` is **required** whenever `:cache` is a list, in seconds, with no
+  default. It is how long a data key may stay in this node's memory, and
+  therefore how long a crypto-shred takes to take effect.
+
+The [getting-started guide](guides/getting-started.md) continues from here
+into the per-tenant vault, the two root secrets a deployment provisions on day
+one, and why the context must carry nothing that varies per row.
+
+## What the package contains
+
+| Module | What it is |
+|---|---|
+| `Encryptor.Vault` | The surface: the `use` macro, the supervision tree, the five-layer config resolution and its freeze, `encrypt/2`, `decrypt/2`, `rekey/2`, `derive/2`, bang variants, `config/0`, `started?/0` |
+| `Encryptor.Provider` | The key-provider behaviour: a provider resolves a selector to key descriptors, and the vault alone turns descriptors into a keyring |
+| `Encryptor.Provider.Static` / `.Function` | The two shipped adapters - keys held in configuration, and keys resolved by a function |
+| `Encryptor.Provider.Conformance` | The behaviour's test suite, `use`-able against your own adapter: state, buildable descriptors, candidate ordering, distinct names, stability, unknown selectors |
+| `Encryptor.Envelope` | The level 1 to level 2 relationship: `provision/3`, `unwrap/2`, `rewrap/2`, `tenant_ref/2` |
+| `Encryptor.Kdf` | HKDF-SHA256: `label/1`, `derive_subkey/3`, `expand/3`, `extract/2`, `salted_subkey/5` |
+| `Encryptor.Key` | The closed set of key descriptors, with `Aes` and `Kms` |
+| `Encryptor.Message` | `describe/1` and its `Info` struct |
+| `Encryptor.Error` | The one error struct and its closed reason vocabulary |
+
+The materials cache is bounded by a recycler that drops the whole table on an
+interval (`:recycle_after`, defaulting to `20 * max_age`), because the
+engine's `LocalCache` has no capacity limit and cannot be substituted through
+the cache behaviour
+([upstream #95](https://github.com/riddler/aws-encryption-sdk-elixir/issues/95)).
+Every entry is re-fetchable derived material, so the worst outcome of a
+recycle is a cold miss.
+
+### Derived subkeys
+
+`derive/2` on your vault module (`Encryptor.Vault.derive/3` underneath) hands a
+downstream library purpose-separated bytes from a tenant's key material without
+handing over the material:
+
+```elixir
+{:ok, index_key} = MyApp.TenantVault.derive("blind-index", key: merchant_id, info: "email")
+```
+
+    PRK         = HKDF-Extract(:derivation_salt, key material)
+    purpose_key = HKDF-Expand(PRK, "encryptor/v1/<purpose>", 32)
+    derived     = HKDF-Expand(purpose_key, info, length)
+
+The salt is the vault's `:derivation_salt` and a caller cannot supply or
+override it, so two deployments provisioned from the same tenant key material
+derive unrelated subkeys. A vault configured without one starts normally and
+fails this call with `{:missing_config, [:derivation_salt]}`.
+
+This surface hides the key material from the caller; it does not create a
+search-only capability. A component that can derive a tenant's index key holds
+that tenant's master key and can therefore also decrypt.
+
+**Rotating `:derivation_salt` is a full reindex.** Every value ever derived
+under the old salt changes, so every stored blind index, and anything else
+built from a derived subkey, must be recomputed from plaintext. Treat the salt
+as pinned for the life of the deployment.
+
+## Not yet
+
+- **Argon2id.** There is no slow-hash surface in this package: no code, no
+  configuration, no dependency, and no accepted record naming one. A consumer
+  needing a memory-hard derivation cannot get it here yet. Tracked as
+  `enc-dtv`.
+- **Telemetry.** ADR-0006 is **proposed**, not accepted, and no events are
+  emitted. Do not build dashboards against it yet.
+
+## Documentation
+
+- **[Getting started](guides/getting-started.md)** - a single-key vault and a
+  per-tenant vault, where key material is allowed to come from, why a host
+  chooses `0x0478`, why `max_age` has no default, and the two root secrets a
+  deployment provisions on day one.
+- **[Rotation runbook](guides/rotation-runbook.md)** - the four operator
+  procedures, what each step destroys, which steps this package ships as
+  functions and which are actions on a store it does not own, and what a
+  crypto-shred does and does not achieve.
+- **[CHANGELOG](CHANGELOG.md)** - read it before every upgrade until 1.0.0.
+
+### Decision records
+
+Every cryptographic choice here is an ADR decision. A key-derivation scheme,
+an encryption-context field, a ciphertext layout, or an algorithm suite chosen
+inline in an implementation is a defect even when the choice happens to be a
+good one, because the record is what makes it reviewable.
+
+| Record | Decides | Status |
+|---|---|---|
+| [ADR-0001](docs/adr/0001-vault-layer.md) | The vault layer: one host-owned module that wraps the engine completely, what it supervises, how it is configured, how its cache is bounded, and its error vocabulary | accepted |
+| [ADR-0002](docs/adr/0002-key-providers.md) | The key-provider behaviour: a provider resolves a selector to a key descriptor, and only the vault turns a descriptor into a keyring | accepted |
+| [ADR-0003](docs/adr/0003-per-tenant-envelope.md) | The per-tenant envelope: a tenant key is 32 random bytes wrapped into an ordinary message, and the host stores the wrapping | accepted, amended |
+| [ADR-0004](docs/adr/0004-encryption-context.md) | The encryption-context convention: the canonical keys, who supplies each, and how a vault enforces them | accepted, amended |
+| [ADR-0005](docs/adr/0005-rotation-and-crypto-shred.md) | Rotation and crypto-shred: three independent lifecycles, four operator procedures, and the one step that cannot be undone | accepted |
+| [ADR-0006](docs/adr/0006-telemetry-and-observability.md) | Telemetry: a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | **proposed** |
+
+The index, including the citation grammar for cross-repo references, is
+[`docs/adr/README.md`](docs/adr/README.md).
 
 ## The family
 
@@ -98,45 +299,23 @@ this package defines no storage schema at all.
 
 The design is written against `aws_encryption_sdk` v1.0.0 as published, with
 module paths cited so every claim can be re-checked. Two upstream issues are
-open and the design works around both until they move:
+open and this package works around both until they move:
 
 - [#95](https://github.com/riddler/aws-encryption-sdk-elixir/issues/95) - the
   materials cache is unbounded and is not substitutable through the cache
   behaviour, so this package bounds it by recycling the cache process.
 - [#96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96) - a
   warm decryption cache bypasses reproduced-context validation, so this
-  package performs the value comparison itself, above the engine. That is what
-  makes anti-substitution a property of this package rather than one it
-  happens to inherit.
+  package performs the value comparison itself, above the engine.
 
-## Installation
+## Contributing
 
-The package is **not published to Hex**. `encryptor 0.1.0` on Hex is a name
-reservation and holds no implementation; do not depend on it. Until the first
-real release, consume this package as a git dependency pinned to a full SHA:
+The full quality gate is `mix quality`; the inner loop is
+`mix quality --profile loop`. The gate must be green before any commit, and
+the format stage runs in check mode, so run `mix format` yourself first.
 
-```elixir
-def deps do
-  [
-    {:encryptor, github: "riddler/encryptor", ref: "<full 40-character sha>"}
-  ]
-end
-```
-
-Pin a SHA rather than a branch. A moving dependency on a package that decides
-ciphertext layout is a package that can change what your stored rows mean
-between two `mix deps.get` runs.
-
-## Guides
-
-- **[Getting started](guides/getting-started.md)** - a single-key vault and a
-  per-tenant vault, where key material is allowed to come from, why a host
-  chooses `0x0478`, why `max_age` has no default, and the two root secrets a
-  deployment provisions on day one.
-- **[Rotation runbook](guides/rotation-runbook.md)** - the four operator
-  procedures, what each step destroys, which steps this package ships as
-  functions and which are actions on a store it does not own, and what a
-  crypto-shred does and does not achieve.
+Read the decision records before writing code here. Until a contract is fixed
+by an accepted record, it is open - and stopping to ask is the correct move.
 
 ## License
 
