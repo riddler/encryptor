@@ -403,8 +403,10 @@ sorted pairs are `encryptor-key-namespace`, `encryptor-key-version`,
 656e63727970746f722d74656e616e74        # "encryptor-tenant"
 ```
 
-The full vector is 145 bytes; the implementation pins it as a constant and a
-change to it is a format change, not a refactor.
+The four pairs are 23/16, 21/1, 17/15 and 20/3 key and value bytes, so the
+full vector is `4 * 6 + (23+16) + (21+1) + (17+15) + (20+3)` = **140 bytes**.
+The implementation pins it as a constant and a change to it is a format
+change, not a refactor.
 
 This is not decoration. GCP `Decrypt` fails when the AAD does not match, so
 the AAD is what makes a wrapping that has been moved between tenants or
