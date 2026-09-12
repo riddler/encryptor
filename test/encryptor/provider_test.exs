@@ -76,10 +76,12 @@ defmodule Encryptor.ProviderTest do
   describe "the behaviour itself" do
     # sabotage: removed :init and :child_spec from @optional_callbacks -
     # compiling NoInit warns about a missing callback, and warnings are errors
-    # in this repo's gate, so this goes red at compile time.
-    test "declares init/1 and child_spec/1 optional" do
+    # in this repo's gate, so this goes red at compile time. `provision/2` is
+    # optional for the same reason `init/1` is: most providers have nothing to
+    # provision (ADR-0007 decision 2).
+    test "declares init/1, child_spec/1 and provision/2 optional" do
       assert Enum.sort(Encryptor.Provider.behaviour_info(:optional_callbacks)) ==
-               [child_spec: 1, init: 1]
+               [child_spec: 1, init: 1, provision: 2]
     end
 
     test "declares the two resolution callbacks required" do

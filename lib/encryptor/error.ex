@@ -72,7 +72,7 @@ defmodule Encryptor.Error do
   other four, and reporting it as one of them would make an operator's error
   line name a call the caller never made.
   """
-  @type operation :: :encrypt | :decrypt | :rekey | :start | :derive
+  @type operation :: :encrypt | :decrypt | :rekey | :start | :derive | :provision
 
   @typedoc """
   The complete reason vocabulary.
@@ -80,7 +80,9 @@ defmodule Encryptor.Error do
   Assembled from the accepted records: ADR-0001 decision 10 fixes the first
   seven, ADR-0002 decision 6 adds four for key resolution, and ADR-0004
   decision 8 adds three for the encryption context. ADR-0005 adds none - a
-  rotation misconfiguration is an `{:invalid_config, key, detail}`.
+  rotation misconfiguration is an `{:invalid_config, key, detail}`. ADR-0007
+  decision 2 adds one, for a provider asked to provision that has no
+  `c:Encryptor.Provider.provision/2`.
   """
   @type reason ::
           :decrypt_failed
@@ -97,6 +99,7 @@ defmodule Encryptor.Error do
           | {:missing_required_context_keys, [String.t()]}
           | {:invalid_context_value, String.t() | :count | :too_large}
           | {:invalid_selector, term()}
+          | {:not_provisionable, module()}
 
   @type t :: %__MODULE__{
           reason: reason(),
@@ -206,6 +209,9 @@ defmodule Encryptor.Error do
 
   defp describe({:invalid_selector, selector}),
     do: "invalid selector #{inspect(selector)} for this vault's context profile"
+
+  defp describe({:not_provisionable, module}),
+    do: "provider #{inspect(module)} cannot provision key material"
 
   @spec where(t()) :: String.t()
   defp where(%__MODULE__{vault: nil, operation: nil}), do: ""

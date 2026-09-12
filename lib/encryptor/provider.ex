@@ -199,6 +199,33 @@ defmodule Encryptor.Provider do
           | {:invalid_key_descriptor, term()}
           | {:provider_not_started, module()}
           | {:missing_optional_dependency, atom()}
+          | {:not_provisionable, module()}
+
+  @typedoc """
+  What `c:provision/2` returns: everything a store needs to reconstruct the
+  descriptor later, and never the plaintext key.
+
+  Keyed by `tenant_ref`, never by the raw selector (ADR-0004 decision 4 as
+  amended, which is what keeps a raw tenant identifier out of the
+  wrapped-key store). It is a map rather than an
+  `%Encryptor.Envelope.WrappedKey{}` because that struct carries the
+  assumption that `wrapped` is an engine message produced by a root vault,
+  and a wrap-provider's `wrapped` is not - a store holding both kinds has to
+  be able to tell them apart. The field names are otherwise identical,
+  deliberately, so that a store can hold one row shape with one extra
+  column.
+
+  Records: ADR-0007 decision 6.
+  """
+  @type provisioned :: %{
+          tenant_ref: String.t(),
+          version: pos_integer(),
+          namespace: String.t(),
+          name: String.t(),
+          bits: 256,
+          wrapped: binary(),
+          key_id: String.t()
+        }
 
   @doc """
   Resolves the provider's configuration into the state the vault freezes.
@@ -229,7 +256,28 @@ defmodule Encryptor.Provider do
   @callback decryption_keys(state :: state(), selector :: selector()) ::
               {:ok, [descriptor(), ...]} | {:error, reason()}
 
-  @optional_callbacks init: 1, child_spec: 1
+  @doc """
+  Creates this selector's key material, where the provider is the thing that
+  can create it.
+
+  Explicit: never called from `c:encryption_key/2` or `c:decryption_keys/2`
+  (ADR-0003 decision 8). Optional for the same reason `c:init/1` is - most
+  providers have nothing to provision, and a provider that omits it is not
+  broken, it is one whose keys arrive some other way. A caller that reaches
+  for it on such a provider gets `{:not_provisionable, module}` from
+  `Encryptor.Vault.provision/2` rather than an `UndefinedFunctionError`.
+
+  Not to be confused with `Encryptor.Envelope.provision/3`, which is a public
+  function rather than a callback, takes a root vault module as its first
+  argument and a defaulted `opts` as its third, and returns an
+  `%Encryptor.Envelope.WrappedKey{}`.
+
+  Records: ADR-0007 decision 2.
+  """
+  @callback provision(state :: state(), selector :: selector()) ::
+              {:ok, provisioned()} | {:error, reason()}
+
+  @optional_callbacks init: 1, child_spec: 1, provision: 2
 
   @doc """
   Runs a provider's `c:init/1`, or falls back to the option list as state.

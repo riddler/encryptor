@@ -16,7 +16,7 @@ defmodule Encryptor.MixProject do
       # module is exactly the warning an optional dependency is supposed to
       # produce, and exactly the one that trains a reader to ignore warnings.
       # `Encryptor.Kdf.slow_hash/3` checks for the module at runtime instead.
-      xref: [exclude: [Argon2.Base]],
+      xref: [exclude: [Argon2.Base, Goth]],
       name: "Encryptor",
       description:
         "Ergonomic envelope encryption for Elixir - vault module, pluggable key providers, per-tenant keys",
@@ -85,6 +85,13 @@ defmodule Encryptor.MixProject do
       # Optional: only a host whose vaults declare `:slow_hash` carries the
       # NIF (ADR-0003 amendment B decision 5).
       {:argon2_elixir, "~> 4.0", optional: true},
+
+      # Optional: only a host running `Encryptor.Provider.GcpKms` carries a
+      # token server for Application Default Credentials (ADR-0007 decision
+      # 9). The HTTP client is deliberately not a dependency at all - the
+      # provider takes the host's own module, because this package will not
+      # pick between finch, req and hackney for a host that already runs one.
+      {:goth, "~> 1.4", optional: true},
 
       # Dev / test
       {:ex_quality, "~> 0.14", only: :dev, runtime: false},

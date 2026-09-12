@@ -160,18 +160,20 @@ defmodule Encryptor.ErrorTest do
   end
 
   describe "the vocabulary is closed" do
-    # sabotage: added a fifteenth term to reason/0 - red. This test exists so
+    # sabotage: added a sixteenth term to reason/0 - red. This test exists so
     # that a later bead extending the vocabulary without an ADR trips over it.
-    test "reason/0 is exactly the fourteen terms the accepted records fix" do
-      assert union_size(:reason) == 14
+    # The fifteenth, `{:not_provisionable, module}`, arrived through ADR-0007
+    # decision 2, which is what the test requires of every addition.
+    test "reason/0 is exactly the fifteen terms the records fix" do
+      assert union_size(:reason) == 15
     end
 
     # sabotage: added :describe to operation/0 - red. ADR-0001 decision 10
-    # fixes four operations and ADR-0003 amendment A adds the fifth,
-    # `:derive`. The fifth arrived through a record, which is what this test
-    # exists to require; a sixth needs one too.
-    test "operation/0 is exactly the four ADR-0001 fixes plus :derive" do
-      assert union_size(:operation) == 5
+    # fixes four operations, ADR-0003 amendment A adds `:derive` and ADR-0007
+    # decision 2 adds `:provision`. Both arrived through a record, which is
+    # what this test exists to require; a seventh needs one too.
+    test "operation/0 is exactly the four ADR-0001 fixes plus :derive and :provision" do
+      assert union_size(:operation) == 6
     end
   end
 
