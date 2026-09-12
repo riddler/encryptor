@@ -20,16 +20,45 @@ and sketched it in one line in the roadmap section:
 "Later, on demand" has arrived. This record fills that reference in. It does
 not overturn the classification: **GCP KMS is a material source, exactly as
 ADR-0002 decision 5 said, and this record is that row expanded rather than
-that row revised.** Nothing below contradicts ADR-0002; where this record
-adds something ADR-0002 left open it says which sentence it is extending.
+that row revised.**
+
+That claim is true of the *shape* and it would be false if left unqualified
+of the *contract*, so the qualification is made here rather than discovered
+later. Two sentences of ADR-0002 are extended by decision 2 below, and both
+are named now:
+
+> `@optional_callbacks init: 1, child_spec: 1`
+> (ADR-0002 decision 1's code block, `docs/adr/0002-key-providers.md:96`,
+> read at `c85d400`)
+
+> GCP KMS and Vault transit are material sources: they decrypt a stored
+> wrapped key and hand back bytes. They are built when someone needs them,
+> against the same descriptor, **with no new contract**.
+> (`docs/adr/0002-key-providers.md:252-254`, read at `c85d400`, emphasis
+> added)
+
+Decision 2 adds one member to that optional-callback list, and "no new
+contract" therefore holds for the *resolution* pair - `encryption_key/2` and
+`decryption_keys/2` are untouched, and the descriptor really is the same -
+but not for *provisioning*, which ADR-0002 had no callback for at all. This
+record is an amendment to ADR-0002 decision 1 in that one respect and says
+so in those words. Nothing else in ADR-0002 is revised.
+
+**The index row for ADR-0002 is deliberately not edited.** ADR-0007 is
+`proposed`; an amendment does not take effect until the operator accepts it,
+and marking an accepted record as amended by an unaccepted one would be this
+record flipping a status that is not its to flip. Adding "amended" to
+ADR-0002's row in `docs/adr/README.md` belongs with the acceptance of this
+record.
 
 What "later, on demand" left undecided turns out to be more than an adapter
 sketch, and that is why this needs a record of its own rather than a module
 and a test.
 
 **The engine cannot dispatch on a GCP key, and that is the whole design.**
-ADR-0002 decision 1 records the engine's closed keyring dispatch: `Cmm.Default`
-matches by struct type over `RawAes`, `RawRsa`, `Multi`, and the four AWS KMS
+ADR-0002's Context records the engine's closed keyring dispatch, crediting it
+to ADR-0001 (`docs/adr/0002-key-providers.md:19-23`, read at `c85d400`):
+`Cmm.Default` matches by struct type over `RawAes`, `RawRsa`, `Multi`, and the four AWS KMS
 keyrings, and returns `{:error, {:unsupported_keyring_type, module}}` for
 anything else. There is no GCP keyring in `aws_encryption_sdk` v1.0.0 and this
 package will not add one: the descriptor set is closed at
@@ -64,7 +93,8 @@ vendor's current behaviour, to be re-verified against Google's published
 limitations when the implementation lands; unlike a price it is a
 long-standing, deliberate property of the service rather than a number that
 drifts, and every decision below is built so that GCP later permitting a delete
-would relax a constraint rather than invalidate one. That is not a footnote; it decides who creates what. A
+would relax a constraint rather than invalidate one. That is not a footnote;
+it decides who creates what. A
 resource that cannot be destroyed must not be owned by a tool whose contract
 is "I can bring this to the state I describe, including absent". Terraform
 destroying a key ring it created leaves the ring behind and the state file
@@ -128,6 +158,43 @@ ciphertext.
 The last row is the point. Two hosts running the two shapes write
 byte-compatible application data and differ only in one small blob per tenant
 per version.
+
+**The GCP key replaces the wrapping subkey and only the wrapping subkey, and
+the record would be unimplementable if it did not say so.** ADR-0003 decision
+6 expands the host's root material into two labels with different lifetimes:
+`"encryptor/v1/root-wrap"`, which is the root vault's material, and
+`"encryptor/v1/tenant-ref"`, the reference subkey that ADR-0003 decision 5
+derives `tenant_ref` under and from which `name` is built as
+`"t/<tenant_ref>/v<n>"`. **This provider replaces the first and not the
+second.**
+
+The second one is already where it needs to be. ADR-0004's acceptance
+amendment to decision 4 moved it:
+
+> **The reference subkey is tenant-vault configuration**, resolved at start
+> like every other key-material input (through `init/1`, never `use`
+> options), frozen into the vault's `Config`.
+> (`docs/adr/0004-encryption-context.md:248-250`, read at `c85d400`)
+
+So a host running this provider configures `reference_subkey` on the tenant
+vault exactly as a host running the store-backed provider does, and the vault
+performs the same start-time known-answer check on it, failing with
+`{:error, {:invalid_config, :reference_subkey, :known_answer_mismatch}}`
+(`docs/adr/0004-encryption-context.md:262`, read at `c85d400`). This provider
+neither adds nor relaxes that. It matters here because decision 5's additional
+authenticated data and decision 6's `name` and `tenant_ref` fields have no
+other source: without the reference subkey there is no `tenant_ref`, and the
+record could not be implemented from alone.
+
+That asymmetry is a feature and not an oversight. `tenant_ref` travels in the
+clear in every message header (ADR-0003 decision 5), so it must not depend on
+a remote service that could be unreachable on the read path; and ADR-0003
+decision 6 gave the reference subkey its own lifecycle precisely so that
+rotating the wrapping root leaves every stored `tenant_ref` valid. Moving the
+wrapping root into GCP is the rotation-shaped change that separation was built
+to absorb. So: the wrapping root becomes a GCP `CryptoKey`, the reference
+subkey stays local and stays pinned, and every identity column keeps the
+meaning ADR-0003 gave it.
 
 **The engine's own GCP keyring is the exit, and it is not this record's
 work.** If `aws_encryption_sdk` ever grows a GCP KMS keyring, a *keyring-backed*
@@ -226,7 +293,7 @@ mitigations - `prevent_destroy`, or keeping the ring outside the
 application's state entirely - are the operator's choice and belong in the
 implementation's guide, not in this record's decisions.
 
-**4. The `CryptoKey` id is a keyed-free, collision-free derivation of the
+**4. The `CryptoKey` id is an unkeyed, collision-free derivation of the
 selector, and never the selector itself.**
 
 ADR-0004 A7 fixed the selector as an opaque `String.t()` supplied by the host
@@ -243,9 +310,15 @@ So:
 
 ```
 crypto_key_id = prefix <> Base.encode32(
-  :crypto.hash(:sha256, [vault_namespace, 0, selector]),
+  :crypto.hash(:sha256, [vault_namespace, 0, encoded_selector]),
   case: :lower, padding: false
 )
+
+where `encoded_selector` is the selector's UTF-8 bytes. ADR-0004 decision 3
+narrowed the selector to `String.t()` on a `:tenant` vault, so the encoding is
+the identity on every selector this provider can see; it is spelled out anyway,
+because the value must be byte-stable for the life of a resource that cannot
+be deleted, and "the string" is not a byte specification.
 ```
 
 - **Full digest, not truncated.** Base32 of 32 bytes is 52 characters; with a
@@ -281,10 +354,8 @@ it.
 context, field for field.**
 
 GCP KMS `Encrypt` takes an `additionalAuthenticatedData` byte string, not a
-map. ADR-0003 decision 4's package-owned context is a map. The provider
-serializes the same four fields into a canonical, unambiguous encoding - keys
-sorted, each field length-prefixed, no delimiter that a value could contain -
-and requires it byte-identically on `Decrypt`:
+map. ADR-0003 decision 4's package-owned context is a map. The four fields
+are the same ones, unchanged:
 
 ```
 "encryptor-purpose"        => "tenant-key-wrap"
@@ -292,6 +363,48 @@ and requires it byte-identically on `Decrypt`:
 "encryptor-key-version"    => Integer.to_string(version)
 "encryptor-key-namespace"  => namespace
 ```
+
+**The encoding is fixed to bytes here, because "canonical" is not a
+specification.** Two implementations that both sort and both length-prefix
+can still disagree on prefix width, on whether key names are included, and
+on how the integer is rendered - and a disagreement is discovered as a
+permanent `Decrypt` failure against a key that cannot be deleted. So:
+
+```
+aad = for {k, v} <- Enum.sort(context), into: <<>> do
+  <<byte_size(k)::unsigned-big-16, k::binary,
+    byte_size(v)::unsigned-big-32, v::binary>>
+end
+```
+
+- Pairs are sorted by key, bytewise ascending, over the UTF-8 key bytes.
+- Both the key and the value are included. Including only values would let
+  a renamed field go unnoticed.
+- Key lengths are 16-bit big-endian, value lengths 32-bit big-endian. The
+  widths differ because the keys are a closed, short set and the values are
+  host-influenced; both are big-endian because every other length in the
+  engine's message format is.
+- `version` is rendered by `Integer.to_string/1`, decimal, no padding and no
+  sign, which is the same rendering ADR-0003 decision 4 already puts in the
+  encryption context - the two must agree, because a host may run both
+  shapes.
+- No field count is prefixed and none is needed: every field is
+  length-delimited, so the concatenation is already unambiguous.
+
+A worked vector, for the implementation to assert against. With
+`tenant_ref: "abc"`, `version: 1`, `namespace: "encryptor-tenant"`, the
+sorted pairs are `encryptor-key-namespace`, `encryptor-key-version`,
+`encryptor-purpose`, `encryptor-tenant-ref`, and the first pair encodes as:
+
+```
+0017                                    # 23, the key length
+656e63727970746f722d6b65792d6e616d657370616365   # "encryptor-key-namespace"
+00000010                                # 16, the value length
+656e63727970746f722d74656e616e74        # "encryptor-tenant"
+```
+
+The full vector is 145 bytes; the implementation pins it as a constant and a
+change to it is a format change, not a refactor.
 
 This is not decoration. GCP `Decrypt` fails when the AAD does not match, so
 the AAD is what makes a wrapping that has been moved between tenants or
@@ -302,16 +415,17 @@ by a GCP ciphertext. **The binding is the reason the two shapes are equivalent
 in safety and not merely in function.** An implementation that skips it has
 built a weaker provider that passes every test that does not test for this.
 
-The canonical encoding is a new serialization and it is decided here rather
-than inline, per this repository's rule that cryptographic choices are ADR
-choices.
+This encoding is a new serialization and it is decided here, to the byte,
+rather than inline, per this repository's rule that cryptographic choices are
+ADR choices. Open question 3 records that a second caller should promote it out
+of this provider.
 
 **6. The return of `provision/2`, and what it does about a key that is already
 there.**
 
 ```elixir
 @type provisioned :: %{
-        selector: selector(),
+        tenant_ref: String.t(),
         version: pos_integer(),
         namespace: String.t(),
         name: String.t(),
@@ -321,21 +435,53 @@ there.**
       }
 ```
 
-It is a map and not `%Encryptor.Envelope.WrappedKey{}` because `WrappedKey` is
-the envelope's struct, enforcing `tenant_ref` and carrying the assumption that
-`wrapped` is an engine message (`lib/encryptor/envelope/wrapped_key.ex:72-83`,
-read at `c85d400`). Here `wrapped` is a GCP ciphertext and `key_id` is a field
-the envelope has no room for. Reusing the struct would make the store unable
-to tell the two blob kinds apart, which is the one thing a store holding both
-must be able to do. The plaintext key still never appears in the return, which
-is ADR-0003 decision 3 held exactly.
+**The identity field is `tenant_ref` and never the selector, and that is not
+a style choice.** ADR-0004's acceptance amendment to decision 4 is explicit:
+
+> The store-backed provider holds the same subkey and computes references
+> from selectors for its row lookups, so the wrapped-key store is keyed by
+> reference only and never stores a raw tenant identifier.
+> (`docs/adr/0004-encryption-context.md:250-253`, read at `c85d400`)
+
+An earlier draft of this decision returned `selector`, which would have put
+the raw tenant identifier into the wrapped-key store and silently reversed
+the property ADR-0003 decision 5 and that amendment were both written to
+establish. It does not. The selector is a call-time argument; it is used to
+derive `tenant_ref` and `key_id` and it is not returned.
+
+It is a map and not `%Encryptor.Envelope.WrappedKey{}` because `WrappedKey`
+carries the assumption that `wrapped` is an engine message produced by a
+root vault (`lib/encryptor/envelope/wrapped_key.ex:72-83`, read at
+`c85d400`). Here `wrapped` is a GCP ciphertext and `key_id` is a field the
+envelope has no room for. Reusing the struct would make a store holding both
+kinds unable to tell them apart, which is the one thing such a store must be
+able to do. The field names are otherwise identical, deliberately, so that a
+store can hold one row shape with one extra column.
+
+The plaintext key never appears in the return. That holds the *second*
+clause of ADR-0003 decision 3; this decision departs from its first clause -
+"the provisioning result is an `%Encryptor.Envelope.WrappedKey{}`" - for the
+reasons just given, and that clause stays in force for
+`Encryptor.Envelope.provision/3`, which is the function it was written about.
 
 **An existing key is not an error, and provisioning still does not happen on
 the read path.** `CreateCryptoKey` returning `ALREADY_EXISTS` means a previous
 mint for this selector got as far as creating the key. The provider treats
 that as success for the create step and continues to generate and wrap fresh
 material - because decision 4 makes the id a pure function of the selector, an
-`ALREADY_EXISTS` is always *this* tenant's key and never another's. What it
+`ALREADY_EXISTS` is always *this* tenant's key and never another's.
+
+**The race this leaves open is the host's, and it is named rather than
+left to be found.** Two concurrent `provision/2` calls for one selector both
+pass the create step and both mint fresh master-key material at the same
+version; whichever row loses the store write leaves anything encrypted under
+the winner unreadable. This is the race ADR-0003 decision 8 named in its own
+argument ("a race between two requests can mint two keys for one tenant")
+and ADR-0003 open question 1 owns. This provider does not make it worse and
+does not fix it: single-flight is the host's onboarding transaction or a
+unique index on `(tenant_ref, version)` in the store, and an implementation
+must say so in the moduledoc rather than implying `provision/2` is safe to
+call concurrently. What it
 does **not** do is make resolution creative: ADR-0003 decision 8's rule stands
 unchanged and is restated here because a provider that can create keys is
 exactly where it would erode. `encryption_key/2` and `decryption_keys/2` never
@@ -362,8 +508,9 @@ who reads "rotate the key" and rotates the GCP `CryptoKeyVersion` has done a
 level-1 rotation that touches no application data; one who mints a new tenant
 master key version has committed to a level-2 re-encrypt. ADR-0005 decision 1
 made this same table for this package against `encryptor_ecto`'s vocabulary,
-for this same reason, and called the mismatch "dangerous rather than
-cosmetic". A third vocabulary has now arrived and gets the same treatment.
+for this same reason; its Context calls such a mismatch "dangerous rather than
+cosmetic" (`docs/adr/0005-rotation-and-crypto-shred.md:37-38`, read at
+`c85d400`). A third vocabulary has now arrived and gets the same treatment.
 
 **No automatic GCP rotation schedule** (decision 3), because GCP's automatic
 rotation moves the primary version and leaves existing ciphertexts decryptable
@@ -389,6 +536,18 @@ tenant's master key undecryptable **including every backup copy of the store**,
 because the wrapping key is not in the backup. The shred stops depending on
 having found every copy.
 
+**What it does not do is make the shred full erasure, and ADR-0005 says so
+at acceptance.** Its added-at-acceptance paragraph records that "a shred
+destroys plaintext, not attribution": the tenant's permanent pseudonym, the
+`tenant_ref`, sits in every message header and every retained backup, the
+holder of the reference subkey can resolve it by guess-and-confirm forever,
+and "the shred claim must never be stated as full erasure"
+(`docs/adr/0005-rotation-and-crypto-shred.md:546-556`, read at `c85d400`).
+Destroying the GCP key material does not touch any of that - decision 1
+above keeps the reference subkey local and unrotated precisely so that it
+does not. P3 step 4's row deletion stays as compliance-mandatory as ADR-0005
+made it.
+
 The mapping, against ADR-0005's procedures:
 
 | ADR-0005 | this provider adds | irreversible |
@@ -403,7 +562,8 @@ the store delete is still the host's and the destroy is still a GCP API call
 the host's runbook makes. And **GCP's scheduled destruction window is a delay,
 not a reprieve to design around**: a version is `DESTROY_SCHEDULED` for the
 key's configured destroy-scheduled duration (24 hours by default, settable at
-key creation) and `RestoreCryptoKeyVersion` works during it. That window is a safety net for the operator who ran P3
+key creation) and `RestoreCryptoKeyVersion` works during it. That window is a
+safety net for the operator who ran P3
 against the wrong tenant - ADR-0005's blast-radius table calls that "the
 largest destructive action in the package" - and it is emphatically not a
 reason to relax P3's first precondition, which is a recorded human decision.
@@ -415,8 +575,9 @@ tenant's `CryptoKey` plus a cache evict makes a tenant's data unreadable
 rotate and shred, and "suspend" appears nowhere in this repository. That this
 provider makes such a verb cheap is a finding of this record; what the verb is
 called, what surface it has, and whether it belongs in this package at all is
-a sibling record's decision, cited here as proposed and not anticipated
-further. Nothing in decisions 1 through 8 depends on how it is settled.
+the decision of a sibling record - an amendment to ADR-0005 adding the third
+verb, filed as `enc-8s9` and proposed in the same campaign as this one - cited
+here as proposed and not anticipated further. Nothing in decisions 1 through 8 depends on how it is settled.
 
 **9. The GCP client stack is optional, checked at `init/1`, mirroring the AWS
 stack exactly.**
@@ -462,8 +623,8 @@ What is structural rather than priced, and therefore safe to record:
   tenant count rather than growing on a timer.
 - **Operation cost is per `Encrypt`/`Decrypt` call, and the provider makes
   almost none of them.** The materials cache collapses provider round trips to
-  one per partition per `max_age` (ADR-0002's own observation,
-  `docs/adr/0002-key-providers.md:131`, read at `c85d400`), so a tenant with
+  one per partition per `max_age` (ADR-0002 decision 2, crediting ADR-0001
+  decisions 6 and 7; `docs/adr/0002-key-providers.md:131`, read at `c85d400`), so a tenant with
   continuous traffic costs one `Decrypt` per cache lifetime, not one per
   encrypt. ADR-0002's roadmap line for GCP - "`encryption_key/2` does network
   I/O and must bound it" - is the obligation this satisfies, and the bound is
@@ -528,10 +689,11 @@ The additions to `Encryptor.Provider`:
 ```elixir
 @typedoc """
 What `c:provision/2` returns: everything a store needs to reconstruct the
-descriptor later, and never the plaintext key.
+descriptor later, and never the plaintext key. Keyed by `tenant_ref`, never by
+the raw selector (ADR-0004 decision 4 as amended).
 """
 @type provisioned :: %{
-        selector: selector(),
+        tenant_ref: String.t(),
         version: pos_integer(),
         namespace: String.t(),
         name: String.t(),
@@ -582,6 +744,11 @@ The provider's `init/1` options:
   project: "my-project",             # required
   location: "us-east1",              # required
   key_ring: "encryptor-tenant-keys", # required, exists already (decision 3)
+  reference_subkey: <<...>>,         # required: tenant-vault configuration per
+                                     # ADR-0004 dec 4 as amended; ADR-0003 dec
+                                     # 6's "encryptor/v1/tenant-ref" subkey.
+                                     # Local, start-time known-answer checked,
+                                     # NOT replaced by GCP (decision 1)
   http_client: MyApp.Finch,          # required, must be loaded at start
   goth: MyApp.Goth,                  # required, the token server's name
   protection_level: :software,       # :software | :hsm, default :software
@@ -594,7 +761,9 @@ The provider's `init/1` options:
 ## Worked example: a multi-tenant host app onboarding and offboarding a tenant
 
 The host runs one vault for application data. Its provider is this one, and
-there is no root vault at all - the wrapping root is in GCP.
+there is no root *vault* at all - the wrapping root is in GCP. The reference
+subkey is still local and still configured, per decision 1: it is what makes
+`tenant_ref` and `name`, and it is not a wrapping key.
 
 ```elixir
 defmodule MyApp.TenantVault do
@@ -607,6 +776,7 @@ config :my_app, MyApp.TenantVault,
      project: "myapp-prod",
      location: "us-east1",
      key_ring: "encryptor-tenant-keys",
+     reference_subkey: {:system, "ENCRYPTOR_REFERENCE_SUBKEY"},
      http_client: MyApp.Finch,
      goth: MyApp.Goth},
   store: MyApp.TenantKeys,
@@ -624,12 +794,15 @@ platform team's Terraform, before this config ever ran (decision 3).
 MyApp.TenantKeys.insert!(provisioned)
 ```
 
-Inside, in order: derive `t-` plus the base32 digest of the namespace and
-`tenant.id` (decision 4); `CreateCryptoKey` with that id, `ENCRYPT_DECRYPT`,
-no rotation schedule (decision 3); 32 bytes from the CSPRNG; `Encrypt` those
-bytes under the new key with the four-field AAD (decision 5); return the map
-(decision 6) with the plaintext already out of scope. One row in the host's
-store, one key in GCP, and the plaintext existed inside one function body.
+Inside, in order: derive `tenant_ref` from `tenant.id` under the configured
+reference subkey (ADR-0003 decision 5) and `name` as `"t/<tenant_ref>/v1"`;
+derive the key id as `t-` plus the base32 digest of the namespace and the
+encoded selector (decision 4); `CreateCryptoKey` with that id,
+`ENCRYPT_DECRYPT`, no rotation schedule (decision 3); 32 bytes from the CSPRNG;
+`Encrypt` those bytes under the new key with the four-field AAD (decision 5);
+return the map (decision 6) with the plaintext already out of scope. One row in
+the host's store - keyed by `tenant_ref`, with `tenant.id` nowhere in it - one
+key in GCP, and the plaintext existed inside one function body.
 
 **A write.** `MyApp.TenantVault.encrypt(pii, key: tenant.id)`. The vault asks
 `encryption_key/2` for this selector; the provider reads the store's current
@@ -644,15 +817,26 @@ GCP.
 descriptor, newest first, one `Decrypt` per version on a cache miss. The
 engine's `Multi` walk finds the one whose EDK matches.
 
-**Offboarding.** ADR-0005 P3, with decision 8's step added:
+**Offboarding.** ADR-0005 P3, quoted in its own numbering, with decision 8's
+step added as 2a. P3's preconditions are unchanged and still come first - in
+particular the recorded human decision that this tenant's data is to be
+destroyed, which this record does not relax (decision 8).
 
-1. Record the human decision to shred this tenant. Unchanged, and still first.
-2. `DELETE` every wrapping row for the tenant. The host's, as ever.
-3. `DestroyCryptoKeyVersion` on every version of `t-<digest>`. New. After the
-   key's destroy-scheduled window the tenant's data is unreadable from any
+1. Confirm the tenant reference resolves and enumerate the wrappings about to
+   be destroyed; record the count and the version numbers in the change
+   record. Unchanged.
+2. Delete every wrapping for the tenant from the key store. Unchanged, and
+   still the host's `DELETE`.
+2a. `DestroyCryptoKeyVersion` on every version of `t-<digest>`. **New.** After
+   the key's destroy-scheduled window the tenant's data is unreadable from any
    backup of the store, because the key that would unwrap it no longer exists
    anywhere.
-4. Drain the caches, or wait `max_age`.
+3. Drain the caches: wait `max_age` on every vault serving the tenant, or
+   restart them. Unchanged.
+4. Optionally delete the tenant's ciphertext rows. Unchanged in mechanism, and
+   ADR-0005's acceptance addendum makes it compliance-mandatory wherever
+   tenant attribution is itself personal data - destroying the GCP key does
+   not remove the `tenant_ref` from retained headers (decision 8).
 
 The `CryptoKey` `t-<digest>` remains in the project forever, empty. That is
 the cost decision 3 named, paid visibly.
@@ -695,5 +879,5 @@ Recorded rather than guessed. Each names who should settle it.
    blast-radius table gives for P3 step 2 and it is not made better by the
    window existing. Whether the package should refuse to help - no
    `destroy/2` function, by the same argument ADR-0005 decision 10 used
-   against `shred/2` - is the sibling suspend record's neighbourhood and is
-   named here so it is not lost.
+   against `shred/2` - is the neighbourhood of the suspend amendment
+   (`enc-8s9`) and is named here so it is not lost.
