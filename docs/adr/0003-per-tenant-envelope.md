@@ -1018,7 +1018,15 @@ def slow_hash(input, salt, params)
 ```
 
 Three positions: the value to hash, the salt to hash it under, and the
-parameter set, supplied explicitly by the caller. It returns **raw output
+parameter set, supplied explicitly by the caller. `params()` is a **complete**
+map of the three keys B4 fixes - every key present, every value already
+validated. `slow_hash/3` neither defaults nor interprets a partial set; it
+raises on one, because completing a parameter set at the primitive would put
+a cryptographic default in two places. Completion happens once, at start,
+where B4 validates: a `:slow_hash` declared partially is frozen onto the
+configuration struct with this record's defaults filled in, which is also
+what lets the consumer treat what it reads as opaque and pass it straight
+through. It returns **raw output
 bytes**, 32 of them, and never Argon2's encoded string. The encoded string
 carries the parameters and the salt inside it, which makes it a different
 value whenever an operator retunes the cost, and its consumer wants bytes to
@@ -1056,11 +1064,19 @@ this decision is written down rather than left implicit:
   out. The capability warning of decision 7 does not reach it, and neither
   does Amendment A's "every exported byte is one expansion further from the
   tree's root" property, which is about derived keys.
-- ADR-0001 decision 6's prohibition applies in full and for the opposite
-  reason to everywhere else in this module: the danger is not that the input
-  is key-shaped, it is that the input is **plaintext**. Neither the input nor
-  the output appears in a log line, an `Inspect` output, or an exception
-  message, and the raises of B1 name constraints only.
+- The redaction rule applies in full and for the opposite reason to
+  everywhere else in this module: the danger is not that the input is
+  key-shaped, it is that the input is **plaintext**. Neither the input nor the
+  output appears in a log line, an `Inspect` output, or an exception message,
+  and the raises of B1 name constraints only. Two existing rules say so: this
+  module's own, that a raised message names the constraint and never the
+  value (`lib/encryptor/kdf.ex:146-149`, enc 6c30df8), and this repository's
+  convention that nothing plaintext or key-shaped is ever logged, inspected,
+  or put in an exception message. Downstream, `encryptor_ecto`'s A13 leans on
+  **its own** ADR-0001 decision 6 for the same guarantee
+  (`encryptor_ecto/docs/adr/0001-vault-backed-ecto-types.md:349`, ece 8120da8);
+  that record is a different namespace's and is named here rather than
+  borrowed.
 
 **B3. The salt is the caller's, must be deterministic, and is at least 16
 bytes.**
@@ -1076,10 +1092,13 @@ because the caller's salt here is a derived constant rather than a
 per-password random, so there is no reason to accept the weaker bound. A
 shorter salt raises, without rendering the value.
 
-The **recommended construction**, which this record recommends and
-`encryptor_ecto`'s own record fixes, is to derive the per-index salt through
-`Encryptor.Vault.derive/3` (`lib/encryptor/vault.ex:416`, enc 6c30df8) under
-the index's own identity. That path is already salted per deployment by
+The **recommended construction**, recommended here and **not yet fixed
+anywhere**: `encryptor_ecto`'s ADR-0003 records no Argon2id salt at all -
+every salt in that record is the HKDF `:derivation_salt` - so a follow-up to
+its decision 6 has to fix it on that side. The recommendation is to derive the
+per-index salt through `Encryptor.Vault.derive/3`
+(`lib/encryptor/vault.ex:416`, enc 6c30df8) under the index's own identity.
+That path is already salted per deployment by
 `:derivation_salt` (Amendment A decision 3), so two deployments holding the
 same plaintext under the same index key still present different inputs to
 Argon2id, and the salt is stable for the life of the index without being
@@ -1092,7 +1111,7 @@ string identifies an index belongs to the package that owns indexes.
 |---|---|---|
 | `:memory_kib` | `65_536` (64 MiB) | a power of two, at least `32_768` (32 MiB) |
 | `:iterations` | `3` | a positive integer |
-| `:parallelism` | `1` | a positive integer, not above the host's scheduler count |
+| `:parallelism` | `1` | a positive integer |
 
 The defaults sit above the widely published Argon2id floor of 19 MiB of
 memory with two iterations and one lane, and the `:memory_kib` bound is the
@@ -1102,7 +1121,12 @@ attacker pay, and iteration count alone does not buy it.
 `:parallelism` defaults to `1` because a lane count above the schedulers
 actually available makes the cost claim untrue on the machine that matters,
 and a default that is wrong on a small host is worse than a conservative one
-an operator raises on purpose.
+an operator raises on purpose. That is **tuning guidance, not a bound**: the
+lane count is an Argon2 hash input, so `p = 4` on a one-scheduler host
+computes the same bytes and only takes longer. Validating it against the
+validating machine's scheduler count would make a configuration valid on the
+writer and refused on a smaller reader, which is exactly the divergence the
+*identical everywhere* requirement below exists to prevent.
 
 Memory is expressed here in **KiB**, not as a cost exponent, because an
 operator reasons in megabytes and a log-2 exponent is the kind of parameter
@@ -1110,7 +1134,11 @@ that is silently off by a factor of 1024. The power-of-two constraint exists
 only because the dependency of B5 takes memory as a log-2 exponent
 (`m_cost`); `enc-dtv` verifies that against `argon2_elixir` at
 implementation, and if that library accepts KiB directly the constraint is
-dropped and every default above is unchanged.
+dropped and every default above is unchanged. `enc-dtv` verifies the output
+encoding at the same time: B1 fixes 32 **bytes**, and whichever of that
+library's entry points and formats actually yields raw bytes of that length
+is the implementation's to pick. Neither check may change a decision above;
+both are about reaching them.
 
 Where it lives: a `:slow_hash` key on `%Encryptor.Vault.Config{}`
 (`lib/encryptor/vault/config.ex:190` and `:208`, enc 6c30df8), optional on
@@ -1122,7 +1150,8 @@ consumer asking for them gets nothing rather than a guess.
 
 Unlike `:derivation_salt`, it is **not** a deployment-only option and is not
 refused in `use Encryptor.Vault` options
-(`lib/encryptor/vault/config.ex:164`, enc 6c30df8). The reason `:derivation_salt`
+(`lib/encryptor/vault/config.ex:164`, enc 6c30df8). The reason
+`:derivation_salt`
 is refused there is that a per-deployment value compiled into a `.beam` is
 shared by every deployment built from that artifact. A slow-hash parameter
 set has the opposite requirement: it is not secret, and it must be
@@ -1152,14 +1181,26 @@ A host whose vaults declare no slow index therefore carries **no NIF**, which
 is the same promise this package already makes about the AWS stack - raw
 keyring usage pulls no AWS, HTTP, or XML libraries - applied to native code.
 
-Absence is discovered at the one call site and **raised**, with a message
-naming the dependency and what to add, rather than returned as
-`{:error, _}` or silently degraded to a plain hash. A host that declared a
-slow index without the dependency has a wrong build, not a runtime event, and
-a silent degradation here would quietly write index values at plain-HMAC cost
-under a column the operator believes is hardened. That is the "never
-rescue-to-default in cryptographic code" convention applied to a missing
-dependency.
+Absence is detected in two places, and the first of them uses vocabulary this
+package already has. A vault that declares `:slow_hash` without the
+dependency present fails **at start** with `{:missing_optional_dependency,
+:argon2_elixir}` - the existing reason adapters already return at start
+(`lib/encryptor/error.ex:96` and `lib/encryptor/provider.ex:118`, enc
+6c30df8), already on the list of reasons a start failure may carry
+(`lib/encryptor/vault/config.ex:465`, enc 6c30df8). Declaring the parameters
+is the host saying it intends to hash slowly, so refusing the boot is the
+earliest honest moment, and B4's validation is already running there. That is
+why B4's claim that this amendment adds no error vocabulary still holds: both
+reasons it uses exist.
+
+The second place is the call site, which **raises** if the dependency is
+missing anyway - a vault that never declared `:slow_hash` cannot be caught at
+start. It raises rather than returning `{:error, _}` or silently degrading to
+a plain hash: a caller reaching `slow_hash/3` in a build without the
+dependency has a wrong build, not a runtime event, and a silent degradation
+would quietly write index values at plain-HMAC cost under a column the
+operator believes is hardened. That is the "never rescue-to-default in
+cryptographic code" convention applied to a missing dependency.
 
 The presence check is a runtime one (`Code.ensure_loaded?/1`), and the module
 is excluded from the compile-time cross-reference check, because a compile
@@ -1207,7 +1248,8 @@ that wants slow indexes opts into a NIF and into its build requirements. A
 consumer that does not is unaffected, and the gate's dependency audit sees
 the new package in this repository's own builds.
 
-**`enc-53a`'s rotation runbook gains a line.** A slow-hash parameter change is
+**The rotation runbook (`guides/rotation-runbook.md`) gains a line.** A
+slow-hash parameter change is
 an invalidating change in the same family as a `:derivation_salt` rotation
 (Amendment A's consequences say the same of the salt). It is flagged here
 rather than assumed.
