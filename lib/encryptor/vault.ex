@@ -109,6 +109,7 @@ defmodule Encryptor.Vault do
   alias Encryptor.Vault.Derive
   alias Encryptor.Vault.Encrypt
   alias Encryptor.Vault.Rekey
+  alias Encryptor.Vault.Resolve
 
   @typedoc """
   A key selector.
@@ -170,6 +171,18 @@ defmodule Encryptor.Vault do
   `c:rekey/2`, raising the same `Encryptor.Error` it would have returned.
   """
   @callback rekey!(ciphertext :: binary(), opts :: keyword()) :: binary()
+
+  @doc """
+  Creates this selector's key material through the vault's provider.
+
+  Hosts do not hold the provider state - `c:Encryptor.Provider.init/1` returns
+  it and the vault freezes it for the vault's life - so this is the callable
+  surface for `c:Encryptor.Provider.provision/2` (ADR-0007 decision 2). A
+  provider that does not implement the callback answers
+  `{:not_provisionable, module}`.
+  """
+  @callback provision(selector :: Error.selector()) ::
+              {:ok, Encryptor.Provider.provisioned()} | {:error, Error.t()}
 
   @optional_callbacks init: 1
 
@@ -237,6 +250,20 @@ defmodule Encryptor.Vault do
               {:ok, binary()} | {:error, Encryptor.Error.t()}
       def derive(purpose, opts \\ []) do
         Encryptor.Vault.derive(__MODULE__, purpose, opts)
+      end
+
+      @doc """
+      Creates this selector's key material through this vault's provider.
+
+      ADR-0007 decision 2: the host's onboarding path reaches
+      `c:Encryptor.Provider.provision/2` here, because the provider state is
+      the vault's and never the host's. A provider with no such callback
+      answers `{:not_provisionable, module}`.
+      """
+      @spec provision(Encryptor.Error.selector()) ::
+              {:ok, Encryptor.Provider.provisioned()} | {:error, Encryptor.Error.t()}
+      def provision(selector) do
+        Encryptor.Vault.provision(__MODULE__, selector)
       end
 
       @doc """
@@ -415,6 +442,36 @@ defmodule Encryptor.Vault do
   @spec derive(module(), String.t(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
   def derive(vault, purpose, opts \\ []) when is_binary(purpose) and is_list(opts) do
     Derive.call(vault, purpose, opts)
+  end
+
+  @doc """
+  Creates a selector's key material through a vault's provider.
+
+  ADR-0007 decision 2. The selector is typed against the vault's context
+  profile exactly as it is on the encrypt path - a `:tenant` vault refuses
+  `:default` and a `:single` vault refuses a string - and the provider is then
+  asked for the callback the record makes optional.
+
+  Three answers are worth naming:
+
+    * a provider that does not export `c:Encryptor.Provider.provision/2` is
+      `{:not_provisionable, module}`, not an `UndefinedFunctionError`.
+    * the plaintext key is never in the result. What comes back is
+      `t:Encryptor.Provider.provisioned/0`: what a store needs to rebuild the
+      descriptor, keyed by `tenant_ref` and never by the raw selector.
+    * provisioning is explicit. Nothing on the read path calls it, so there
+      is no route from a decrypt to a key creation (ADR-0003 decision 8).
+
+  Persisting the result is the host's: this package owns no storage
+  (ADR-0003 decision 9).
+  """
+  @spec provision(module(), Error.selector()) ::
+          {:ok, Encryptor.Provider.provisioned()} | {:error, Error.t()}
+  def provision(vault, selector) when is_atom(vault) do
+    with {:ok, config} <- ready(vault, :provision),
+         {:ok, checked} <- Resolve.selector(config, [key: selector], :provision) do
+      Resolve.provision(config, checked, :provision)
+    end
   end
 
   @doc """

@@ -34,7 +34,8 @@ defmodule Encryptor.Vault.Resolve do
     :key_unavailable,
     :invalid_key_descriptor,
     :provider_not_started,
-    :missing_optional_dependency
+    :missing_optional_dependency,
+    :not_provisionable
   ]
 
   # ADR-0004 decision 3: the profile fixes the selector type, and both
@@ -83,6 +84,28 @@ defmodule Encryptor.Vault.Resolve do
     ask(config, operation, fn module ->
       module.decryption_keys(config.provider_state, selector)
     end)
+  end
+
+  @doc false
+  # ADR-0007 decision 2's vault-level entry point. The callback is optional,
+  # so its absence is a settled answer - `{:not_provisionable, module}` - and
+  # never a raise: a host that configured a provider whose keys arrive some
+  # other way has made a configuration mistake, not a call that crashes.
+  @spec provision(Config.t(), Error.selector(), Error.operation()) ::
+          {:ok, term()} | {:error, Error.t()}
+  def provision(%Config{provider: {module, _opts}} = config, selector, operation) do
+    if provisionable?(module) do
+      ask(config, operation, fn provider ->
+        provider.provision(config.provider_state, selector)
+      end)
+    else
+      {:error, error(config, operation, {:not_provisionable, module})}
+    end
+  end
+
+  @spec provisionable?(module()) :: boolean()
+  defp provisionable?(module) do
+    Code.ensure_loaded?(module) and function_exported?(module, :provision, 2)
   end
 
   # The provider is called on the caller's process, with the state frozen at
