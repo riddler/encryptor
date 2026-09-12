@@ -547,6 +547,9 @@ row to that tenant has built an access check out of an attacker-editable field.
 
 ## Where to go next
 
+- **[Selector boundaries](selector-boundaries.md)** - what the `:key` selector
+  is, how to choose the boundary it names, and the rotate/suspend/shred verbs
+  that act on one. Read it before you draw the boundary, not after.
 - **[The rotation runbook](rotation-runbook.md)** - the four operator
   procedures, what each one destroys, and the one step that cannot be undone.
   Read it before you need it; two of the four procedures are irreversible.

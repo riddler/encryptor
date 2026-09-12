@@ -56,6 +56,7 @@ defmodule Encryptor.MixProject do
       extras: [
         "README.md",
         "guides/getting-started.md",
+        "guides/selector-boundaries.md",
         "guides/rotation-runbook.md",
         "CHANGELOG.md"
       ],

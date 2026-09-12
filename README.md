@@ -293,6 +293,10 @@ parameters that produced it. Treat a `:slow_hash` change the way you treat a
   per-tenant vault, where key material is allowed to come from, why a host
   chooses `0x0478`, why `max_age` has no default, and the two root secrets a
   deployment provisions on day one.
+- **[Selector boundaries](guides/selector-boundaries.md)** - what a selector
+  is, how to choose the boundary it names, what one key per boundary buys,
+  the rotate/suspend/shred verb table, and cryptographic erasure at its true
+  strength.
 - **[Rotation runbook](guides/rotation-runbook.md)** - the four operator
   procedures, what each step destroys, which steps this package ships as
   functions and which are actions on a store it does not own, and what a
