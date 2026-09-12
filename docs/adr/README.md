@@ -8,6 +8,7 @@
 | [0004](0004-encryption-context.md) | The encryption context is a vault-composed, profile-enforced set of identifying keys | accepted (2026-08-27, amended) |
 | [0005](0005-rotation-and-crypto-shred.md) | Rotation is three independent lifecycles, and only the shred is irreversible | accepted (2026-08-27) |
 | [0006](0006-telemetry-and-observability.md) | Telemetry is a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | proposed (2026-08-27) |
+| [0007](0007-gcp-kms-wrap-provider.md) | GCP KMS is a wrap-provider, not a keyring, and it owns the tenant key's whole lifecycle | proposed (2026-09-12) |
 
 New ADRs: next number, same three-section format (Context, Decision,
 Consequences), plus typespecs, at least one worked example, and any open
