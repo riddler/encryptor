@@ -108,10 +108,26 @@ defmodule Encryptor.Vault.CacheRecycler do
     state
   end
 
+  @doc false
+  # The terminate-then-restart path, reachable by name.
+  #
+  # It is public for one caller besides the tick above:
+  # `Encryptor.Vault.Suspension`, which drops the whole table when a selector
+  # is suspended because no partition-scoped eviction exists (ADR-0005
+  # amendment A decision 6). That decision names *this* path rather than
+  # killing the cache and letting the supervisor react, for the reason the
+  # moduledoc already gives - a supervisor's restart intensity is a defence
+  # against a child that keeps failing, and spending it on maintenance means a
+  # suspension can take the whole vault down. The microsecond `:noproc`
+  # window above is inherited along with the mechanism.
+  #
   # A recycle that cannot find its cache child is a missed bound, not a
-  # correctness failure, and crashing here would spend the vault supervisor's
-  # restart intensity on it. The next tick tries again.
-  defp recycle(supervisor) do
+  # correctness failure, and crashing here would spend that intensity too. The
+  # next tick tries again; a suspension ignores the answer, because a vault
+  # configured `cache: false` has no cache child and no table to drop and its
+  # suspension still succeeds.
+  @spec recycle(Supervisor.supervisor()) :: term()
+  def recycle(supervisor) do
     case Supervisor.terminate_child(supervisor, @cache_child_id) do
       :ok -> Supervisor.restart_child(supervisor, @cache_child_id)
       {:error, reason} -> {:error, reason}

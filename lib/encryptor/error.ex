@@ -80,9 +80,11 @@ defmodule Encryptor.Error do
   Assembled from the accepted records: ADR-0001 decision 10 fixes the first
   seven, ADR-0002 decision 6 adds four for key resolution, and ADR-0004
   decision 8 adds three for the encryption context. ADR-0005 adds none - a
-  rotation misconfiguration is an `{:invalid_config, key, detail}`. ADR-0007
-  decision 2 adds one, for a provider asked to provision that has no
-  `c:Encryptor.Provider.provision/2`.
+  rotation misconfiguration is an `{:invalid_config, key, detail}` - and its
+  amendment A adds none either, because a suspension reuses
+  `{:key_unavailable, selector}` rather than earning a term of its own
+  (amendment A decision 4). ADR-0007 decision 2 adds one, for a provider asked
+  to provision that has no `c:Encryptor.Provider.provision/2`.
   """
   @type reason ::
           :decrypt_failed
