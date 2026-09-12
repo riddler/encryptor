@@ -4,10 +4,28 @@ defmodule Encryptor.Kdf do
   labelled subkey.
 
   This module is the primitive underneath ADR-0003 decisions 6 and 7. It holds
-  no state, reads no configuration, touches no vault, and depends on nothing
-  but `:crypto`. Everything above it - the root vault's wrapping material, the
-  tenant reference subkey, and any purpose-separated subkey of a tenant master
-  key - is a call into `derive_subkey/3` with a different purpose.
+  no state, reads no configuration, touches no vault, and every function that
+  derives a *key* depends on nothing but `:crypto`. Everything above it - the
+  root vault's wrapping material, the tenant reference subkey, and any
+  purpose-separated subkey of a tenant master key - is a call into
+  `derive_subkey/3` with a different purpose.
+
+  ## The one function that is not a key derivation
+
+  `slow_hash/3` is an Argon2id pre-hash of a *value*, added by ADR-0003
+  amendment B for `encryptor_ecto`'s `:slow` blind index. It is the only thing
+  here that reaches outside `:crypto`, and its dependency is optional
+  (amendment B decision 5), so the claim above is narrowed rather than
+  withdrawn: HKDF is still the whole of what this package derives keys with.
+
+  Amendment B decision 2 is why it lives here and why it joins no label space.
+  Its input is a normalized plaintext handed over by the consumer, not key
+  material; nothing this package holds is recoverable from it; its output is
+  HMAC input in the consumer rather than a key this package hands out. So it
+  takes no purpose, composes no label, and adds no entry to decision 6's
+  one-way reservation. The redaction rule below applies to it in full and for
+  the opposite reason to everywhere else here - the danger is not that its
+  input is key-shaped, it is that its input is plaintext.
 
   ## Expand only on the wrapping trees, and why
 
@@ -144,12 +162,19 @@ defmodule Encryptor.Kdf do
   program. ADR-0003's contract agrees - `root_subkey/2` and `subkey/2` are
   specified returning a bare `binary()`, with no error half to return into.
 
+  `slow_hash/3` raises under the same rule (ADR-0003 amendment B decision 1),
+  and one of its raises is not about an argument at all: a build without the
+  optional `:argon2_elixir` dependency is a wrong build rather than a runtime
+  event, and degrading silently to a plain hash would quietly write index
+  values at plain-HMAC cost under a column an operator believes is hardened.
+
   Every raised message names the constraint and never the value, because a
   key-length violation is the one place a raise could otherwise put key
-  material into a log line or a test failure report.
+  material into a log line or a test failure report. For `slow_hash/3` the
+  same rule keeps a plaintext out of the failure output.
 
-  Records: ADR-0003 decisions 5, 6, 7 and amendment A. RFC 5869 sections 2.2,
-  2.3 and 3.3.
+  Records: ADR-0003 decisions 5, 6, 7 and amendments A and B. RFC 5869
+  sections 2.2, 2.3 and 3.3.
   """
 
   # RFC 5869 with SHA-256: HashLen is 32, and L may not exceed 255 * HashLen.
@@ -161,6 +186,16 @@ defmodule Encryptor.Kdf do
   # bumped to re-mint one purpose.
   @label_namespace "encryptor"
   @label_version "v1"
+
+  # ADR-0003 amendment B decision 3: Argon2 admits an 8-byte salt and
+  # recommends 16; the recommendation is the floor here because the caller's
+  # salt is a derived constant rather than a per-password random, so there is
+  # no reason to accept the weaker bound.
+  @slow_salt_bytes 16
+
+  # `argon2_elixir` numbers its variants 0 (Argon2d), 1 (Argon2i), 2
+  # (Argon2id); amendment B names Argon2id throughout.
+  @argon2id 2
 
   @typedoc """
   The purpose half of a label, as ADR-0003 decision 6 spells them:
@@ -382,6 +417,142 @@ defmodule Encryptor.Kdf do
     |> extract(key_material)
     |> expand(label(purpose), @hash_length)
     |> expand(info, length)
+  end
+
+  @typedoc """
+  A complete Argon2id parameter set, as ADR-0003 amendment B decision 4 fixes
+  it: memory in KiB, an iteration count, and a lane count.
+
+  Every key is present and every value is already validated. Completion and
+  validation happen once, at vault start, in `Encryptor.Vault.Config`; what a
+  consumer reads off the frozen configuration is passed straight through to
+  `slow_hash/3` without being interpreted.
+  """
+  @type params :: %{
+          memory_kib: pos_integer(),
+          iterations: pos_integer(),
+          parallelism: pos_integer()
+        }
+
+  @doc """
+  Argon2id slow hash of a value, for a downstream blind index.
+
+  ADR-0003 amendment B decision 1. Three positions: the value to hash, the
+  salt to hash it under, and a **complete** parameter set supplied by the
+  caller. It returns 32 raw bytes and never Argon2's encoded string - the
+  encoded string carries the parameters and the salt inside it, which makes it
+  a different value whenever an operator retunes the cost, and its consumer
+  wants bytes to feed an HMAC rather than a self-describing credential to
+  compare.
+
+      iex> params = %{memory_kib: 32_768, iterations: 1, parallelism: 1}
+      iex> byte_size(Encryptor.Kdf.slow_hash("value", :binary.copy(<<0x5A>>, 16), params))
+      32
+
+  The same value, salt and parameters always yield the same bytes, which is
+  the whole of what makes a blind index an index:
+
+      iex> params = %{memory_kib: 32_768, iterations: 1, parallelism: 1}
+      iex> salt = :binary.copy(<<0x5A>>, 16)
+      iex> Encryptor.Kdf.slow_hash("value", salt, params) == Encryptor.Kdf.slow_hash("value", salt, params)
+      true
+
+  The salt is the caller's, must be deterministic, and is at least 16 bytes
+  (amendment B decision 3). A random per-call salt would make two hashes of
+  the same value differ, which is precisely the failure the feature exists to
+  prevent, so this function takes the salt rather than generating one. The
+  recommended construction is `Encryptor.Vault.derive/3` under the index's own
+  identity, which is already salted per deployment; which string identifies an
+  index belongs to the package that owns indexes.
+
+      iex> params = %{memory_kib: 32_768, iterations: 1, parallelism: 1}
+      iex> Encryptor.Kdf.slow_hash("value", :binary.copy(<<0x5A>>, 15), params)
+      ** (ArgumentError) a slow-hash salt must be at least 16 bytes
+
+  A partial parameter set raises rather than being completed here, because
+  completing it at the primitive would put a cryptographic default in two
+  places (amendment B decision 1). `Encryptor.Vault.Config` completes it once,
+  at start:
+
+      iex> Encryptor.Kdf.slow_hash("value", :binary.copy(<<0x5A>>, 16), %{iterations: 3})
+      ** (ArgumentError) a slow-hash parameter set must carry exactly :memory_kib, :iterations and :parallelism
+
+  A build without the optional `:argon2_elixir` dependency raises too. A vault
+  that declares `:slow_hash` is caught earlier, at start, with
+  `{:missing_optional_dependency, :argon2_elixir}`; this raise is the second
+  line, for a caller that reaches the primitive directly.
+  """
+  @spec slow_hash(binary(), binary(), params()) :: binary()
+  def slow_hash(input, salt, params) when is_binary(input) and is_binary(salt) do
+    {memory_kib, iterations, parallelism} = slow_hash_params(params)
+
+    if byte_size(salt) < @slow_salt_bytes do
+      raise ArgumentError, "a slow-hash salt must be at least #{@slow_salt_bytes} bytes"
+    end
+
+    ensure_argon2!()
+
+    # `format: :raw_hash` is the only format this library offers that is not
+    # the encoded credential, and despite the name it hands back the hash
+    # hex-encoded (`Argon2.Base.handle_result/3`). Decoding it is how 32 raw
+    # bytes are reached; `hashlen` fixes the 32.
+    input
+    |> Argon2.Base.hash_password(salt,
+      t_cost: iterations,
+      m_cost: memory_exponent(memory_kib),
+      parallelism: parallelism,
+      hashlen: @hash_length,
+      argon2_type: @argon2id,
+      format: :raw_hash
+    )
+    |> Base.decode16!(case: :lower)
+  end
+
+  # Amendment B decision 1: complete or nothing. `map_size/1` is what makes
+  # "exactly these three" enforceable - a set carrying a fourth key is a
+  # caller spelling an option this record does not define.
+  @spec slow_hash_params(params()) :: {pos_integer(), pos_integer(), pos_integer()}
+  defp slow_hash_params(
+         %{memory_kib: memory_kib, iterations: iterations, parallelism: parallelism} = params
+       )
+       when map_size(params) == 3 and is_integer(memory_kib) and is_integer(iterations) and
+              is_integer(parallelism) and iterations > 0 and parallelism > 0 do
+    {memory_kib, iterations, parallelism}
+  end
+
+  defp slow_hash_params(_params) do
+    raise ArgumentError,
+          "a slow-hash parameter set must carry exactly :memory_kib, :iterations and :parallelism"
+  end
+
+  # `argon2_elixir` takes memory as a log-2 exponent of KiB - its NIF computes
+  # `m_cost = 1U << m` - while amendment B decision 4 expresses memory in KiB,
+  # because an operator reasons in megabytes and an exponent is the kind of
+  # parameter that is silently off by a factor of 1024. This is the whole of
+  # the conversion between the two, and it is total only over powers of two,
+  # which is why decision 4 bounds `:memory_kib` to one.
+  @spec memory_exponent(pos_integer()) :: non_neg_integer()
+  defp memory_exponent(memory_kib) do
+    exponent = trunc(:math.log2(memory_kib))
+
+    if Bitwise.bsl(1, exponent) == memory_kib do
+      exponent
+    else
+      raise ArgumentError, "a slow-hash :memory_kib must be a power of two"
+    end
+  end
+
+  @spec ensure_argon2!() :: :ok
+  defp ensure_argon2! do
+    case Code.ensure_loaded(Argon2.Base) do
+      {:module, _module} ->
+        :ok
+
+      {:error, _reason} ->
+        raise "Encryptor.Kdf.slow_hash/3 needs the optional :argon2_elixir dependency. " <>
+                "Add {:argon2_elixir, \"~> 4.0\"} to the host's deps, or stop declaring " <>
+                ":slow_hash on the vault."
+    end
   end
 
   # T(1) | T(2) | ... | T(n), where T(0) is empty and

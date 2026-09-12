@@ -57,6 +57,12 @@ defmodule Encryptor.Vault.Config do
   per-deployment value compiled into a `.beam` is shared by every deployment
   built from that artifact (ADR-0003 amendment A decision 3).
 
+  `:slow_hash` is deliberately **not** refused there, and the contrast is the
+  point: it is not secret either, but unlike a deployment salt it must be
+  *identical* everywhere a given index is written or read, or the index stops
+  matching itself. Compiling it in is therefore correct rather than dangerous
+  (ADR-0003 amendment B decision 4).
+
   ## What is checked at start
 
   Every check below produces an `Encryptor.Error` with `operation: :start` and
@@ -94,6 +100,16 @@ defmodule Encryptor.Vault.Config do
       complete at start: a vault without it starts, and only
       `Encryptor.Vault.derive/3` fails, with `{:missing_config,
       [:derivation_salt]}` (ADR-0003 amendment A decision 3).
+    * `:slow_hash` is optional on both profiles and validated when present,
+      with `{:invalid_config, :slow_hash, detail}`. A declared set is
+      completed with the record's defaults - 65_536 KiB of memory, 3
+      iterations, 1 lane - and frozen, so a consumer reads a complete
+      parameter set and passes it through without interpreting it.
+      `:memory_kib` is a power of two of at least 32_768; `:iterations` and
+      `:parallelism` are positive integers. Declaring it without the optional
+      `:argon2_elixir` dependency present refuses the start with
+      `{:missing_optional_dependency, :argon2_elixir}` (ADR-0003 amendment B
+      decisions 4 and 5).
     * `:static_encryption_context` is validated and bounded here, against the
       vocabulary and the bounds `Encryptor.Context` owns: at most
       `Encryptor.Context.max_pairs/0` pairs, at most
@@ -137,6 +153,7 @@ defmodule Encryptor.Vault.Config do
 
   alias Encryptor.Context
   alias Encryptor.Error
+  alias Encryptor.Kdf
   alias Encryptor.Provider
   alias Encryptor.Vault.Reference
 
@@ -163,6 +180,19 @@ defmodule Encryptor.Vault.Config do
   # must not have.
   @deployment_options [:derivation_salt]
   @derivation_salt_bytes 32
+
+  # ADR-0003 amendment B decision 4. These are completion defaults for a
+  # nested parameter set, not defaults for the option itself, so they sit here
+  # rather than in `defaults/0` - the same shape the cache bounds above take,
+  # and for the same reason: `defaults/0` says what a vault gets when it says
+  # nothing, and a vault that says nothing about `:slow_hash` declares no slow
+  # parameters rather than inheriting a set.
+  @slow_hash_keys [:memory_kib, :iterations, :parallelism]
+  @default_slow_hash_memory_kib 65_536
+  @default_slow_hash_iterations 3
+  @default_slow_hash_parallelism 1
+  @min_slow_hash_memory_kib 32_768
+  @argon2_dependency :argon2_elixir
 
   # The probe the known-answer check derives against. It is a package
   # constant rather than configuration because ADR-0004 decision 4 describes
@@ -202,7 +232,8 @@ defmodule Encryptor.Vault.Config do
           required_keys: [String.t()],
           reference_subkey: binary() | nil,
           reference_check: String.t() | nil,
-          derivation_salt: binary() | nil
+          derivation_salt: binary() | nil,
+          slow_hash: Kdf.params() | nil
         }
 
   defstruct [
@@ -220,7 +251,8 @@ defmodule Encryptor.Vault.Config do
     :required_keys,
     :reference_subkey,
     :reference_check,
-    :derivation_salt
+    :derivation_salt,
+    :slow_hash
   ]
 
   @doc """
@@ -383,7 +415,8 @@ defmodule Encryptor.Vault.Config do
          {:ok, static} <- static_encryption_context(vault, profile, opts),
          {:ok, subkey} <- reference_subkey(vault, profile, opts),
          {:ok, check} <- reference_check(vault, profile, subkey, opts),
-         {:ok, salt} <- derivation_salt(vault, opts) do
+         {:ok, salt} <- derivation_salt(vault, opts),
+         {:ok, slow_hash} <- slow_hash(vault, opts) do
       {:ok,
        %__MODULE__{
          vault: vault,
@@ -400,7 +433,8 @@ defmodule Encryptor.Vault.Config do
          required_keys: required_keys(profile, required),
          reference_subkey: subkey,
          reference_check: check,
-         derivation_salt: salt
+         derivation_salt: salt,
+         slow_hash: slow_hash
        }}
     end
   end
@@ -683,6 +717,98 @@ defmodule Encryptor.Vault.Config do
       :error ->
         {:ok, nil}
     end
+  end
+
+  # ADR-0003 amendment B decision 4. Validated at start when present, and
+  # completed there so the primitive never has to: `Encryptor.Kdf.slow_hash/3`
+  # raises on a partial set, because completing one at the primitive would put
+  # a cryptographic default in two places.
+  #
+  # Absent means the vault declares no slow parameters, and a consumer asking
+  # for them gets nothing rather than a guess. A `:slow_hash` declared with no
+  # keys at all is a declaration like any other and completes to the record's
+  # defaults - the completion path cannot distinguish it from a partial set,
+  # and amendment B rules the empty case nowhere (enc-bri).
+  #
+  # Unlike `:derivation_salt` this is not a deployment-only option and is not
+  # refused in `use` options: it is not secret, and it must be identical
+  # everywhere a given index is written or read, or the index stops matching
+  # itself. Compiling it in is therefore correct rather than dangerous.
+  defp slow_hash(vault, opts) do
+    case Keyword.fetch(opts, :slow_hash) do
+      {:ok, declared} ->
+        with {:ok, params} <- slow_hash_params(vault, declared) do
+          slow_hash_dependency(vault, params)
+        end
+
+      :error ->
+        {:ok, nil}
+    end
+  end
+
+  defp slow_hash_params(vault, declared) when is_list(declared) do
+    if Keyword.keyword?(declared),
+      do: slow_hash_params(vault, Map.new(declared)),
+      else: {:error, error(vault, {:invalid_config, :slow_hash, :shape})}
+  end
+
+  defp slow_hash_params(vault, declared) when is_map(declared) do
+    case Enum.reject(Map.keys(declared), &(&1 in @slow_hash_keys)) do
+      [] ->
+        completed = %{
+          memory_kib: Map.get(declared, :memory_kib, @default_slow_hash_memory_kib),
+          iterations: Map.get(declared, :iterations, @default_slow_hash_iterations),
+          parallelism: Map.get(declared, :parallelism, @default_slow_hash_parallelism)
+        }
+
+        validate_slow_hash(vault, completed)
+
+      unknown ->
+        {:error, error(vault, {:invalid_config, :slow_hash, {:unknown_keys, Enum.sort(unknown)}})}
+    end
+  end
+
+  defp slow_hash_params(vault, _declared),
+    do: {:error, error(vault, {:invalid_config, :slow_hash, :shape})}
+
+  # The bounds of amendment B decision 4's table. `:parallelism` is bounded as
+  # a positive integer and no further: the lane count is an Argon2 hash input,
+  # so validating it against the validating machine's scheduler count would
+  # make a configuration valid on the writer and refused on a smaller reader,
+  # which is the divergence the "identical everywhere" requirement exists to
+  # prevent. The record's `p = 1` default is tuning guidance, not a bound.
+  defp validate_slow_hash(vault, params) do
+    cond do
+      not positive_integer?(params.memory_kib) or params.memory_kib < @min_slow_hash_memory_kib ->
+        {:error, error(vault, {:invalid_config, :slow_hash, {:memory_kib, :below_floor}})}
+
+      not power_of_two?(params.memory_kib) ->
+        {:error, error(vault, {:invalid_config, :slow_hash, {:memory_kib, :not_a_power_of_two}})}
+
+      not positive_integer?(params.iterations) ->
+        {:error, error(vault, {:invalid_config, :slow_hash, {:iterations, :not_positive}})}
+
+      not positive_integer?(params.parallelism) ->
+        {:error, error(vault, {:invalid_config, :slow_hash, {:parallelism, :not_positive}})}
+
+      true ->
+        {:ok, params}
+    end
+  end
+
+  defp positive_integer?(value), do: is_integer(value) and value > 0
+
+  defp power_of_two?(value), do: Bitwise.band(value, value - 1) == 0
+
+  # Amendment B decision 5's first line. Declaring the parameters is the host
+  # saying it intends to hash slowly, so a build without the dependency is a
+  # boot to refuse rather than a call site to surprise later - and the reason
+  # is one this package already carries, so the amendment adds no error
+  # vocabulary.
+  defp slow_hash_dependency(vault, params) do
+    if Code.ensure_loaded?(Argon2.Base),
+      do: {:ok, params},
+      else: {:error, error(vault, {:missing_optional_dependency, @argon2_dependency})}
   end
 
   defp reference_check(vault, :tenant, subkey, opts) do
