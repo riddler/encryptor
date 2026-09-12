@@ -385,4 +385,149 @@ defmodule Encryptor.KdfTest do
       refute field_key == Kdf.expand(material, "downstream/records/notes", 32)
     end
   end
+
+  describe "slow_hash/3, the Argon2id pre-hash (ADR-0003 amendment B)" do
+    # Cheap but real parameters: the record's floor for memory and one
+    # iteration. The defaults it fixes are asserted in the configuration
+    # tests, which is where completion lives; paying 64 MiB three times per
+    # assertion here would buy nothing this file is about.
+    @params %{memory_kib: 32_768, iterations: 1, parallelism: 1}
+    @salt :binary.copy(<<0x5A>>, 16)
+
+    # Amendment B decision 1 fixes 32 raw bytes. `argon2_elixir`'s
+    # `format: :raw_hash` hands the hash back hex-encoded despite the name, so
+    # this test is what holds the decoding in place.
+    #
+    # sabotage: dropped the Base.decode16!/2 step - red, because the function
+    # then returns 64 bytes of lowercase hex rather than 32 raw ones.
+    test "returns 32 raw bytes, not hex and not the encoded credential" do
+      hash = Kdf.slow_hash("value", @salt, @params)
+
+      assert byte_size(hash) == 32
+      refute String.printable?(hash) and String.match?(hash, ~r/^[0-9a-f]+$/)
+      refute String.starts_with?(hash, "$argon2")
+    end
+
+    # sabotage: seeded the call with `:crypto.strong_rand_bytes/1` in place of
+    # the caller's salt - red. A blind index is reproducible or it is nothing.
+    test "is deterministic in value, salt and parameters" do
+      assert Kdf.slow_hash("value", @salt, @params) == Kdf.slow_hash("value", @salt, @params)
+    end
+
+    # sabotage: made slow_hash/3 ignore its salt argument and pass a constant
+    # - red on the salt half.
+    test "a different value, salt or parameter set is a different hash" do
+      base = Kdf.slow_hash("value", @salt, @params)
+
+      refute base == Kdf.slow_hash("other", @salt, @params)
+      refute base == Kdf.slow_hash("value", :binary.copy(<<0x5B>>, 16), @params)
+      refute base == Kdf.slow_hash("value", @salt, %{@params | iterations: 2})
+      refute base == Kdf.slow_hash("value", @salt, %{@params | memory_kib: 65_536})
+      refute base == Kdf.slow_hash("value", @salt, %{@params | parallelism: 2})
+    end
+
+    # The conversion that amendment B decision 4 routed to the implementation:
+    # `argon2_elixir` takes memory as a log-2 exponent of KiB (its NIF
+    # computes `m_cost = 1U << m`), so this package's KiB has to be converted
+    # rather than passed. An off-by-1024 here is the error the record named.
+    #
+    # sabotage: passed `memory_kib` straight through as `m_cost` - red,
+    # because 32_768 as an exponent asks for 2^32768 KiB and the NIF refuses.
+    test "expresses memory in KiB, converted to the library's log-2 exponent" do
+      assert Kdf.slow_hash("value", @salt, @params) ==
+               "value"
+               |> Argon2.Base.hash_password(@salt,
+                 t_cost: 1,
+                 m_cost: 15,
+                 parallelism: 1,
+                 hashlen: 32,
+                 argon2_type: 2,
+                 format: :raw_hash
+               )
+               |> Base.decode16!(case: :lower)
+    end
+
+    # sabotage: dropped the byte_size guard - red. Argon2 admits 8 bytes;
+    # decision 3 takes the recommended 16 as the floor because the caller's
+    # salt is a derived constant rather than a per-password random.
+    test "refuses a salt shorter than 16 bytes, naming the constraint only" do
+      error =
+        assert_raise ArgumentError, fn ->
+          Kdf.slow_hash("value", :binary.copy(<<0x5A>>, 15), @params)
+        end
+
+      assert Exception.message(error) == "a slow-hash salt must be at least 16 bytes"
+    end
+
+    # Decision 1: complete or nothing. Completing a partial set here would put
+    # a cryptographic default in two places.
+    #
+    # sabotage: replaced the map_size/1 guard and the fallback clause with a
+    # Map.merge/2 against the record's defaults - red on all four.
+    test "raises on a parameter set that is not complete and exact" do
+      for params <- [
+            %{},
+            %{iterations: 1},
+            %{memory_kib: 32_768, iterations: 1},
+            Map.put(@params, :hashlen, 32)
+          ] do
+        error = assert_raise ArgumentError, fn -> Kdf.slow_hash("value", @salt, params) end
+
+        assert Exception.message(error) ==
+                 "a slow-hash parameter set must carry exactly :memory_kib, :iterations and :parallelism"
+      end
+    end
+
+    # sabotage: dropped the `Bitwise.bsl(1, exponent) == memory_kib` check and
+    # returned the truncated exponent - red, because 65_537 KiB would then
+    # silently hash at 65_536 and two hosts that disagree about the parameter
+    # would agree about the bytes.
+    test "raises on a memory size that is not a power of two" do
+      error =
+        assert_raise ArgumentError, fn ->
+          Kdf.slow_hash("value", @salt, %{@params | memory_kib: 65_537})
+        end
+
+      assert Exception.message(error) == "a slow-hash :memory_kib must be a power of two"
+    end
+
+    # Decision 2: it hashes a value, not a key, and joins no label space. The
+    # cross-check goes through Argon2's *encoded* credential rather than the
+    # raw format the implementation uses, so it is an independent computation
+    # of the same bytes and not a restatement of the call.
+    #
+    # sabotage: had slow_hash/3 prepend `label("slow-hash")` to its input -
+    # red, because the output would then depend on a label the record says it
+    # does not have, and would stop matching a plain Argon2id of the value.
+    test "composes no label and adds no entry to the reserved space" do
+      encoded =
+        Argon2.Base.hash_password("value", @salt,
+          t_cost: 1,
+          m_cost: 15,
+          parallelism: 1,
+          hashlen: 32,
+          argon2_type: 2
+        )
+
+      ["", "argon2id", "v=19", "m=32768,t=1,p=1", _salt, hash] = String.split(encoded, "$")
+
+      assert Kdf.slow_hash("value", @salt, @params) == Base.decode64!(hash, padding: false)
+    end
+
+    # Decision 2, the redaction half: the danger here is not that the input is
+    # key-shaped, it is that it is plaintext.
+    #
+    # sabotage: interpolated the salt into the salt-length message - red.
+    test "never renders the value or the salt in a failure" do
+      plaintext = "cardholder@example.com"
+      salt = "short-salt"
+
+      error =
+        assert_raise ArgumentError, fn -> Kdf.slow_hash(plaintext, salt, @params) end
+
+      message = Exception.message(error)
+      refute message =~ plaintext
+      refute message =~ salt
+    end
+  end
 end

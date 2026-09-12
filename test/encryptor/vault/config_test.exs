@@ -534,6 +534,125 @@ defmodule Encryptor.Vault.ConfigTest do
     end
   end
 
+  describe "the slow-hash parameters" do
+    # sabotage: gave :slow_hash the record's defaults in defaults/0 - red,
+    # because an undeclared vault then reports a parameter set it was never
+    # given, and amendment B decision 4's "absent means the vault declares no
+    # slow parameters, and a consumer asking for them gets nothing rather than
+    # a guess" stops holding.
+    test "are optional on both profiles, and absent means nil" do
+      assert {:ok, %Config{slow_hash: nil}} = single()
+      assert {:ok, %Config{slow_hash: nil}} = tenant()
+    end
+
+    # sabotage: dropped the Map.get default arms from slow_hash_params/2 so a
+    # declared set was frozen as given - red, because a partial declaration
+    # then reaches the struct incomplete and `slow_hash/3` raises on it.
+    test "a declared set is completed with the record's defaults and frozen" do
+      assert {:ok, %Config{slow_hash: params}} = single(slow_hash: [iterations: 4])
+
+      assert params == %{memory_kib: 65_536, iterations: 4, parallelism: 1}
+    end
+
+    # sabotage: same, from the other side - completion must not overwrite what
+    # the host declared.
+    test "a fully declared set is taken as declared" do
+      declared = [memory_kib: 131_072, iterations: 2, parallelism: 4]
+
+      assert {:ok, %Config{slow_hash: params}} = single(slow_hash: declared)
+      assert params == %{memory_kib: 131_072, iterations: 2, parallelism: 4}
+    end
+
+    # sabotage: dropped the map arm of slow_hash_params/2 - red on the map
+    # case. A host reading the set back off one vault and handing it to
+    # another is handing over a map, not a keyword list.
+    test "is declarable as a keyword list or as a map" do
+      assert {:ok, %Config{slow_hash: from_list}} = single(slow_hash: [memory_kib: 32_768])
+
+      assert {:ok, %Config{slow_hash: from_map}} = single(slow_hash: %{memory_kib: 32_768})
+
+      assert from_list == from_map
+    end
+
+    # sabotage: removed the @min_slow_hash_memory_kib comparison from
+    # validate_slow_hash/2 - red, because 16 MiB then starts a vault that the
+    # record's floor exists to refuse.
+    test ":memory_kib is a power of two of at least 32_768" do
+      assert {:invalid_config, :slow_hash, {:memory_kib, :below_floor}} =
+               reason(single(slow_hash: [memory_kib: 16_384]))
+
+      assert {:invalid_config, :slow_hash, {:memory_kib, :not_a_power_of_two}} =
+               reason(single(slow_hash: [memory_kib: 65_537]))
+
+      assert {:invalid_config, :slow_hash, {:memory_kib, :below_floor}} =
+               reason(single(slow_hash: [memory_kib: :lots]))
+
+      assert {:ok, %Config{}} = single(slow_hash: [memory_kib: 32_768])
+    end
+
+    # sabotage: dropped the two positive_integer?/1 arms - red on all four
+    # refusals.
+    test ":iterations and :parallelism are positive integers" do
+      assert {:invalid_config, :slow_hash, {:iterations, :not_positive}} =
+               reason(single(slow_hash: [iterations: 0]))
+
+      assert {:invalid_config, :slow_hash, {:iterations, :not_positive}} =
+               reason(single(slow_hash: [iterations: 1.5]))
+
+      assert {:invalid_config, :slow_hash, {:parallelism, :not_positive}} =
+               reason(single(slow_hash: [parallelism: -1]))
+
+      assert {:invalid_config, :slow_hash, {:parallelism, :not_positive}} =
+               reason(single(slow_hash: [parallelism: "4"]))
+    end
+
+    # sabotage: made the unknown-key check accept anything - red, because a
+    # misspelled `:memory` then silently configures the record's default and
+    # the operator reads a cost they did not set.
+    test "a key the record does not define is refused by name" do
+      assert {:invalid_config, :slow_hash, {:unknown_keys, [:memory, :t_cost]}} =
+               reason(single(slow_hash: [memory: 65_536, t_cost: 3]))
+    end
+
+    # sabotage: dropped the non-list, non-map arm - red, because a bare
+    # integer then hit the map arm and crashed the start instead of refusing.
+    test "a set that is neither a keyword list nor a map is refused as a shape" do
+      assert {:invalid_config, :slow_hash, :shape} = reason(single(slow_hash: 65_536))
+
+      assert {:invalid_config, :slow_hash, :shape} =
+               reason(single(slow_hash: [:memory_kib, :iterations]))
+    end
+
+    # enc-bri: amendment B rules an empty declaration under neither B1 nor B4.
+    # The completion path cannot distinguish it from a partial set, so it is
+    # the record's defaults, and this test records that rather than deciding
+    # it.
+    #
+    # sabotage: made slow_hash/2 treat `[]` as absent - red.
+    test "an empty declaration completes to the defaults, like any partial set" do
+      assert {:ok, %Config{slow_hash: params}} = single(slow_hash: [])
+
+      assert params == %{memory_kib: 65_536, iterations: 3, parallelism: 1}
+    end
+
+    # sabotage: removed :slow_hash from the refusal exemption by adding it to
+    # @deployment_options - red, because a value that must be identical
+    # everywhere would then be refused from the one place that guarantees it.
+    test "is not refused in use options, unlike the derivation salt" do
+      assert Config.validate_use_opts!(TestVaults.NoInit, slow_hash: [iterations: 3]) ==
+               [slow_hash: [iterations: 3]]
+    end
+
+    # sabotage: added :slow_hash to the Inspect redaction map - red. Amendment
+    # B decision 4: there is nothing to redact, and a redacted non-secret here
+    # would hide the one thing an operator needs to read back.
+    test "is rendered rather than redacted, because there is nothing to redact" do
+      {:ok, config} = single(slow_hash: [memory_kib: 32_768])
+
+      assert inspect(config) =~ "memory_kib: 32768"
+    end
+  end
+
   describe "the known-answer check" do
     # sabotage: made known_answer/1 hash the probe unkeyed - red, because the
     # two subkeys then produce the same value.

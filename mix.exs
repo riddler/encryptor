@@ -12,6 +12,11 @@ defmodule Encryptor.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      # ADR-0003 amendment B decision 5: a compile warning about an optional
+      # module is exactly the warning an optional dependency is supposed to
+      # produce, and exactly the one that trains a reader to ignore warnings.
+      # `Encryptor.Kdf.slow_hash/3` checks for the module at runtime instead.
+      xref: [exclude: [Argon2.Base]],
       name: "Encryptor",
       description:
         "Ergonomic envelope encryption for Elixir - vault module, pluggable key providers, per-tenant keys",
@@ -76,6 +81,10 @@ defmodule Encryptor.MixProject do
   defp deps do
     [
       {:aws_encryption_sdk, "~> 1.0"},
+
+      # Optional: only a host whose vaults declare `:slow_hash` carries the
+      # NIF (ADR-0003 amendment B decision 5).
+      {:argon2_elixir, "~> 4.0", optional: true},
 
       # Dev / test
       {:ex_quality, "~> 0.14", only: :dev, runtime: false},

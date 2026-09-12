@@ -238,12 +238,52 @@ under the old salt changes, so every stored blind index, and anything else
 built from a derived subkey, must be recomputed from plaintext. Treat the salt
 as pinned for the life of the deployment.
 
+### Slow hashing for a blind index
+
+`Encryptor.Kdf.slow_hash/3` is an Argon2id pre-hash of a *value*, for a
+downstream blind index over low-entropy plaintext where a plain HMAC is
+guessable. It returns 32 raw bytes for the consumer to feed an HMAC, and it is
+the one function in that module that does not derive a key: it takes no
+purpose, composes no label, and nothing this package holds is recoverable from
+its output.
+
+Its parameters are the vault's, under an optional `:slow_hash` key, so the
+choice is one operator decision rather than one per call site:
+
+```elixir
+use Encryptor.Vault,
+  otp_app: :my_app,
+  slow_hash: [memory_kib: 65_536, iterations: 3, parallelism: 1]
+```
+
+Those are also the defaults, and a partially declared set is completed with
+them at start. `:memory_kib` is a power of two of at least 32_768; the set is
+readable through `MyVault.config/0` and passed straight through. Unlike
+`:derivation_salt` it is not secret and is not refused in `use` options - it
+must be *identical* everywhere a given index is written or read.
+
+The salt is the caller's and must be deterministic and at least 16 bytes; the
+recommended construction is `derive/2` under the index's own identity, which
+is already salted per deployment.
+
+The dependency is optional:
+
+```elixir
+{:argon2_elixir, "~> 4.0"}
+```
+
+A host whose vaults declare no `:slow_hash` carries no NIF. A vault that
+declares one without the dependency present refuses to start with
+`{:missing_optional_dependency, :argon2_elixir}`, and a direct call in a build
+without it raises.
+
+**Retuning the parameters invalidates every value hashed under the old ones**,
+and this package cannot detect it - the output carries nothing about the
+parameters that produced it. Treat a `:slow_hash` change the way you treat a
+`:derivation_salt` rotation.
+
 ## Not yet
 
-- **Argon2id.** There is no slow-hash surface in this package: no code, no
-  configuration, no dependency, and no accepted record naming one. A consumer
-  needing a memory-hard derivation cannot get it here yet. Tracked as
-  `enc-dtv`.
 - **Telemetry.** ADR-0006 is **proposed**, not accepted, and no events are
   emitted. Do not build dashboards against it yet.
 

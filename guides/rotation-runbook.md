@@ -518,6 +518,7 @@ before the step, without recourse to backups.
 | P3 | 3, drain caches | nothing | n/a | Skipped: the shred is incomplete for up to `max_age`, and the tenant's data remains readable on running nodes. |
 | P4 | 1, delete one wrapping | every row still written under that version | **no** | Run before verification: exactly the rows the pass missed become permanently unreadable, and they surface as `:decrypt_failed` indistinguishable from corruption. |
 | any | shredding a tenant master key | that tenant's derived subkeys too | **no** | Subkeys are recomputed from the master key and never stored, so a blind index, a search key, or any future purpose-labelled key dies with it. Intended, and it means a shred is wider than "columns encrypted by this package". |
+| any | changing a vault's `:slow_hash` parameters | nothing directly | yes, by restoring the old parameters | Every index value written afterwards is hashed under the new parameters and stops matching values stored under the old ones, and **nothing in this package notices**: the output carries nothing about the parameters that produced it. It is an invalidating change in the same family as a `:derivation_salt` rotation, not a tuning knob to turn freely; the migration is `encryptor_ecto`'s two-column dance under a new index version (ADR-0003 amendment B decision 6). |
 
 ## The division of labour with `encryptor_ecto`
 
