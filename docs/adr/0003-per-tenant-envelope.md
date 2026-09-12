@@ -9,6 +9,10 @@ end of this record, it is additive, and it changes none of decisions 1 to 9
 below. Read the decisions as accepted and the amendment as a proposal
 awaiting the operator's acceptance reading.
 
+**Amendment B (2026-09-12) is proposed, not accepted.** It is appended after
+Amendment A, it is additive, and it changes none of decisions 1 to 9 below nor
+any of Amendment A decisions A1 to A7.
+
 ## Context
 
 ADR-0001 fixed the vault and ADR-0002 fixed the provider contract. Both stop
@@ -959,3 +963,273 @@ It is generated as `MyVault.derive/2` for symmetry with `encrypt/2` and
 `decrypt/2`, but unlike those it is not something a call site invokes -
 its caller is another library. Leaving it on `Encryptor.Vault` alone would
 make that clearer. Settle with `encryptor_ecto`'s first real consumer.
+
+## Amendment B (proposed, 2026-09-12): the Argon2id slow-derivation surface
+
+Status: **proposed**. Nothing below is accepted; the acceptance reading is the
+operator's. Decisions 1 to 9 and Amendment A's decisions A1 to A7 are
+unchanged, and this amendment only adds.
+
+### Why now
+
+`encryptor_ecto`'s blind index declares a per-field `:slow` option whose
+Argon2id parameters come, in its own words, "from the vault's configuration
+rather than this package's" (its ADR-0003 decision 6, and assumption A12 in
+the same record). This package has never named that surface. The option is
+therefore **declared and inert** downstream: `:slow` is accepted, checked and
+carried on a declaration, and a `slow: true` index and a `slow: false` index
+over the same plaintext store the same bytes, because "the vault exposes no
+Argon2id surface" to read the parameters from
+(`lib/encryptor/ecto/blind_index.ex` and
+`lib/encryptor/ecto/blind_index/value.ex`, read at `encryptor_ecto`
+8120da8).
+
+That is the right failure for the downstream package to have chosen - this
+repository's conventions call a cryptographic parameter set picked inline in
+an implementation bead a defect even when the choice is a good one - but it
+leaves the low-entropy row of that record's security table with no defence in
+either package. This amendment is the record that closes it, and `enc-dtv` is
+its implementation half.
+
+### Why this record and not ADR-0002
+
+ADR-0002 owns the path from a selector to key descriptors and the rule that
+the vault alone builds keyrings. It never derives anything. Every derivation
+decision this package has taken lives here instead: decision 5 (the keyed
+reference derivation), decision 6 (the label grammar and its one-way
+reservation), decision 7 (purpose-separated subkeys and their shred
+semantics), and Amendment A (the salted exported tree). `Encryptor.Kdf`'s
+moduledoc names this record and no other as its contract
+(`lib/encryptor/kdf.ex:151`, read at enc 6c30df8).
+
+A slow pre-hash is a derivation decision, so it belongs where the derivation
+decisions are. Putting it in ADR-0002 would split one contract across two
+records and leave a reader of `Encryptor.Kdf` with no way to know that half of
+its rules are recorded elsewhere.
+
+### The decisions
+
+**B1. The surface is `Encryptor.Kdf.slow_hash/3`, and this record fixes the
+name, the arity and the return.**
+
+```elixir
+@spec slow_hash(binary(), binary(), params()) :: binary()
+def slow_hash(input, salt, params)
+```
+
+Three positions: the value to hash, the salt to hash it under, and the
+parameter set, supplied explicitly by the caller. It returns **raw output
+bytes**, 32 of them, and never Argon2's encoded string. The encoded string
+carries the parameters and the salt inside it, which makes it a different
+value whenever an operator retunes the cost, and its consumer wants bytes to
+feed an HMAC rather than a self-describing credential to compare. Fixing the
+output at 32 bytes matches `@hash_length` in the same module
+(`lib/encryptor/kdf.ex:156`, enc 6c30df8) and needs no fourth argument.
+
+It **raises** rather than returning `{:error, _}`, under the rule that module
+already records: a bad parameter set, a short salt or a missing dependency is
+a caller-supplied constant that is wrong in the source, not an event that
+happens to a correct program (`lib/encryptor/kdf.ex:137-149`, enc 6c30df8).
+Every raised message names the constraint and never the value.
+
+It lives in `Encryptor.Kdf` rather than in a new module because that module is
+this package's one place for key-derivation primitives, and a second module
+would leave a reader to discover that the set is split. The cost is that the
+moduledoc's opening claim - HKDF-SHA256, "depends on nothing but `:crypto`"
+(`lib/encryptor/kdf.ex:1-11`, enc 6c30df8) - stops being literally true.
+That claim is **narrowed, not withdrawn**, exactly the way Amendment A
+narrowed the expand-only argument: HKDF is still the whole of what this
+package derives *keys* with, and B2 is why `slow_hash/3` is not one of those.
+
+**B2. It hashes a value, not a key, and therefore joins no label space.**
+
+Its input is a normalized plaintext handed over by the consumer. It is not
+key material, it is not expanded from key material, and nothing this package
+holds is recoverable from it. Three things follow, and they are the reason
+this decision is written down rather than left implicit:
+
+- It takes no `purpose` and composes no `"encryptor/v1/<purpose>"` label
+  (`lib/encryptor/kdf.ex:66-84`, enc 6c30df8). There is nothing to
+  domain-separate, because no package key is being expanded; decision 6's
+  one-way reservation is untouched and gains no entry.
+- Its output is HMAC *input* in the consumer, never a key this package hands
+  out. The capability warning of decision 7 does not reach it, and neither
+  does Amendment A's "every exported byte is one expansion further from the
+  tree's root" property, which is about derived keys.
+- ADR-0001 decision 6's prohibition applies in full and for the opposite
+  reason to everywhere else in this module: the danger is not that the input
+  is key-shaped, it is that the input is **plaintext**. Neither the input nor
+  the output appears in a log line, an `Inspect` output, or an exception
+  message, and the raises of B1 name constraints only.
+
+**B3. The salt is the caller's, must be deterministic, and is at least 16
+bytes.**
+
+A blind index is reproducible or it is nothing: a random per-call salt would
+make two hashes of the same value differ, which is precisely the failure the
+feature exists to prevent. So `slow_hash/3` takes the salt rather than
+generating one, and this package does not invent it.
+
+The guard is 16 bytes, and it sits on the argument. Argon2 admits a salt of 8
+bytes and recommends 16; this record takes the recommendation as the floor
+because the caller's salt here is a derived constant rather than a
+per-password random, so there is no reason to accept the weaker bound. A
+shorter salt raises, without rendering the value.
+
+The **recommended construction**, which this record recommends and
+`encryptor_ecto`'s own record fixes, is to derive the per-index salt through
+`Encryptor.Vault.derive/3` (`lib/encryptor/vault.ex:416`, enc 6c30df8) under
+the index's own identity. That path is already salted per deployment by
+`:derivation_salt` (Amendment A decision 3), so two deployments holding the
+same plaintext under the same index key still present different inputs to
+Argon2id, and the salt is stable for the life of the index without being
+stored anywhere. This package records the shape of a correct salt; which
+string identifies an index belongs to the package that owns indexes.
+
+**B4. The parameters are vault configuration, under the key `:slow_hash`.**
+
+| Key | Default | Bound |
+|---|---|---|
+| `:memory_kib` | `65_536` (64 MiB) | a power of two, at least `32_768` (32 MiB) |
+| `:iterations` | `3` | a positive integer |
+| `:parallelism` | `1` | a positive integer, not above the host's scheduler count |
+
+The defaults sit above the widely published Argon2id floor of 19 MiB of
+memory with two iterations and one lane, and the `:memory_kib` bound is the
+next power of two above that floor. They are deliberately memory-heavy rather
+than iteration-heavy: memory hardness is the property that makes a parallel
+attacker pay, and iteration count alone does not buy it.
+`:parallelism` defaults to `1` because a lane count above the schedulers
+actually available makes the cost claim untrue on the machine that matters,
+and a default that is wrong on a small host is worse than a conservative one
+an operator raises on purpose.
+
+Memory is expressed here in **KiB**, not as a cost exponent, because an
+operator reasons in megabytes and a log-2 exponent is the kind of parameter
+that is silently off by a factor of 1024. The power-of-two constraint exists
+only because the dependency of B5 takes memory as a log-2 exponent
+(`m_cost`); `enc-dtv` verifies that against `argon2_elixir` at
+implementation, and if that library accepts KiB directly the constraint is
+dropped and every default above is unchanged.
+
+Where it lives: a `:slow_hash` key on `%Encryptor.Vault.Config{}`
+(`lib/encryptor/vault/config.ex:190` and `:208`, enc 6c30df8), optional on
+both profiles, and validated at start **when present** -
+`{:invalid_config, :slow_hash, detail}`, an existing reason shape
+(`lib/encryptor/error.ex:89`, enc 6c30df8), so this amendment adds no error
+vocabulary. Absent means the vault declares no slow parameters, and a
+consumer asking for them gets nothing rather than a guess.
+
+Unlike `:derivation_salt`, it is **not** a deployment-only option and is not
+refused in `use Encryptor.Vault` options
+(`lib/encryptor/vault/config.ex:164`, enc 6c30df8). The reason `:derivation_salt`
+is refused there is that a per-deployment value compiled into a `.beam` is
+shared by every deployment built from that artifact. A slow-hash parameter
+set has the opposite requirement: it is not secret, and it must be
+*identical* everywhere a given index is written or read, or the index stops
+matching itself. Compiling it in is therefore correct rather than dangerous,
+and it is redacted nowhere because there is nothing to redact.
+
+How a consumer reads it: `Encryptor.Vault.config/1`
+(`lib/encryptor/vault.ex:447`, enc 6c30df8) and the generated `config/0`
+(`lib/encryptor/vault.ex:265`, enc 6c30df8) already return the frozen
+configuration struct. `encryptor_ecto`'s A12 asks only that the parameters be
+"readable by this layer as an opaque parameter set"; the existing accessor
+satisfies that, so this amendment adds no second reader and no vault-level
+`slow_hash` wrapper. The parameter set is opaque to the consumer in the sense
+that matters: it reads it and passes it through, and never interprets or
+defaults it.
+
+**B5. `argon2_elixir` is an optional dependency.**
+
+```elixir
+{:argon2_elixir, "~> 4.0", optional: true}
+```
+
+Optional, not a hard dependency: it is built for this package's own dev and
+test so the primitive is testable here, and it is never forced on a consumer.
+A host whose vaults declare no slow index therefore carries **no NIF**, which
+is the same promise this package already makes about the AWS stack - raw
+keyring usage pulls no AWS, HTTP, or XML libraries - applied to native code.
+
+Absence is discovered at the one call site and **raised**, with a message
+naming the dependency and what to add, rather than returned as
+`{:error, _}` or silently degraded to a plain hash. A host that declared a
+slow index without the dependency has a wrong build, not a runtime event, and
+a silent degradation here would quietly write index values at plain-HMAC cost
+under a column the operator believes is hardened. That is the "never
+rescue-to-default in cryptographic code" convention applied to a missing
+dependency.
+
+The presence check is a runtime one (`Code.ensure_loaded?/1`), and the module
+is excluded from the compile-time cross-reference check, because a compile
+warning about an optional module is exactly the warning an optional
+dependency is supposed to produce and exactly the one that trains a reader to
+ignore warnings.
+
+**B6. A parameter change invalidates every value hashed under the old
+parameters, and this package cannot detect it.**
+
+The output carries nothing about the parameters that produced it - B1 fixes
+that by returning raw bytes - and this package stores neither the parameters
+nor a fingerprint of them alongside anything. So a host that retunes
+`:memory_kib` or `:iterations` has changed every future index value under
+that vault, and nothing here will notice or complain.
+
+That is recorded on this side, where the parameters live, rather than left to
+the downstream record alone. The migration is the one `encryptor_ecto`'s
+ADR-0003 decision 7 already defines - the two-column dance, with the new
+parameters declared under a new index version - and this record adds no
+second mechanism. What it adds is the statement that a slow-hash parameter
+change belongs on the same invalidating list as a normalizer change and a
+width change, and is not a tuning knob an operator may turn freely.
+
+### Consequences
+
+**`enc-dtv` can be implemented from this record alone.** The entry point, its
+arity, its return, the salt contract, the configuration key and its defaults,
+and the dependency decision are all fixed above. Nothing in the
+implementation bead has to choose a cryptographic parameter.
+
+**`encryptor_ecto`'s `:slow` becomes implementable without a new assumption.**
+Its A12 is satisfied by the existing configuration accessor, and its decision
+6 sentence about parameters living in the vault's configuration becomes a
+description of something that exists.
+
+**`Encryptor.Kdf` stops being `:crypto`-only, and its moduledoc is narrowed
+rather than rewritten.** The HKDF argument, the label grammar and the
+expand-only reasoning all still hold for every function that derives a key;
+`slow_hash/3` is documented as the one function there that hashes a value
+instead, with B2's reasons.
+
+**The dependency surface grows by one optional, native package.** A consumer
+that wants slow indexes opts into a NIF and into its build requirements. A
+consumer that does not is unaffected, and the gate's dependency audit sees
+the new package in this repository's own builds.
+
+**`enc-53a`'s rotation runbook gains a line.** A slow-hash parameter change is
+an invalidating change in the same family as a `:derivation_salt` rotation
+(Amendment A's consequences say the same of the salt). It is flagged here
+rather than assumed.
+
+### Open questions this amendment adds
+
+B-1. **Whether `:slow_hash` should be per index rather than per vault.** One
+parameter set per vault is what `encryptor_ecto`'s decision 6 assumes and what
+B4 implements, and it is the shape that makes a retune a single operator
+decision. A per-index set would let a host harden one high-value column
+without paying the cost on another, at the price of a second place the
+parameters can disagree. Settle against the first host that wants two indexes
+with genuinely different value.
+
+B-2. **Whether this package should offer a calibration helper.** The right
+parameters are a property of the host's machine and its latency budget, not
+of this package, and a helper that measures them would be the only thing here
+that benchmarks. It is left out deliberately; if operators end up guessing,
+reconsider.
+
+B-3. **Whether the 32-byte output should ever be configurable.** B1 fixes it,
+because the consumer truncates its own stored width downstream and a second
+length knob would give two places to change the same thing. A future consumer
+that wants Argon2id output for something other than HMAC input would reopen
+this.
