@@ -2,6 +2,17 @@
 
 Status: accepted (2026-08-27)
 
+**Amendment A (2026-09-12) is proposed, not accepted.** It is appended at the
+end of this record and it is additive. It reverses none of decisions 1 to 10
+below and rewrites none of them; the one decision it extends rather than
+leaves alone is decision 10, whose "Shipped, as functions" list gains two
+entries while its "Not shipped, and deliberately" list is untouched (A1 says
+why). In particular decision 3's "there is no third mechanism" stands
+verbatim: the amendment adds a third *verb*, not a third mechanism, and its
+decision A2 is the whole of that reconciliation. Read the decisions as
+accepted and the amendment as a proposal awaiting the operator's acceptance
+reading.
+
 ## Context
 
 ADR-0003 built a three-level hierarchy and then handed every question about
@@ -888,3 +899,418 @@ that this record deliberately did not make itself.
    documents four procedures and no guidance on when to run them is arguably
    half a control. Owner: whoever writes the security section of the
    documentation, with ADR-0001 open question 2's unmeasured cache bounds.
+
+## Amendment A (proposed, 2026-09-12): suspend, the third verb
+
+Status: **proposed**. Nothing below is accepted; the acceptance reading is the
+operator's. This amendment only adds: it reverses and rewrites nothing in
+decisions 1 to 10, and the one it extends is decision 10's shipped list (A1).
+
+### Why now
+
+ADR-0007 named the gap while declining to fill it. Its wrap-provider makes a
+tenant's key material unreadable by revoking IAM on one `CryptoKey`, which is
+reversible by restoring the binding, and the record stops there:
+
+> **Suspend is a third verb and it is not decided here.** IAM-revoke on the
+> tenant's `CryptoKey` plus a cache evict makes a tenant's data unreadable
+> *reversibly*, which is a thing ADR-0005 has no verb for [...] what the verb
+> is called, what surface it has, and whether it belongs in this package at
+> all is the decision of a sibling record.
+> (`docs/adr/0007-gcp-kms-wrap-provider.md:574-581`, read at `3aaa23b`)
+
+This is that sibling record. The gap is not GCP's. Every host that offboards a
+tenant provisionally - a suspended account, a disputed data licence, a
+subject-access hold, a tenant migrating out and not yet gone - needs the state
+between "readable" and "destroyed", and today this record forces a choice
+between leaving the data readable and running P3, which is irreversible. The
+operational shape of that choice is the whole reason P3's first precondition
+is a recorded human decision: an operator who needs a pause and is offered
+only a shred will eventually take the shred.
+
+Nothing here invents a mechanism either. Everything the verb composes is
+already built: the resolution chokepoint (`Encryptor.Vault.Resolve`), the
+existing `{:key_unavailable, selector}` reason, and the cache recycler. What
+is missing is the same thing decisions 1 to 10 supplied for rotate and shred -
+the sequencing, the observable, and the name.
+
+### Why suspend is not a third mechanism, and the title still counts three
+
+This record's title says three independent lifecycles, and those three are
+**levels** - the root key, the tenant master key, and the per-message data key
+of ADR-0003. Suspend adds no level, so the title is unchanged and needs no
+reading around. Decision 1's "four operations, three levels" is a different
+count again - four operations distributed over levels 1, 2, 2 and "none in
+this package" - and suspend is not one of its four either, for the reason A2
+gives.
+
+Decision 3 is the sentence that has to be met, because it is a count:
+
+> **3. Rotation adds a name and a shred removes one. There is no third
+> mechanism, and pruning is manual.**
+> (`docs/adr/0005-rotation-and-crypto-shred.md:135-136`)
+
+That sentence stands **verbatim**, and A2 below is the whole of the
+reconciliation: decision 3 counts *mechanisms*, where a mechanism is a change
+to the membership of the set `decryption_keys/2` answers with. That is this
+record's own definition rather than one introduced here: "Concretely, a live
+set is whatever the store answers `decryption_keys/2` with" (`:139`), and "A
+version stops decrypting when, and only when, it stops appearing in
+`decryption_keys/2`" (`:108-110`). Suspend changes that membership not at
+all. It adds no name, removes no name, writes no row and deletes none. It is
+a third **verb** over an unchanged set of two mechanisms, which is why it can
+be reversible at all - there is nothing to put back.
+
+### The decisions
+
+**A1. Suspend is the third verb, and it is defined by its observable rather
+than by its implementation.**
+
+A selector is *suspended* when, on every vault that serves it, `encrypt/2`,
+`decrypt/2`, `rekey/2` and `derive/2` fail with
+`{:key_unavailable, selector}`, and the wrappings that selector resolves to
+are untouched in the key store. The data is unreadable and intact.
+
+Its surface in this package is `Encryptor.Vault.suspend/2` and its inverse
+`Encryptor.Vault.reinstate/2`, both `(vault, selector)`, both returning
+`:ok | {:error, Encryptor.Error.t()}`. `enc-pmx` is the implementation half.
+
+They are **not** generated onto the host's vault module. Every other entry
+point has a `use`-generated counterpart (`lib/encryptor/vault.ex:193-246`,
+read at `3aaa23b`) because a call site invokes it; these two are an
+operator's, invoked once from a console or a release task against a named
+vault, and generating `MyApp.Vault.suspend/1` would put an operational verb
+on the surface a call site reads. ADR-0003's open question A-3 makes the same
+argument about `derive/3` from the other direction.
+
+Shipping a function here is consistent with decision 10 rather than an
+exception to it. Decision 10 declines `shred/2` because deleting a wrapping is
+a `DELETE` against a store this package has no access to, so a function here
+would imply knowledge of that store's copies it does not have. Suspend is the
+opposite case: A3 and A5 put its entire mechanism inside the vault, it reads
+and writes nothing the host owns, and it therefore claims nothing about
+copies. A verb this package can perform completely is a verb it may ship.
+
+**A2. Suspend adds no name and removes none. Decision 3 is unchanged.**
+
+Amend-by-addition, not rewrite: decision 3's "there is no third mechanism"
+remains exactly true under this amendment, because suspension is a refusal in
+front of resolution and not a membership change behind it. Three consequences
+follow and all three are the point of the verb:
+
+- **It is reversible with nothing held back.** A shred is irreversible because
+  the material is gone; a retire is irreversible because the wrapping is gone.
+  Suspension destroys nothing, so reinstatement needs no backup, no escrow,
+  and no second store - which is the trade open question 6
+  contemplated ("keep the outgoing wrapping in a separate, more restricted
+  store") and declined, and this verb reaches the same relief without taking
+  that trade.
+- **It is not a soft-delete this package recognizes.** Decision 3's "no
+  `retired_at` column it reads" survives literally: the suspension lives in
+  the vault, never in the store, and no provider is asked to model it.
+- **It composes with both mechanisms without ordering.** A suspended selector
+  may be rotated (P2 mints under it; the writes fail while suspended and
+  succeed after reinstatement) and may be shredded (P3 proceeds; the
+  suspension becomes redundant, and A4 says how the two are still told apart).
+
+**A3. One observable, two loci, and this package ships the vault-local one.**
+
+The refusal can come from either of two places, and the record names both so
+`enc-pmx` builds the one and ADR-0007's provider is not left contradicting it:
+
+| Locus | Who denies | Durability | Scope | Recorded in |
+|---|---|---|---|---|
+| Vault-local | `Encryptor.Vault.Resolve`, before the provider is asked | in-memory, per node, lost on vault restart (A8) | one vault | this amendment; `enc-pmx` |
+| Provider-level | the provider's own backing authority, e.g. an IAM binding revoked on a `CryptoKey` | durable, survives every restart | every vault and every node the provider serves | ADR-0007's finding, quoted above |
+
+They are not alternatives to choose between at the record level; they are two
+layers with different costs, and a host may hold either or both. What this
+amendment fixes is that **both surface the same reason to the caller**, so a
+call site never learns which layer denied it, and a provider that gains a deny
+of its own needs no new error term and no new callback.
+
+Note the two vocabularies this touches. ADR-0007 speaks of a tenant's
+`CryptoKey` and of tenant-mint; this amendment speaks of the vault's cache
+partition, which is ADR-0001 decision 7's partition id and is not key material
+at all (`lib/encryptor/vault/partition.ex:29-35`, read at `3aaa23b`). A
+suspension evicts the latter and, at the provider locus, denies against the
+former. They are different objects with an unfortunate adjacency of names.
+
+**A4. The typed arm is the existing `{:key_unavailable, selector}`. This
+amendment adds no error term.**
+
+`{:key_unavailable, selector}` is already in the provider vocabulary
+(`lib/encryptor/provider.ex:196-201`) and already in the package's closed
+reason set (`lib/encryptor/error.ex:93`), both read at `3aaa23b`, and
+`Encryptor.Vault.Resolve` already carries it through from a provider
+unchanged (`lib/encryptor/vault/resolve.ex:29-38`). ADR-0002 decision 6 is
+where the two terms are told apart, and ADR-0003 restates the split in its own
+words - "`{:unknown_key, selector}` for a tenant with no live version,
+`{:key_unavailable, selector}` for a store that could not answer"
+(`docs/adr/0003-per-tenant-envelope.md:516-518`, read at `3aaa23b`). A
+suspension is precisely what the second term describes: the key exists and
+could not be answered with.
+
+That gives the three states `enc-pmx` must keep apart, and decision 9 is
+unchanged in giving them:
+
+| State | Reason a caller sees | Reversible | Decision |
+|---|---|---|---|
+| Suspended | `{:key_unavailable, selector}` | yes, by `reinstate/2` | this amendment |
+| Shredded whole tenant (P3) | `{:unknown_key, selector}` | no | decision 9 |
+| Retired version (P4) | `:decrypt_failed`, per message | no | decision 9 |
+
+Decision 9's partial-yes is therefore unaffected: it says a whole-tenant shred
+is loud and specific and a retired version is not, and suspension is a third
+loud-and-specific state that does not collide with either. The one honest cost
+is that a suspension is *not* distinguishable from a provider that could not
+reach its store, because both are `{:key_unavailable, selector}` by design -
+ADR-0007 open question 4 asks whether that term is too coarse for an IAM
+denial and this amendment gives it a second caller rather than an answer. A6's
+open question carries it forward.
+
+**A5. The deny gate sits at resolution, ahead of the cache, and that is what
+makes a suspension immediate.**
+
+Every entry point resolves before it builds a caching CMM. On the write path,
+`Resolve.encryption_key/3` runs at `lib/encryptor/vault/encrypt.ex:120` and
+the caching CMM is not constructed until `client/3` at `:124`, where
+`maybe_caching/3` (`:165-171`) hands the engine `Partition.id(vault,
+selector)`. On the read path, `Resolve.decryption_keys/3` runs at
+`lib/encryptor/vault/decrypt.ex:130`. `Encryptor.Vault.Resolve` is the single
+chokepoint by construction - its own header comment records that the checks
+live there rather than once per path so that a refusal cannot hold on one side
+and not the other (`lib/encryptor/vault/resolve.ex:4-22`). All read at
+`3aaa23b`.
+
+The gate is a **live read on every call**, not a value folded into the frozen
+configuration. That is what the immediacy claim below rests on, and A8 fixes
+where the set being read lives.
+
+The consequence is an asymmetry with the shred that is worth stating plainly,
+because it is the opposite of what an operator who has read P3 will expect.
+**P3 step 3 must drain caches** (`:408-411`): a shred changes what the
+provider answers, and a vault holding resolved materials does not ask again
+for up to `max_age`, so the tenant stays readable on a running node until the
+cache turns over. **A suspension does not wait**, because the gate is in front
+of the resolution the cache sits behind: the very next call fails, warm cache
+or cold, on every path.
+
+A6's cache eviction is therefore hygiene and not correctness. This is the one
+place where naming the observable first (A1) rather than the implementation
+pays: "evict the partition and deny" would have made a suspension only as
+prompt as its eviction, and the gate makes it prompt regardless.
+
+**A6. The cache half is a whole-table recycle, because no partition-scoped
+eviction exists.**
+
+The suspension should not leave a suspended tenant's data keys resident in a
+cache table for the remainder of the suspension, even though A5 means nothing
+can read them through the vault. The mechanism available is coarser than the
+bead that asked for this record assumed, and the record says so rather than
+specifying a primitive that does not exist:
+
+- The partition id is a **cache-key input, not an index**. It is 16 bytes
+  concatenated into the engine's cache-id pre-image, and
+  `Encryptor.Vault.Partition` is the only place it is computed
+  (`lib/encryptor/vault/partition.ex:1-38`, read at `3aaa23b`). Nothing maps a
+  partition to the entries derived from it.
+- `LocalCache` "deletes an entry when a read finds it expired, or when someone
+  deletes it by its 48-byte cache id, and nothing else", and the caching CMM
+  calls it by name rather than through the cache behaviour, so "a bounded
+  implementation cannot be substituted for it either"
+  (`lib/encryptor/vault/cache_recycler.ex:6-13`, read at `3aaa23b`).
+- The only eviction this package has is therefore
+  `Encryptor.Vault.CacheRecycler`, which terminates and restarts the whole
+  cache child (`:114-119`), on an interval, with no public "recycle now" entry
+  point; it is registered as `Encryptor.Vault.recycler_name/1`
+  (`lib/encryptor/vault.ex:546`) and wired beside the cache at
+  `lib/encryptor/vault/supervisor.ex:88-107`. All read at `3aaa23b`.
+
+So `suspend/2` drops the whole table, by the mechanism the recycler already
+uses, and the record accepts the cost: every other selector on that vault
+takes one cold miss, which is the recycler's own argument for why an
+unconditional drop is acceptable at all - "every entry is derived material
+that can be re-fetched" (`cache_recycler.ex:17-20`). Two further constraints
+fall out and `enc-pmx` must honour them:
+
+- A vault configured `cache: false` has neither child
+  (`supervisor.ex:81`), so the cache half is a no-op there and
+  `suspend/2` still succeeds. The gate is the verb; the eviction is not.
+- A drop must not be driven by killing the cache and letting the supervisor
+  react, for the reason the recycler already records: that spends the vault
+  supervisor's restart intensity on scheduled maintenance
+  (`cache_recycler.ex:31-36`). The terminate-then-restart path is the one to
+  reuse, along with its microsecond `:noproc` window.
+
+**A7. The inverse is `reinstate/2`, it is total, and it restores nothing but
+the gate.**
+
+`reinstate/2` removes the selector from the suspended set. It succeeds on a
+selector that was never suspended - suspension is a set membership, so the
+inverse is idempotent and so is the verb. It evicts nothing: there is nothing
+stale to evict, because A5 means no materials were served under the suspension
+in the first place.
+
+What it does **not** do is undo anything else. Reinstating a selector whose
+wrappings were shredded while it was suspended restores the gate and then the
+provider answers `{:unknown_key, selector}`, which is correct and is A4's
+table read downward. There is no state in which `reinstate/2` recovers key
+material, and the record names that so no runbook comes to treat suspension as
+a backup.
+
+**A8. The vault-local suspension is node-local and volatile, and the runbook
+says so in P5.**
+
+This is the property most likely to be got wrong, so it is a decision rather
+than a consequence.
+
+**Where the set lives.** Not in `%Encryptor.Vault.Config{}`, which is frozen
+at start and published into `:persistent_term`
+(`lib/encryptor/vault/config.ex:8`, `:870`), and not in `:persistent_term`
+itself, whose writes and erases trigger a global scan that
+`Encryptor.Vault.Lifecycle` deliberately confines to a vault's lifecycle
+boundary (`lib/encryptor/vault/lifecycle.ex:17-24`). And not behind a
+`GenServer.call`: the same moduledoc rules that out, because "routing
+configuration reads through a `GenServer` would put a serialization point in
+front of a pure function, which is the shape ADR-0001 decision 5 exists to
+avoid", and A5's gate is on the hot path of every call. What is left, and what
+this record fixes, is **an ETS table owned by the vault's `Lifecycle` child**,
+created in its `init/1` beside the configuration freeze and dying with it:
+`Resolve` reads it with a single concurrent-read lookup per call, `suspend/2`
+and `reinstate/2` write it, and no global scan and no serialization point is
+introduced. All read at `3aaa23b`.
+
+Volatility is the direct consequence of that choice rather than an
+independent decision. It is **not** durable: a restarted vault serves the
+selector again, because the table went with the `Lifecycle` process. It
+is **not** cluster-wide: a host running four nodes has four vaults and must
+suspend on each. This package ships no distribution, no persistence, and no
+gossip for it, for the same reason decision 2 ships no scheduler - the host's
+existing mechanism for "apply this to every node" is better than a second one
+invented here.
+
+A host that needs a suspension to survive a deploy uses the provider locus of
+A3 instead, or in addition. That is not a workaround; it is the correct
+division, and it is why A3's table has a durability column.
+
+### P5. Suspend and reinstate (the third verb)
+
+The fifth procedure, in the shape of decision 8's four. Reversible throughout.
+
+**Preconditions**
+
+- A recorded decision naming the selector, the reason, and - importantly - who
+  may lift it. A suspension with no named owner becomes a shred by neglect.
+- The host understands A8: every node, and again after every deploy, unless
+  the provider locus is used.
+- Callers tolerate `{:key_unavailable, selector}`. Downstream's tenant filter
+  (ece-ADR-0002 decision 11) is the shape that already works for this.
+
+**Steps**
+
+1. `Encryptor.Vault.suspend(MyApp.Vault, selector)` on every node.
+2. Optionally, revoke at the provider's backing authority (A3, ADR-0007).
+
+**Verification**
+
+- `encrypt/2` and `decrypt/2` for that selector return
+  `{:error, %Encryptor.Error{reason: {:key_unavailable, selector}}}` - not
+  `:decrypt_failed`, and not `{:unknown_key, selector}`, which would mean a
+  shred rather than a suspension.
+- The key store still returns the tenant's rows. If it does not, this was not
+  a suspension.
+
+**Failure and rollback**
+
+`Encryptor.Vault.reinstate(MyApp.Vault, selector)` on every node, plus
+restoring the provider binding if step 2 was taken. A partially applied step 1
+leaves some nodes denying and some serving, which is visible as an
+intermittent `{:key_unavailable, _}` and is completed rather than reverted.
+
+---
+
+The blast-radius table of this record gains two rows, in its own terms
+("reversible" meaning reversible by an operator holding everything they held
+before the step):
+
+| Procedure | Step | Destroys | Reversible | If performed wrongly |
+|---|---|---|---|---|
+| P5 | 1, suspend | nothing | yes, by `reinstate/2` | Wrong selector: that tenant's reads and writes fail loudly and immediately, everywhere the step was applied. No data is lost and no window opens. Reinstate. |
+| P5 | 2, revoke at the provider | nothing | yes, by restoring the binding | Wrong key: as above, durably, and it outlives a restart, so it is the half that needs the change record. |
+
+### Consequences
+
+**The package acquires its first piece of mutable per-vault state.** Every
+decision before this one made the vault's configuration frozen at start
+(ADR-0001) and every refusal a function of the caller's arguments. A suspended
+set is neither: two identical calls a second apart can now differ, and
+`enc-pmx` is the first bead in this repository whose tests have to think about
+that. The scope is deliberately the smallest that delivers the verb - a set of
+selectors, no values, no expiry, no ordering.
+
+**An operator gains a way to be wrong loudly instead of permanently.** The
+verb's real value is not the suspension; it is that P3 stops being the only
+tool for "stop serving this tenant now". The blast-radius table calls P3 step
+2 the largest destructive action in the package, and every use of it that was
+really a suspension was a use that did not need to be irreversible.
+
+**`{:key_unavailable, selector}` now has two very different causes, and
+nothing today tells them apart.** It meant "the provider could not answer" - a
+network failure, a store timeout. It now also means "an operator decided you
+may not read this". Telemetry is the *intended* relief valve, in ADR-0007 open
+question 4's words, but it is not one yet: ADR-0006 decision 4's metadata
+allow-list is closed - `vault`, `operation`, `span_ref`, `outcome`,
+`reason_tag`, `provider`, `callback`, `cache`, `profile`, `reference_check` -
+and decision 5 makes `reason_tag` the bare head atom, so no emitted field
+carries a cause. A host alerting on `:key_unavailable` as an availability
+signal will therefore page someone for a policy decision, and cannot filter it
+out, until ADR-0006's list gains a key "deliberately, one at a time" in that
+record's own words. A-2 is where that is decided, jointly with ADR-0007's
+open question 4.
+
+**`guides/rotation-runbook.md` gains P5.** The guide documents decision 8's
+four procedures; P5 belongs beside them, and its own bead is the place that
+happens rather than this record.
+
+### Open questions this amendment adds
+
+A-1. **Whether a suspension should be durable in this package rather than
+only at the provider.** A8 declines it, and the decline is a judgement about
+where a host's node-fanout mechanism already lives, not a claim that volatile
+is better. If two real hosts both end up writing the same "re-suspend on boot"
+glue, that is the evidence for reversing it, and the shape it would take is a
+provider callback rather than a store this package owns. Owner: this
+repository, after the first host runs P5.
+
+A-2. **Whether `{:key_unavailable, selector}` should carry a cause.** A4
+reuses the term deliberately and the consequences above record what that
+costs. ADR-0007 open question 4 asks the same thing from the IAM side, so
+there are now two callers for widening the vocabulary and none yet for
+keeping it closed beyond ADR-0001 decision 10's general argument. Owner: this
+repository; decide once, for both callers, or not at all.
+
+A-3. **Whether a partition-scoped cache eviction is worth having.** A6 drops
+the whole table because nothing finer exists, and the recycler's own moduledoc
+says the durable fix is upstream in the engine. A vault with many tenants and
+a frequently used suspend would feel the cold misses. This is the third caller
+for the engine-side cache work the recycler is a stand-in for, and it should
+be cited when that is taken up. Owner: upstream first; this repository only if
+the engine declines.
+
+A-4. **Whether suspend should refuse a selector it cannot vouch for.** Two
+cases, both left open. A selector of the **wrong shape** for the vault's
+profile - `:default` on a `:tenant` vault - is refused as
+`{:invalid_selector, :default}` everywhere else, by `Resolve.selector/3`
+(`lib/encryptor/vault/resolve.ex:51-63`, read at `3aaa23b`), and `suspend/2`
+as decided runs no such check, so it would insert a selector that can never be
+asked for. That one probably should be checked, and it is cheap, because it
+needs no provider; it is left open only because it wants deciding alongside
+the second case rather than piecemeal. A selector the **provider does not
+know** is the harder half: `suspend/2` asks no provider, so suspending
+a typo succeeds silently and the operator learns nothing until the
+verification step. Checking would make the verb depend on provider
+availability, which is exactly the coupling A1's observable-first definition
+avoids. The alternative is a separate, explicitly-fallible
+`suspend/3` with a `check: true` option. Worth deciding with a real operator
+rather than in advance. Owner: operator, at first use.
