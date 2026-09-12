@@ -293,6 +293,10 @@ parameters that produced it. Treat a `:slow_hash` change the way you treat a
   per-tenant vault, where key material is allowed to come from, why a host
   chooses `0x0478`, why `max_age` has no default, and the two root secrets a
   deployment provisions on day one.
+- **[Secrets at start](guides/secrets-at-start.md)** - where key material is
+  allowed to come from and how it gets there: reading the environment or a
+  secrets manager in `init/1`, what each way of getting it wrong looks like at
+  start, and why sourcing is the vault's job and not its provider's.
 - **[Selector boundaries](guides/selector-boundaries.md)** - what a selector
   is, how to choose the boundary it names, what one key per boundary buys,
   the rotate/suspend/shred verb table, and cryptographic erasure at its true

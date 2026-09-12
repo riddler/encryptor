@@ -547,6 +547,9 @@ row to that tenant has built an access check out of an attacker-editable field.
 
 ## Where to go next
 
+- **[Secrets at start](secrets-at-start.md)** - the `init/1` pattern in full:
+  sourcing the key from the environment or a secrets manager, refusing to boot
+  without it, and why a provider never reads the environment itself.
 - **[Selector boundaries](selector-boundaries.md)** - what the `:key` selector
   is, how to choose the boundary it names, and the rotate/suspend/shred verbs
   that act on one. Read it before you draw the boundary, not after.
