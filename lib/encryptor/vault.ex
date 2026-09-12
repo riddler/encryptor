@@ -81,6 +81,12 @@ defmodule Encryptor.Vault do
     * `config/0` - the frozen configuration, or `{:vault_not_started, _}`,
     * `started?/0` - whether the vault's supervisor is alive.
 
+  `suspend/2` and `reinstate/2` are deliberately **not** on that list. Every
+  entry above it is generated because a call site invokes it; those two are an
+  operator's, invoked once from a console or a release task against a named
+  vault, and generating `MyApp.Vault.suspend/1` would put an operational verb
+  on the surface a call site reads (ADR-0005 amendment A decision 1).
+
   The optional `init/1` callback is layer 5 of the precedence chain and the
   intended place to read key material out of the environment or a secrets
   manager, following the pattern hosts already know from `Ecto.Repo.init/2`.
@@ -100,7 +106,7 @@ defmodule Encryptor.Vault do
   question 5).
 
   Records: ADR-0001 decisions 1, 2, 3, 4, 5 and 10; ADR-0002 decision 6;
-  ADR-0004 decision 11; ADR-0005 decision 7.
+  ADR-0004 decision 11; ADR-0005 decision 7 and amendment A.
   """
 
   alias Encryptor.Error
@@ -110,6 +116,7 @@ defmodule Encryptor.Vault do
   alias Encryptor.Vault.Encrypt
   alias Encryptor.Vault.Rekey
   alias Encryptor.Vault.Resolve
+  alias Encryptor.Vault.Suspension
 
   @typedoc """
   A key selector.
@@ -471,6 +478,70 @@ defmodule Encryptor.Vault do
     with {:ok, config} <- ready(vault, :provision),
          {:ok, checked} <- Resolve.selector(config, [key: selector], :provision) do
       Resolve.provision(config, checked, :provision)
+    end
+  end
+
+  @doc """
+  Suspends a selector on this vault: reversible unavailability.
+
+  ADR-0005 amendment A decision 1. A suspended selector is refused by
+  `encrypt/2`, `decrypt/2`, `rekey/2` and `derive/2` with
+  `{:key_unavailable, selector}`, while the wrappings it resolves to are left
+  untouched in the key store. The data is unreadable and intact, which is the
+  state this package had no verb for: the choice was between leaving a tenant
+  readable and running the crypto-shred, and a shred cannot be undone.
+
+  Four properties are worth knowing before an operator relies on it.
+
+    * **It is immediate.** The refusal is at resolution, ahead of the
+      materials cache, so the very next call fails on a warm cache as on a
+      cold one. A shred is not immediate in the same way - its runbook has to
+      drain caches - and the asymmetry is the amendment's decision 5.
+    * **It destroys nothing**, so `reinstate/2` needs no backup and no escrow.
+      It is not a backup either: reinstating a selector whose wrappings were
+      shredded meanwhile restores the refusal and nothing else, and the
+      provider then answers `{:unknown_key, selector}`.
+    * **It is node-local and volatile** (decision 8). The set lives in the
+      vault's supervision tree, so a restarted vault serves the selector
+      again, and a host running four nodes suspends on each. A suspension that
+      must survive a deploy belongs at the provider's own backing authority -
+      revoking a key manager's grant - in addition or instead.
+    * **It asks no provider**, so a suspension of a selector no provider knows
+      succeeds quietly. The verification step of the runbook is what catches
+      a typo.
+
+  It is idempotent, and it is not generated onto the host's vault module: it
+  is an operator's verb, invoked from a console or a release task against a
+  named vault, and a call site never reaches for it.
+
+  Suspending also drops this vault's materials cache, because no
+  partition-scoped eviction exists (decision 6). Every other selector on the
+  vault takes one cold miss. A vault configured `cache: false` has no cache to
+  drop and is unaffected.
+  """
+  @spec suspend(module(), Error.selector()) :: :ok | {:error, Error.t()}
+  def suspend(vault, selector) when is_atom(vault) do
+    with {:ok, config} <- ensure_started(vault, :start) do
+      Suspension.suspend(config, selector)
+    end
+  end
+
+  @doc """
+  Lifts a suspension: the inverse of `suspend/2`, and total.
+
+  ADR-0005 amendment A decision 7. It removes the selector from this vault's
+  suspended set and does nothing else. It succeeds on a selector that was
+  never suspended - suspension is a set membership, so the inverse is
+  idempotent - and it evicts nothing, because the gate meant no materials were
+  ever served under the suspension.
+
+  What it does **not** do is undo anything else. There is no state in which it
+  recovers key material.
+  """
+  @spec reinstate(module(), Error.selector()) :: :ok | {:error, Error.t()}
+  def reinstate(vault, selector) when is_atom(vault) do
+    with {:ok, config} <- ensure_started(vault, :start) do
+      Suspension.reinstate(config, selector)
     end
   end
 

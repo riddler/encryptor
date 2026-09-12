@@ -22,12 +22,22 @@ defmodule Encryptor.Vault.Lifecycle do
 
   `:persistent_term.erase/1` triggers a global scan, which is why it happens
   here, on a vault's lifecycle boundary, and never on a call path.
+
+  It owns one other thing, for the same reason and by the same argument: the
+  vault's **suspended set**, an ETS table created in `init/1` beside the
+  freeze (ADR-0005 amendment A decision 8). A suspension is the package's
+  first piece of mutable per-vault state, and the record fixes its owner here
+  rather than in the frozen configuration, in `:persistent_term`, or behind a
+  `GenServer.call` - the three the paragraphs above rule out. The table dying
+  with this process is what makes a suspension node-local and volatile, which
+  amendment A decides deliberately rather than tolerates.
   """
 
   use GenServer
 
   alias Encryptor.Vault
   alias Encryptor.Vault.Config
+  alias Encryptor.Vault.Suspension
 
   @doc "Starts the owner process for a resolved configuration."
   @spec start_link(Config.t()) :: GenServer.on_start()
@@ -42,6 +52,7 @@ defmodule Encryptor.Vault.Lifecycle do
     # configuration behind after the vault stopped.
     Process.flag(:trap_exit, true)
     Config.freeze(config)
+    Suspension.create(config.vault)
     {:ok, config}
   end
 

@@ -25,6 +25,7 @@ defmodule Encryptor.Vault.Resolve do
   alias Encryptor.Error
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Reference
+  alias Encryptor.Vault.Suspension
 
   # ADR-0002 decision 6's provider vocabulary. A provider answering with one
   # of these is answering in contract, and its term is carried through
@@ -68,9 +69,11 @@ defmodule Encryptor.Vault.Resolve do
   @spec encryption_key(Config.t(), Error.selector(), Error.operation()) ::
           {:ok, term()} | {:error, Error.t()}
   def encryption_key(config, selector, operation) do
-    ask(config, operation, fn module ->
-      module.encryption_key(config.provider_state, selector)
-    end)
+    with :ok <- allowed(config, selector, operation) do
+      ask(config, operation, fn module ->
+        module.encryption_key(config.provider_state, selector)
+      end)
+    end
   end
 
   @doc false
@@ -81,9 +84,42 @@ defmodule Encryptor.Vault.Resolve do
   @spec decryption_keys(Config.t(), Error.selector(), Error.operation()) ::
           {:ok, term()} | {:error, Error.t()}
   def decryption_keys(config, selector, operation) do
-    ask(config, operation, fn module ->
-      module.decryption_keys(config.provider_state, selector)
-    end)
+    with :ok <- allowed(config, selector, operation) do
+      ask(config, operation, fn module ->
+        module.decryption_keys(config.provider_state, selector)
+      end)
+    end
+  end
+
+  # ADR-0005 amendment A decisions 1, 4 and 5: the suspend gate.
+  #
+  # It sits here, in front of both provider callbacks, rather than once per
+  # entry point, for the reason the header gives about every other check in
+  # this module - a refusal that held on one side and not the other would not
+  # be a refusal. Placing it here is also what makes a suspension *immediate*
+  # (A5): every path resolves before it builds a caching CMM, so the deny is
+  # ahead of the materials cache and the very next call fails, warm cache or
+  # cold. That is the opposite of the shred, whose P3 must drain caches before
+  # a running node stops serving a tenant.
+  #
+  # `encrypt/2`, `decrypt/2`, `rekey/2` and `derive/2` reach one of the two
+  # callbacks above and are therefore all covered; `provision/3` is not, and
+  # that is A1's list rather than an omission - provisioning creates material
+  # and reads none.
+  #
+  # The term is the existing `{:key_unavailable, selector}` and the amendment
+  # adds none (A4): the key exists and could not be answered with, which is
+  # precisely what ADR-0002 decision 6 means by it. It is distinct from
+  # `{:unknown_key, selector}`, which a whole-tenant shred gives, and from
+  # `:decrypt_failed`, which a retired version gives per message. The honest
+  # cost, recorded in the amendment rather than hidden here, is that a
+  # suspension is not distinguishable from a provider that could not reach its
+  # store - both are this term, by design, and A-2 is the open question.
+  @spec allowed(Config.t(), Error.selector(), Error.operation()) :: :ok | {:error, Error.t()}
+  defp allowed(%Config{vault: vault} = config, selector, operation) do
+    if Suspension.suspended?(vault, selector),
+      do: {:error, error(config, operation, {:key_unavailable, selector})},
+      else: :ok
   end
 
   @doc false
