@@ -698,7 +698,7 @@ first, in particular the recorded human decision.
 P4 gains nothing: the tenant's `CryptoKey` is shared across master-key versions,
 so retiring version *n* is the wrapping delete and nothing else.
 
-Two things step 2a does not change. It is still not an `Encryptor.shred/2` - the
+Two things step 2a does not change. This package still ships no `shred/2` - the
 store delete is your `DELETE` and the destroy is a GCP API call your runbook
 makes - and GCP's scheduled destruction window is a delay, not a reprieve, on
 exactly the reading the KMS-path window gets above.

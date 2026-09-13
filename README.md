@@ -294,10 +294,15 @@ and this package cannot detect it - the output carries nothing about the
 parameters that produced it. Treat a `:slow_hash` change the way you treat a
 `:derivation_salt` rotation.
 
-## Not yet
+## Telemetry
 
-- **Telemetry.** ADR-0006 is accepted (2026-09-13), but its event set is not yet
-  implemented: no events are emitted. Do not build dashboards against it yet.
+- **Telemetry.** ADR-0006 is accepted (2026-09-13) and its event set is
+  implemented. `Encryptor.Telemetry.events/0` is the single definition site a
+  host attaches against, and every name it returns fires today - the vault
+  lifecycle points, the cache recycler's point, and the `:encrypt`,
+  `:decrypt`, `:rekey` and `:provider` span pairs. The vocabulary is closed:
+  adding a name takes an amendment, so a dashboard attached against
+  `events/0` is safe to build.
 
 ## Documentation
 

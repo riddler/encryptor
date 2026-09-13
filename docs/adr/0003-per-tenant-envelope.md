@@ -1383,3 +1383,34 @@ this Note carries the record's status rather than one of its own.
   after a recycle is about data-key regeneration rather than about store reads.
   A host that wants those store reads collapsed caches them in its own provider,
   under ADR-0002 decision 2's bounded-and-documented rule.
+
+## Note (2026-09-13): the micro sign in the quoted capacity figures is adopted, not a paste artefact
+
+The Note above, "open question 7's key-size half is closed, on security
+grounds", carries three measurement figures written with U+00B5 MICRO SIGN:
+"16.20 µs/encrypt" (`:1329`) and "10.60 µs" and "9.84 µs" (`:1334`, `:1335`),
+read by anchor at enc `bdbb63c`. They are the only non-ASCII characters in
+this record, and a reader who took `docs/adr/` for plain ASCII would read them
+as a paste artefact from the measurement document.
+
+**They are deliberate and they stay.** The sign is this package's convention
+for a microsecond figure quoted from a measurement.
+`docs/measurements/260912-enc-anz-stated-bounds.md` - the document all three
+figures are quoted from - uses it throughout, and
+`docs/adr/0001-vault-layer.md` carries it in the same role, in its measured
+per-shape table and the prose around it (`:695`, `:702`, `:708`, `:759`,
+`:833`, read at enc `bdbb63c`), so `docs/adr/` was never pure ASCII once a
+record started quoting measured latencies. Spelling the unit "us" instead
+would diverge from the source the figure is a quotation of, in a record whose
+point is that the figures came from a measurement rather than from an
+argument.
+
+The rule, for this record and any later one: **a figure quoted from a
+measurement keeps the measurement's unit spelling; prose this package writes
+for itself stays ASCII.** A test or a reviewer checking `docs/adr/` for
+non-ASCII characters should read a micro sign beside a latency as conforming
+and anything else as a finding.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
+

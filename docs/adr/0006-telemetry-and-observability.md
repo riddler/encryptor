@@ -1021,9 +1021,10 @@ Decision 3's table lists four point events and four span **pairs**. Four
 points plus eight halves is twelve names, and `Encryptor.Telemetry.events/0`
 returns twelve, pinned by a doctest
 (`lib/encryptor/telemetry.ex:111-124` for the attributes,
-`:181-182` for the pin; both on this branch). The sentence "Ten names, four of which are span
-halves' partners" undercounts: `t:Encryptor.Telemetry.span_name/0` has four
-members, so there are four partners, but eight halves.
+`:181-182` for the pin; both on this branch). The sentence "Ten names, four
+of which are span halves' partners" undercounts:
+`t:Encryptor.Telemetry.span_name/0` has four members, so there are four
+partners, but eight halves.
 
 The rule decision 3 states is unaffected: the vocabulary is closed, defined
 once in `Encryptor.Telemetry`, `events/0` is the single definition site a host
@@ -1091,10 +1092,10 @@ A1 says "A `:single` vault that declares it is refused at `Config.resolve/4`".
 The implementation refuses only `telemetry_tenant_ref: true` on a `:single`
 vault; `telemetry_tenant_ref: false` declared explicitly on a `:single` vault
 is accepted, and so it should be - it asks for the default
-(`lib/encryptor/vault/config.ex:646-657`, on this branch). Read A1's sentence as **a `:single`
-vault that sets the option to `true` is refused**. A non-boolean is refused on
-either profile, which A1 already says separately and which the same clause
-implements.
+(`lib/encryptor/vault/config.ex:646-657`, on this branch). Read A1's sentence
+as **a `:single` vault that sets the option to `true` is refused**. A
+non-boolean is refused on either profile, which A1 already says separately
+and which the same clause implements.
 
 ### 7. Amendment A's A3 ordering rule is conditional on a resolution that succeeded
 
@@ -1200,3 +1201,45 @@ metadata table - was false: those four rows already existed when Amendment A
 was written, and the whole shift is the amendment's own pointer paragraph
 under the record's `Status` line. The re-located values are also now given
 as they read in this record after the flip, rather than one line lower.
+
+## Note (2026-09-13): the acceptance Note's self-cite table is one row short, and its sections skip 5
+
+Two corrections to the Note above, "Amendment A accepted; the flip's four
+sites, and where its cites resolve today". Both are about that Note rather
+than about Amendment A or any decision, and neither changes anything. Cites
+re-read by anchor at enc `bdbb63c`.
+
+### Amendment A carries eleven self-cites; section 3's table re-locates ten
+
+Section 3, "Where Amendment A's cites resolve at `6acefff`", ends with a row
+listing this record's own self-cites as `:180-186`, `:188-199`, `:239-241`,
+`:245-246`, `:270-273`, `:321-341`, `:382-390`, `:408`, `:430-441` and
+`:623-633` - ten anchors - and re-locates each of them five lines later.
+Amendment A carries an eleventh. Under "What it is **never**, under this
+option or any other", the refusal of the partition id cites decision 6 and
+ADR-0004 open question 1's argument together as "`:239-273` and
+`docs/adr/0004-encryption-context.md:908-939`, read at `40957e6`".
+
+That cite takes the same shift as its neighbours and reads as **`:244-278`**
+in this record as it now stands: `:244` opens decision 6, "What is never
+emitted, and why each one", and `:278` closes its partition-id bullet. Read
+section 3's table as carrying that eleventh row, `:239-273` re-located to
+`:244-278`. Nothing in section 3's conclusion changes: every Amendment A
+self-cite moved by the same five lines, for the same reason, and each still
+resolves.
+
+### The Note's sections are numbered 1, 2, 3, 4, 6
+
+The Note above heads its sections "1. The four sites A6 named are flipped",
+"2. The sentences that named the proposed status are met, not reworded",
+"3. Where Amendment A's cites resolve at `6acefff`", "4. A1 to A6 are
+implemented, and the implementation matches", and "6. What the pass-1
+direction review corrected in this Note". There is no section 5.
+
+Nothing is missing between 4 and 6: the numbering skipped a value. Read the
+last section as **section 5**, and read the Note as five sections rather than
+six.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
+
