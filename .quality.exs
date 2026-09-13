@@ -13,8 +13,14 @@
 # Deliberately smaller than statifier-ex's gate. That repo's custom stages -
 # the gate guard, the ADR guard and judge, the regression ratchet - all exist
 # to protect a conformance corpus and an accepted ADR set this package does
-# not have. Adopting any of them here is a decision to record when there is
-# something for it to protect, not a default to inherit.
+# not have. "Corpus" there means a body of recorded fixture cases a ratchet
+# can hold a pass/fail baseline over; the provider conformance SUITE this
+# package does run - Encryptor.Provider.Conformance in
+# lib/encryptor/provider/conformance.ex, which every provider test `use`s -
+# is a different thing: properties compiled into the ordinary test run, with
+# no recorded case list for a ratchet to count. Adopting any of them here is
+# a decision to record when there is something for it to protect, not a
+# default to inherit.
 #
 # There is deliberately no .credo.exs either: credo's own defaults under
 # --strict are the gate until this package has a reason to deviate from one.

@@ -55,13 +55,20 @@ Contents are the Keep a Changelog section heading followed by the entry:
 Rules:
 
 - Use only the standard headings: `Added`, `Changed`, `Deprecated`, `Removed`,
-  `Fixed`, `Security`.
+  `Fixed`, `Security`, plus a bold `**Breaking**` for a breaking change.
+- A breaking change goes under `### **Breaking**`, and that heading comes
+  first in a section, ahead of `Added`. This is what the pre-1.0 banner in
+  [README.md](../README.md) promises a reader: every breaking change recorded
+  under a bold **Breaking** heading that says what to do about it.
 - One line per change, present tense, describing the effect on the user.
 - No nested bullets. Detail belongs in the pull request and the commit body; a
   changelog line that needs sub-points is really several changes or one that is
   over-explained.
 - One file may carry more than one heading if an issue genuinely spans them.
 - For a breaking change, say what to do about it, not just what broke.
+- A fragment marked `**Breaking**` keeps that heading when it is promoted at
+  release. It is not folded into `Changed` or `Removed`, and the bold marker
+  is not dropped.
 - Never put key material, plaintext, or a ciphertext sample in a fragment. The
   changelog is published; the repo's rule against logging key-shaped values
   applies here too.
@@ -69,6 +76,15 @@ Rules:
 ## At release
 
 Assemble the fragments into a new version section in `CHANGELOG.md`, grouped by
-heading and ordered `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`,
-`Security`. Delete the fragments in the same commit that cuts the release, and
-tag it.
+heading and ordered `**Breaking**`, `Added`, `Changed`, `Deprecated`, `Removed`,
+`Fixed`, `Security`. A `**Breaking**` fragment carries its heading through the
+promotion unchanged, so the version section opens with `### **Breaking**` and
+keeps the sentence saying what to do about the change. Delete the fragments in
+the same commit that cuts the release.
+
+Tagging is a separate step after that commit merges, and it is the operator's:
+the release prep - the version bump, the promoted `CHANGELOG.md` section, the
+deleted fragments - merges on its own, and the tag and the Hex publish follow
+it. Because the prep consumes every fragment its siblings wrote, it merges
+LAST on its lane: a branch still holding an unmerged fragment when the prep
+lands misses that release and has to wait for the next one.
