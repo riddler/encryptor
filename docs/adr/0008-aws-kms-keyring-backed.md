@@ -1008,3 +1008,54 @@ flip.
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-13): open question 5's status references after the flip, and the failure table's "raises"
+
+Two corrections, neither of which changes a decision. The first is a status
+reference that the acceptance flips of 2026-09-13 made stale; the second is a
+verb in the Note above that describes the wrong control flow. Cites re-read by
+anchor at enc `bdbb63c`.
+
+### ADR-0004 Amendment A is accepted, so "proposed" and "Merged at proposed" are history, not status
+
+Open question 5's answer line opens "*Answered (2026-09-13, proposed)*" and
+closes "Merged at proposed; see `docs/adr/0004-encryption-context.md`, section
+"Amendment A (2026-09-13)".*" The section above, "Open question 5's closure
+quotes the ADR-0004 section by a prefix of its heading", quotes that heading
+as "Amendment A (2026-09-13; proposed): the composed context on a KMS-backed
+vault".
+
+The operator accepted that amendment on 2026-09-13. Its heading now reads
+"Amendment A (2026-09-13; accepted 2026-09-13): the composed context on a
+KMS-backed vault" and its own `Status` line reads "**accepted (2026-09-13)**,
+by the operator's reading"
+(`docs/adr/0004-encryption-context.md`, section "Amendment A", read at enc
+`bdbb63c`).
+
+Read both references as naming the section **Amendment A** of
+`docs/adr/0004-encryption-context.md`, unadorned - which is exactly what the
+section above already prescribes for the pointer, and the reason it gives
+applies to the answer line's own parenthetical too. "Merged at proposed"
+records how the answer landed on this record, not how the amendment stands
+today; it stays true as a record of the landing and should be read as one.
+
+### `Encryptor.Vault.Derive` returns an error tuple; it does not raise
+
+The section above, "The failure table's `Encryptor.Derive` is
+`Encryptor.Vault.Derive`", says that module "raises
+`{:invalid_key_descriptor, :not_derivable}`". It does not raise. The
+catch-all clause returns an error tuple, and `error/2` wraps the reason in an
+`%Encryptor.Error{}` carrying `operation: :derive`
+(`lib/encryptor/vault/derive.ex:117-118` for the returning clause and
+`:124-127` for the wrap, both read at enc `bdbb63c`).
+
+Read "raises" as **refuses with**, which is this record's own phrasing for a
+returned refusal and the verb decision 4 already has right:
+"`Encryptor.Vault.Derive` refuses any non-`%Aes{}`". The correction that
+section exists to make - the module is `Encryptor.Vault.Derive`, and no
+`Encryptor.Derive` module exists in this package - is untouched, and so is
+decision 4.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
+

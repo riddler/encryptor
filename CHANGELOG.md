@@ -442,7 +442,8 @@ change warrants an entry at all.
   `"encryptor/v1/tenant-ref"` keep the expand-only construction and the RFC
   5869 section 3.3 argument for it; only the new exported tree is salted.
   Nothing derived through the two unsalted trees changes. Records: ADR-0003
-  amendment A, proposed 2026-08-28 and not yet accepted.
+  amendment A, proposed 2026-08-28 and not yet accepted [accepted
+  2026-09-13].
 - `README.md` reports the package as built rather than as a scaffold, links
   both guides, and gives the installation form as a SHA-pinned git dependency.
   The reserved `encryptor 0.1.0` on Hex is a name reservation holding no

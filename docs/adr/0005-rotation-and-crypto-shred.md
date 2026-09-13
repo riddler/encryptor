@@ -1368,3 +1368,27 @@ owner, for the reasons A8 gives.
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-13): open question 7's pointer at ADR-0001's "unmeasured" cache bounds is answered
+
+Open question 7 names its owner as "whoever writes the security section of the
+documentation, with ADR-0001 open question 2's unmeasured cache bounds". Those
+bounds are no longer unmeasured. The measurement pass of 2026-09-12
+(`docs/measurements/260912-enc-anz-stated-bounds.md`) measured them, and
+ADR-0001 Amendment A - "the measured cache bounds, and the posture per
+provider shape", accepted 2026-09-13 - answers ADR-0001 open question 2 in
+place. ADR-0001's own acceptance Note names this line as the edit this record
+owes, so that it would not be lost
+(`docs/adr/0001-vault-layer.md`, section "Amendment A (2026-09-13; accepted
+2026-09-13)" and its acceptance Note, read at enc `bdbb63c`); ADR-0003 cured
+its parallel reference in its own Note by dropping the adjective.
+
+Read the pointer as naming **ADR-0001 open question 2, answered by ADR-0001
+Amendment A**, and read the pairing as a pairing of topics rather than of open
+items. Open question 7 itself stays open: this record still gives no cadence
+numbers and no default, and the security section of the documentation is still
+where that guidance would land.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
+
