@@ -84,6 +84,13 @@ defmodule Encryptor.Provider.Kms do
   configures it away at the vault: this adapter runs no narrower profile, and
   the composed context here is byte-for-byte the one every other provider
   shape composes (ADR-0004 Amendment A).
+  Under a signing algorithm suite - which `0x0578`, the default
+  `:algorithm_suite_id`, is - the engine adds its own reserved
+  `aws-crypto-public-key` pair, the ECDSA verification key it generates for
+  the write, to that context before the keyring wraps, so what the API call
+  and its CloudTrail record carry is the composed context plus that one
+  engine-owned pair; under `0x0478` it is exactly the composed context
+  (ADR-0004, the 2026-09-13 Note on the signing suite).
 
   ## The AWS dependencies are the host's
 
