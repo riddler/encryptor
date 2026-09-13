@@ -11,7 +11,7 @@
 > callbacks, table columns, telemetry events or error vocabulary with no
 > compatibility shim. Every such change is recorded in
 > [CHANGELOG.md](CHANGELOG.md) under a bold **Breaking** heading that says what
-> to do about it. Pinning to an exact minor - `~> X.Y` - is the recommended way
+> to do about it. Pinning to an exact minor - `~> X.Y.0` - is the recommended way
 > to consume the package until 1.0.
 
 Ergonomic envelope encryption for Elixir - a vault module, pluggable key
@@ -99,7 +99,7 @@ documents:
 ```elixir
 def deps do
   [
-    {:encryptor, "== 0.4.0"}
+    {:encryptor, "~> 0.4.0"}
   ]
 end
 ```
