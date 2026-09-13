@@ -1275,3 +1275,49 @@ because the consumer truncates its own stored width downstream and a second
 length knob would give two places to change the same thing. A future consumer
 that wants Argon2id output for something other than HMAC input would reopen
 this.
+
+## Note (2026-09-12): an empty `:slow_hash` declaration means all-defaults
+
+Amendment B leaves one case unstated. B1 says a `:slow_hash` declared
+**partially** is frozen onto the configuration struct with this record's
+defaults filled in. B4 says an **absent** `:slow_hash` means the vault
+declares no slow parameters, and a consumer asking for them gets nothing
+rather than a guess. A declaration that is present but empty (`slow_hash: []`)
+is literally neither: the key is declared, so B4's absent reading does not
+reach it, and no parameter is declared, so B1's partial reading has nothing to
+complete from.
+
+**The operator ruled on 2026-09-12 that an empty declaration is all-defaults,
+the same as any partial declaration.** The competing reading - refusing it
+with `{:invalid_config, :slow_hash, _}` - is rejected.
+
+Two things stand behind the ruling. The completion B1 describes is a per-key
+lookup against the declared set with this record's default as the fallback, so
+an empty set and a set that happens to omit the same three keys are the same
+input to it. Refusing one while completing the other would be a distinction
+the code has to be written to make rather than one that falls out of the
+shape, and a hand-written distinction in validation is exactly where a
+cryptographic default drifts into a second place. Second, declaring the key at
+all is the operator's statement that this vault wants slow hashing, and B4
+already says the parameters are the part an operator may leave to the record.
+An empty declaration is that statement with every parameter left to the
+record, which is the case the defaults exist to serve.
+
+Nothing above changes. B1's completion sentence and B4's "Where it lives"
+paragraph are both read with *partial* including the empty case, and B4's
+*absent* continues to mean the key was never declared. No error vocabulary is
+added or removed, and the bounds and defaults in B4's table are untouched: an
+empty declaration is completed to `memory_kib: 65_536`, `iterations: 3`,
+`parallelism: 1` and then validated like any other completed set.
+
+The case is pinned by a test, `an empty declaration completes to the defaults,
+like any partial set`, under the `the slow-hash parameters` describe block in
+`test/encryptor/vault/config_test.exs` (those two anchors at `:537` and `:632`
+in enc ac5b1db, the base this Note was written on). That test asserted the
+all-defaults result before this Note, as a recording of what
+the completion path does rather than a decision; with the ruling it records a
+decided case, and its comment says so.
+
+This Note is appended to a proposed amendment and carries that amendment's
+status. Amendment B is still proposed, and the operator's acceptance reading
+covers this Note along with it.

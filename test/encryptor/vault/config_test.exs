@@ -623,10 +623,12 @@ defmodule Encryptor.Vault.ConfigTest do
                reason(single(slow_hash: [:memory_kib, :iterations]))
     end
 
-    # enc-bri: amendment B rules an empty declaration under neither B1 nor B4.
-    # The completion path cannot distinguish it from a partial set, so it is
-    # the record's defaults, and this test records that rather than deciding
-    # it.
+    # enc-bri: RULED (operator, 2026-09-12; recorded in the closing Note of
+    # ADR-0003 Amendment B). Amendment B itself placed an empty declaration
+    # under neither B1 nor B4. The ruling is that it means all-defaults,
+    # exactly like a partial declaration, and the refusal reading is rejected.
+    # The assertion below is unchanged: it records a decided case now, not
+    # merely what the completion path happens to do.
     #
     # sabotage: made slow_hash/2 treat `[]` as absent - red.
     test "an empty declaration completes to the defaults, like any partial set" do
