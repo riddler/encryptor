@@ -119,6 +119,75 @@ defmodule Encryptor.AwsKms.Fake do
   end
 end
 
+defmodule Encryptor.AwsKms.Recording do
+  @moduledoc """
+  The `Fake`, with the encryption context of every call recorded.
+
+  ADR-0004 amendment A decision A5 makes the encryption context a *disclosed*
+  property of `Encryptor.Provider.Kms`: the map the vault composes is sent to
+  the KMS API and recorded unencrypted in CloudTrail. What the API receives is
+  not always that map alone. Under a signing algorithm suite the engine
+  inserts its own reserved `aws-crypto-public-key` pair *below* the vault,
+  after the vault has finished composing, so the set the API and CloudTrail
+  see is the composed map plus that one engine-owned pair; under the unsigned
+  suite it is exactly the composed map (ADR-0004, the 2026-09-13 Note on the
+  signing suite). A round trip through the `Fake` is evidence that the context
+  bound the message; it is no evidence at all about which keys left the
+  process, because writer and reader compose the same map and a key added to
+  both still round-trips.
+
+  This client can see it. It records the context it is handed at the engine's
+  client boundary - below every layer that composes or adds to it - so a test
+  can pin the key set the disclosure names rather than infer it.
+
+  The record goes to `self()` rather than to a pid frozen into the struct,
+  because the struct is built while the vault starts and the KMS call happens
+  in the process that called `encrypt/2` or `decrypt/2`. `assert_received` in
+  the test that ran the operation is therefore the whole assertion: a call
+  that moved to some other process would fail it rather than pass quietly.
+
+  The inner client is dispatched on the way the engine dispatches - on
+  `client.__struct__` (ADR-0008 decision 9) - so any `KmsClient` can be
+  wrapped, including the refusing one.
+  """
+
+  @behaviour AwsEncryptionSdk.Keyring.KmsClient
+
+  alias Encryptor.AwsKms.Fake
+
+  defstruct inner: nil
+
+  @type t :: %__MODULE__{inner: struct()}
+
+  @doc "A recording client in front of one holding every fixture key."
+  @spec new(struct()) :: t()
+  def new(inner \\ Fake.new()), do: %__MODULE__{inner: inner}
+
+  @impl true
+  def generate_data_key(%__MODULE__{inner: inner}, key_id, bytes, context, grant_tokens) do
+    record(:generate_data_key, context)
+    inner.__struct__.generate_data_key(inner, key_id, bytes, context, grant_tokens)
+  end
+
+  @impl true
+  def encrypt(%__MODULE__{inner: inner}, key_id, plaintext, context, grant_tokens) do
+    record(:encrypt, context)
+    inner.__struct__.encrypt(inner, key_id, plaintext, context, grant_tokens)
+  end
+
+  @impl true
+  def decrypt(%__MODULE__{inner: inner}, key_id, ciphertext, context, grant_tokens) do
+    record(:decrypt, context)
+    inner.__struct__.decrypt(inner, key_id, ciphertext, context, grant_tokens)
+  end
+
+  @spec record(atom(), map()) :: :ok
+  defp record(operation, context) do
+    send(self(), {:kms_context, operation, context})
+    :ok
+  end
+end
+
 defmodule Encryptor.AwsKms.Unreachable do
   @moduledoc """
   A KMS client that fails every call the way an IAM denial or a timeout does.
@@ -162,12 +231,15 @@ defmodule Encryptor.AwsKmsVaults do
   """
 
   alias Encryptor.AwsKms.Fake
+  alias Encryptor.AwsKms.Recording
   alias Encryptor.AwsKms.Unreachable, as: UnreachableClient
   alias Encryptor.Key.Aes
   alias Encryptor.Key.Kms
   alias Encryptor.Provider.Kms, as: KmsProvider
 
   @legacy_material :binary.copy(<<0xD1>>, 32)
+
+  @static_context %{"app" => "acme-app", "purpose" => "pii"}
 
   @doc "The AES material acme's pre-migration messages were written under."
   @spec legacy_material() :: binary()
@@ -177,6 +249,28 @@ defmodule Encryptor.AwsKmsVaults do
   @spec legacy_descriptor() :: Aes.t()
   def legacy_descriptor do
     %Aes{namespace: "acme-app", name: "acme/v1", material: @legacy_material, bits: 256}
+  end
+
+  @doc """
+  The static context the recording vaults are configured with.
+
+  Two of ADR-0004 decision 2's advisory keys, written by the host about
+  itself, so a recorded context carries the static layer as well as the
+  derived and per-call ones.
+  """
+  @spec static_context() :: %{String.t() => String.t()}
+  def static_context, do: @static_context
+
+  @doc "The `Kms` provider options behind a recording client."
+  @spec recording_provider() :: {module(), keyword()}
+  def recording_provider do
+    {KmsProvider, client: Recording.new(), keys: %{"acme" => [Fake.acme(), Fake.acme_previous()]}}
+  end
+
+  @doc "The `Kms` provider options a single-tenant vault records under."
+  @spec recording_root_provider() :: {module(), keyword()}
+  def recording_root_provider do
+    {KmsProvider, client: Recording.new(), key_id: Fake.acme()}
   end
 
   @doc "The `Kms` provider options the tenant vault is configured with."
@@ -290,6 +384,83 @@ defmodule Encryptor.AwsKmsVaults do
        config
        |> Keyword.put(:provider, Encryptor.AwsKmsVaults.migration_provider())
        |> Keyword.put(:reference_subkey, :binary.copy(<<0x55>>, 32))}
+    end
+  end
+
+  defmodule Recorded do
+    @moduledoc """
+    The tenant vault, with every KMS call's encryption context recorded.
+
+    `cache: false` so no operation is answered from cached materials: a
+    cached data key is a KMS call that did not happen, and an assertion about
+    what KMS received cannot be made about a call that was skipped.
+    """
+
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant, cache: false
+
+    @doc "Layer 5: the recording provider, the reference subkey, and the static context."
+    def init(config) do
+      {:ok,
+       config
+       |> Keyword.put(:provider, Encryptor.AwsKmsVaults.recording_provider())
+       |> Keyword.put(:reference_subkey, :binary.copy(<<0x55>>, 32))
+       |> Keyword.put(:static_encryption_context, Encryptor.AwsKmsVaults.static_context())}
+    end
+  end
+
+  defmodule RecordedUnsigned do
+    @moduledoc """
+    `Recorded` under the unsigned algorithm suite, `0x0478`.
+
+    The default `:algorithm_suite_id` is `0x0578`, which signs, and under a
+    signing suite the engine adds its own reserved `aws-crypto-public-key`
+    pair below the vault. `0x0478` is the other value the config allows and
+    does not sign, so this is the vault on which the KMS call carries exactly
+    the map the vault composed - the other half of the rule the signing-suite
+    Note records, and the reason no existing context assertion saw the pair.
+    """
+
+    use Encryptor.Vault,
+      otp_app: :encryptor,
+      context_profile: :tenant,
+      algorithm_suite_id: 0x0478,
+      cache: false
+
+    @doc "Layer 5: the recording provider, the reference subkey, and the static context."
+    def init(config) do
+      {:ok,
+       config
+       |> Keyword.put(:provider, Encryptor.AwsKmsVaults.recording_provider())
+       |> Keyword.put(:reference_subkey, :binary.copy(<<0x55>>, 32))
+       |> Keyword.put(:static_encryption_context, Encryptor.AwsKmsVaults.static_context())}
+    end
+  end
+
+  defmodule RecordedRoot do
+    @moduledoc """
+    A single-tenant vault over KMS, recording, for the envelope's own path.
+
+    `Encryptor.Envelope` is the only caller that writes ADR-0003 decision 4's
+    reserved layer, and it wraps under a root vault with no `:key` selector -
+    so a `:single` profile is what that path needs, and this is where the
+    `encryptor-*` pairs become observable at the KMS boundary.
+    """
+
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :single, cache: false
+
+    @doc """
+    Layer 5: the recording provider and the static context.
+
+    No `:reference_subkey`: a `:single` profile refuses one at start
+    (`{:invalid_config, :reference_subkey, :single_profile}`), and
+    `Encryptor.Envelope.provision/3` takes the subkey in its own options for
+    the reason ADR-0005 decision 5 gives.
+    """
+    def init(config) do
+      {:ok,
+       config
+       |> Keyword.put(:provider, Encryptor.AwsKmsVaults.recording_root_provider())
+       |> Keyword.put(:static_encryption_context, Encryptor.AwsKmsVaults.static_context())}
     end
   end
 
