@@ -99,7 +99,7 @@ documents:
 ```elixir
 def deps do
   [
-    {:encryptor, "== 0.3.0"}
+    {:encryptor, "== 0.4.0"}
   ]
 end
 ```

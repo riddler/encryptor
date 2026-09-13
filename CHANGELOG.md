@@ -10,6 +10,52 @@ fragment in [`changelog.d/`](changelog.d/README.md); the fragments are assembled
 into a version section at release. See that README for the format and for when a
 change warrants an entry at all.
 
+## [0.4.0] - 2026-09-13
+
+### **Breaking**
+
+- **Breaking:** a cache's `:max_messages` now defaults to `10_000` rather than
+  `100`. A vault that configures `:cache` without naming `:max_messages` keeps
+  a data key for a hundred times as many messages as before; to keep the old
+  bound, set `cache: [max_age: ..., max_messages: 100]` explicitly. Nothing
+  else moves: `:max_bytes` is still 1 GiB, `:recycle_after` is still
+  `20 * max_age`, `:max_age` is still required with no default, and `:cache`
+  still defaults to `false`, so a vault that has not opted into the cache is
+  unaffected. `:max_messages` is the bound that fires on an active partition,
+  and at `100` it asked the provider's keyring for fresh material roughly 858
+  times a second on the measured machine; `10_000` amortizes that where a
+  cache miss is a network call, and stays five orders of magnitude below the
+  engine's own 2^32 ceiling (ADR-0001 amendment A, A1 to A4).
+
+### Added
+
+- Telemetry: the vault emits `[:encryptor, :vault, :started | :stopped |
+  :start_refused]` and `[:encryptor, :cache, :recycled]`, and
+  `Encryptor.Telemetry.events/0` is the attach list. Metadata is an
+  allow-list - no plaintext, key, context value, selector or partition id
+  reaches a handler.
+- Telemetry: `encrypt/2`, `decrypt/2` and `rekey/2` each emit a
+  `[:encryptor, <operation>, :start | :stop]` span pair, with a nested
+  `[:encryptor, :provider, :start | :stop]` span around key resolution
+  carrying the provider module, the callback, the outcome, the failure's
+  `reason_tag` and the candidate count. A failure's stop half carries the
+  tag alone, never the reason term and never the engine's.
+- Vaults take `telemetry_tenant_ref: true` (default `false`, refused on a
+  `:single` vault) to add `tenant_ref` - the keyed 22-character reference,
+  never the partition id - to those span halves. It is a disclosure
+  decision: anyone holding the vault's reference subkey can re-identify it.
+  See `Encryptor.Telemetry`.
+
+### Changed
+
+- A vault's `:slow_hash` parameters are declared as a keyword list only: the
+  map shape, which no record names, is now refused at start with
+  `{:invalid_config, :slow_hash, :shape}`, so a host handing a frozen set from
+  one vault to another passes it through `Map.to_list/1`.
+- `Encryptor.Kdf.slow_hash/3` documents that the 32_768 KiB memory floor is a
+  start-time bound on a declared set which the primitive does not re-check,
+  and lists what it does check.
+
 ## [0.3.0] - 2026-09-12
 
 ### Added
