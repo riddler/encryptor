@@ -1332,7 +1332,7 @@ than the writing of a new one.
 
 Amendment A's per-path table and A5 say what the AWS KMS keyring path sends to
 the KMS API, and therefore what CloudTrail records: the map `Resolve.context/5`
-composes. Measured against `main` at `bdbb63c`, that is a strict subset of what
+composes. Measured against `main` at `60610df`, that is a strict subset of what
 is actually sent under this package's default algorithm suite, by one
 engine-owned pair. This Note records the fact. It decides nothing: decisions 1
 to 12, the two acceptance amendments at the top, and A1 to A5 stand exactly as
@@ -1342,7 +1342,7 @@ It carries the record's status rather than one of its own. Recorded for
 
 ### 1. The rule
 
-Read at `bdbb63c`, with `aws_encryption_sdk` at the version `mix.lock` pins
+Read at `60610df`, with `aws_encryption_sdk` at the version `mix.lock` pins
 (`1.0.0`, `mix.lock:3`):
 
 - **Under a signing algorithm suite the KMS client receives the composed
@@ -1361,7 +1361,7 @@ Read at `bdbb63c`, with `aws_encryption_sdk` at the version `mix.lock` pins
 - **This package's default suite is a signing one.** `:algorithm_suite_id`
   defaults to `0x0578` and accepts `0x0478` (`@default_algorithm_suite_id` and
   `@allowed_algorithm_suite_ids`, `lib/encryptor/vault/config.ex:177-178`, read
-  at `bdbb63c`), and that module's "Choosing an algorithm suite" section
+  at `60610df`), and that module's "Choosing an algorithm suite" section
   (`:131-144`) names ECDSA P-384 signing as part of `0x0578` and `0x0478` as
   the value that drops the signature. A vault that says nothing about the suite
   is therefore a signing vault.
@@ -1383,12 +1383,34 @@ that rule for a cache-cost reason: "the serialized context is hashed into the
 materials cache id, so each distinct context is its own cache entry and its
 own cold-cache provider round trip". A pair whose value changes from one wrap
 to the next looks, on that reading, like exactly what the rule forbids. It is
-not, and the reason is an ordering the engine fixes: the Caching CMM computes
-its cache id from `request.encryption_context` and does its lookup
-(`aws_encryption_sdk` v1.0.0, `lib/aws_encryption_sdk/cmm/caching.ex:160`,
-`:174`, `:176`) **before** it delegates to the Default CMM that inserts the
-pair (`:309-311`). The pair is therefore never part of a cache id, and the
-cache-entry count decision 7 bounds is untouched by it.
+not - but the engine computes two different cache ids, the pair reaches only
+one of them, and the claim therefore has to be made twice.
+
+On **encrypt** the pair is not in the cache id at all, because of an ordering
+the engine fixes: the Caching CMM computes its cache id from
+`request.encryption_context` and does its lookup (`aws_encryption_sdk` v1.0.0,
+`lib/aws_encryption_sdk/cmm/caching.ex:160`, `:174`, `:176`) **before** it
+delegates to the Default CMM that inserts the pair (`:309-311`). The
+encryption cache id is composed from the context the vault handed in, and the
+pair never reaches it.
+
+On **decrypt** the pair *is* in the cache id, and decision 7's bound survives
+for a different reason. `get_decryption_materials/2` takes the request's
+context (`caching.ex:183`) and hands it to `compute_decryption_cache_id/4`
+(`:191`), which serializes it into the hash input (`:232`); the decrypt
+request's context is the *message header's*
+(`lib/aws_encryption_sdk/client.ex:410`, dispatched to the Caching CMM at
+`:427-428`), and under a signing suite the header carries the pair. What keeps
+that off decision 7's ledger is the other term in the same hash: the id also
+carries the message's sorted encrypted data keys (`caching.ex:226-230`), which
+are unique per data key. A decryption cache entry is already per-message
+before its context is considered at all, so the decrypt-side entry count is
+data-key shaped rather than context shaped, and adding a per-write context
+pair to a per-message id changes nothing about what decision 7 prices.
+Decision 7's own arithmetic - 200 tenants times 40 columns - is the encryption
+cache id's, and this Note leaves the rule and its cost sentence exactly as
+written: whether the record should price the decrypt side separately is a
+question for whoever revisits decision 7, and not something this pair settles.
 
 Its lifetime is worth stating precisely for the same reason. The keypair is
 generated inside the Default CMM, and the Caching CMM reaches that CMM on a
@@ -1411,7 +1433,7 @@ A5 and the per-path table name - "every key decision 2's table names,
 CloudTrail see under the default suite, by that one engine-owned pair. The
 disclosure section in `Encryptor.Provider.Kms`'s moduledoc ("What KMS sees, and
 what CloudTrail records", `lib/encryptor/provider/kms.ex:70-86`, read at
-`bdbb63c`) gains one sentence saying so, in the same commit as this Note. A5's
+`60610df`) gains one sentence saying so, in the same commit as this Note. A5's
 own words are unchanged: this is a widening of the enumeration a host reads, not
 a new obligation and not a new option, function or configuration key.
 
@@ -1425,7 +1447,7 @@ still can, and under a signing suite does.
 ### 4. What is to pin it
 
 The enumeration belongs in a test rather than in this record, and that test is
-not in the tree yet: `test/encryptor/provider/kms_test.exs` at `bdbb63c`
+not in the tree yet: `test/encryptor/provider/kms_test.exs` at `60610df`
 carries no encryption-context assertion and no recording client, which is the
 gap the regression test this Note unblocks exists to close. That test half's
 obligation is to pin both halves of the rule above - the composed map plus the
@@ -1435,11 +1457,11 @@ lands, this Note is the only place the fact is written down; once it lands, a
 key added to or removed from either path goes red rather than ageing quietly
 here.
 
-### 5. Where Amendment A's `Resolve.context/5` cite resolves at `bdbb63c`
+### 5. Where Amendment A's `Resolve.context/5` cite resolves at `60610df`
 
 One row for the re-location table of this record's previous Note: the per-path
 table's and A-1's `lib/encryptor/vault/resolve.ex:198` (labelled read at
-`2a84a04`) is the `def context(` clause head, and at `bdbb63c` that head is
+`2a84a04`) is the `def context(` clause head, and at `60610df` that head is
 `lib/encryptor/vault/resolve.ex:248` - the same anchor the previous Note recorded
 at `6acefff`, unmoved since. Every other cite in that table stands where that
 Note put it.
