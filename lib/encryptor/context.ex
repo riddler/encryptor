@@ -89,9 +89,9 @@ defmodule Encryptor.Context do
   A primary key, a row id, a timestamp, a request id, or a user id does not
   belong in a context. This is a correctness-adjacent rule rather than a style
   preference: the serialized context is hashed into the materials cache id, so
-  **each distinct context is its own cache entry and its own cold-cache
-  provider round trip** - a key-store read plus a root-vault decrypt, per row,
-  forever.
+  **each distinct context is its own cache entry**. The provider round trip
+  behind it - a key-store read plus a root-vault decrypt - is paid on every
+  call in any case, per row, forever.
 
   `table` and `column` are per-column, which is bounded by the schema. A host
   with 200 tenants and 40 encrypted columns holds up to 8,000 cache entries;
