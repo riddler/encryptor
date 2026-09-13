@@ -1193,6 +1193,11 @@ whoever writes the security section, with ADR-0005 open question 7, which
 names the same unwritten section
 (`docs/adr/0005-rotation-and-crypto-shred.md:894-901`).
 
+*Answered (2026-09-13): yes. The section is written, as a foot Note on
+ADR-0005 - "the security section, and the reserved `encryptor-*` pairs in the
+KMS disclosure" - which names the four pairs, the `reserved` layer they
+compose into, what a CloudTrail reader sees of them and what it does not.*
+
 ## Note (2026-09-13): case 1 of the worked example names the wrong refusal term
 
 The worked example "a cross-tenant substitution failing" shows four ways to be
