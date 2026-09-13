@@ -12,6 +12,11 @@ defmodule Encryptor.GuidesTest do
   The vaults, the store and the provider are transcribed in
   `Encryptor.GuideVaults`; the two deliberate differences from the printed
   text are recorded there.
+
+  Two claims in `guides/rotation-runbook.md` are structural rather than
+  executable - a section a record assigns to the guide, and a table a record
+  asks the guide to reproduce rather than paraphrase - so they are asserted
+  against the files themselves in the last describe.
   """
 
   use ExUnit.Case, async: false
@@ -33,6 +38,11 @@ defmodule Encryptor.GuidesTest do
   @merchant "merchant-42"
   @column_context %{"table" => "payment_methods", "column" => "number"}
 
+  @runbook "guides/rotation-runbook.md"
+  @keyring_record "docs/adr/0008-aws-kms-keyring-backed.md"
+  @gcp_section "## The GCP operator runbook"
+  @per_shape_header "| | `%Key.Aes{}` (material source) | `%Key.Kms{}` (keyring-backed) |"
+
   setup do
     GuideVaults.put_env()
     :ok
@@ -49,6 +59,28 @@ defmodule Encryptor.GuidesTest do
   end
 
   defp reason({:error, %Error{reason: reason}}), do: reason
+
+  # The `## The GCP operator runbook` section of the runbook, from its own
+  # heading up to the next level-2 heading. Slicing first is what makes the
+  # subsection assertions say "in that section" rather than "somewhere in the
+  # file".
+  defp gcp_runbook_section do
+    @runbook
+    |> File.read!()
+    |> String.split(~r/^## /m)
+    |> Enum.find(fn chunk -> String.starts_with?("## " <> chunk, @gcp_section <> "\n") end)
+  end
+
+  # The contiguous run of table lines that begins at `header`, or `[]` when the
+  # file does not carry that table at all. Byte-exact: no trimming beyond the
+  # line ending.
+  defp table(path, header) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.drop_while(&(&1 != header))
+    |> Enum.take_while(&String.starts_with?(&1, "|"))
+  end
 
   describe "getting started, part 1: the single-key vault" do
     setup do
@@ -454,6 +486,40 @@ defmodule Encryptor.GuidesTest do
       forged = %WrappedKey{other_row | wrapped: v1.wrapped}
 
       assert :decrypt_failed = reason(Envelope.unwrap(RootVault, forged))
+    end
+  end
+
+  describe "the runbook: the GCP operator runbook, and the per-shape table" do
+    # sabotage: deleted the `### The ring and the IAM bindings are provisioned
+    # out of band` heading from the runbook; red (proven once on a temporary
+    # edit, reverted before the commit - see the PR body).
+    test "the GCP operator runbook section carries its three subsections" do
+      section = gcp_runbook_section()
+
+      assert section, "#{@runbook} carries no #{@gcp_section} section"
+
+      for subsection <- [
+            "### The ring and the IAM bindings are provisioned out of band",
+            "### The ring is a destroy-time hazard in Terraform, not a create-time one",
+            "### P3 gains step 2a: destroy the tenant's `CryptoKey` versions"
+          ] do
+        assert String.contains?("## " <> section, subsection <> "\n"),
+               "#{@gcp_section} is missing the subsection #{inspect(subsection)}"
+      end
+    end
+
+    # sabotage: dropped one row from the guide's copy of the table; red. The
+    # record asks for the table to be reproduced rather than paraphrased, so
+    # the assertion is byte equality and not a similarity check.
+    test "the guide reproduces the keyring record's per-shape table byte for byte" do
+      record_table = table(@keyring_record, @per_shape_header)
+      guide_table = table(@runbook, @per_shape_header)
+
+      assert length(record_table) > 2,
+             "#{@keyring_record} no longer carries the per-shape table under its header row"
+
+      assert guide_table == record_table,
+             "#{@runbook}'s copy of the per-shape table has drifted from #{@keyring_record}"
     end
   end
 end
