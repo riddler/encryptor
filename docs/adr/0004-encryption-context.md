@@ -1327,3 +1327,119 @@ labelled proposed and a Note subsection anticipating this very flip. Section 4
 above is corrected, and the deferral it makes - that the edit is ADR-0008's -
 is unchanged, because what is owed there is a flip of an existing line rather
 than the writing of a new one.
+
+## Note (2026-09-13): under a signing suite the KMS API receives the composed context plus the engine's reserved `aws-crypto-public-key` pair
+
+Amendment A's per-path table and A5 say what the AWS KMS keyring path sends to
+the KMS API, and therefore what CloudTrail records: the map `Resolve.context/5`
+composes. Measured against `main` at `bdbb63c`, that is a strict subset of what
+is actually sent under this package's default algorithm suite, by one
+engine-owned pair. This Note records the fact. It decides nothing: decisions 1
+to 12, the two acceptance amendments at the top, and A1 to A5 stand exactly as
+written; the default suite is unchanged; nothing is removed from the context.
+It carries the record's status rather than one of its own. Recorded for
+`enc-msh`, the record half of `enc-dzf`, campaign RF045.
+
+### 1. The rule
+
+Read at `bdbb63c`, with `aws_encryption_sdk` at the version `mix.lock` pins
+(`1.0.0`, `mix.lock:3`):
+
+- **Under a signing algorithm suite the KMS client receives the composed
+  context plus exactly one further pair, `aws-crypto-public-key`.** The
+  engine's Default CMM generates an ECDSA `:secp384r1` keypair for the write
+  and puts the encoded public key into the context under its reserved key before
+  any keyring wraps - `maybe_add_signing_context/2`, guarded by
+  `AlgorithmSuite.signed?/1`
+  (`aws_encryption_sdk` v1.0.0, `lib/aws_encryption_sdk/cmm/default.ex:195-205`,
+  called at `:173`) - and the keyring then hands
+  `materials.encryption_context` to `GenerateDataKey`, `Encrypt` and `Decrypt`
+  unaltered (`lib/aws_encryption_sdk/keyring/aws_kms.ex:266`, `:291`, `:400`,
+  the anchors the per-path table already names). Both the message header and
+  the API call carry it, which is A2's single context object doing exactly what
+  A2 says it does.
+- **This package's default suite is a signing one.** `:algorithm_suite_id`
+  defaults to `0x0578` and accepts `0x0478` (`@default_algorithm_suite_id` and
+  `@allowed_algorithm_suite_ids`, `lib/encryptor/vault/config.ex:177-178`, read
+  at `bdbb63c`), and that module's "Choosing an algorithm suite" section
+  (`:131-144`) names ECDSA P-384 signing as part of `0x0578` and `0x0478` as
+  the value that drops the signature. A vault that says nothing about the suite
+  is therefore a signing vault.
+- **Under `0x0478` the KMS client receives exactly the composed context.** The
+  extra pair belongs to the signing branch, and without signing the branch does
+  not run. This is why no context assertion in the suite had seen the pair: the
+  one end-to-end path that asserted on a context ran the unsigned suite.
+
+### 2. The pair carries no secret, and decision 7 is not breached
+
+The value is a signature *verification* key, and the message header already
+carries it in the clear to anyone holding the ciphertext bytes - which is
+decision 12's property (`:489`), stated for the header and true here for the
+same reason. The private half is returned to the engine as signing material
+and never enters the context at all (`cmm/default.ex:200-201`).
+
+Decision 7 (`:369-386`) forbids anything that varies per row, and it takes
+that rule for a cache-cost reason: "the serialized context is hashed into the
+materials cache id, so each distinct context is its own cache entry and its
+own cold-cache provider round trip". A pair whose value changes from one wrap
+to the next looks, on that reading, like exactly what the rule forbids. It is
+not, and the reason is an ordering the engine fixes: the Caching CMM computes
+its cache id from `request.encryption_context` and does its lookup
+(`aws_encryption_sdk` v1.0.0, `lib/aws_encryption_sdk/cmm/caching.ex:160`,
+`:174`, `:176`) **before** it delegates to the Default CMM that inserts the
+pair (`:309-311`). The pair is therefore never part of a cache id, and the
+cache-entry count decision 7 bounds is untouched by it.
+
+Its lifetime is worth stating precisely for the same reason. The keypair is
+generated inside the Default CMM, and the Caching CMM reaches that CMM on a
+cache miss only, so one encoded public key is reused across every message a
+cached entry serves: "per message" is right for a cache-off vault and "per
+cache entry" for a cache-on one. Either way it is per-write-burst rather than
+per-subject, and every KMS call a CloudTrail reader sees is a cache miss by
+construction, so what that reader gains from the pair is one opaque per-call
+string and not a correlation handle for a subject or a row.
+
+What this Note widens is not the secrecy of the context but the accuracy of
+its enumeration.
+
+### 3. What it means for A5 and the per-path table
+
+A5's obligation stands, and stays discharged: the moduledoc section it requires
+exists and says what A5 told it to say. What is now known is that the *set* both
+A5 and the per-path table name - "every key decision 2's table names,
+`tenant_ref` included" - is a **strict subset** of what the KMS API and
+CloudTrail see under the default suite, by that one engine-owned pair. The
+disclosure section in `Encryptor.Provider.Kms`'s moduledoc ("What KMS sees, and
+what CloudTrail records", `lib/encryptor/provider/kms.ex:70-86`, read at
+`bdbb63c`) gains one sentence saying so, in the same commit as this Note. A5's
+own words are unchanged: this is a widening of the enumeration a host reads, not
+a new obligation and not a new option, function or configuration key.
+
+Decision 2's rule about the reserved prefix is untouched and stays true as
+written. It refuses `aws-crypto-` *from a host* (`:186-191`), and this pair is
+not written by a host: it is added by the engine below the vault, after the
+vault has composed the host's context and after the engine has validated that
+the host did not supply the key itself. A host still cannot write it; the engine
+still can, and under a signing suite does.
+
+### 4. What is to pin it
+
+The enumeration belongs in a test rather than in this record, and that test is
+not in the tree yet: `test/encryptor/provider/kms_test.exs` at `bdbb63c`
+carries no encryption-context assertion and no recording client, which is the
+gap the regression test this Note unblocks exists to close. That test half's
+obligation is to pin both halves of the rule above - the composed map plus the
+engine's reserved pair on the `0x0578` path, and exact equality with the
+composed map on the `0x0478` path, on the calls the keyring makes. Until it
+lands, this Note is the only place the fact is written down; once it lands, a
+key added to or removed from either path goes red rather than ageing quietly
+here.
+
+### 5. Where Amendment A's `Resolve.context/5` cite resolves at `bdbb63c`
+
+One row for the re-location table of this record's previous Note: the per-path
+table's and A-1's `lib/encryptor/vault/resolve.ex:198` (labelled read at
+`2a84a04`) is the `def context(` clause head, and at `bdbb63c` that head is
+`lib/encryptor/vault/resolve.ex:248` - the same anchor the previous Note recorded
+at `6acefff`, unmoved since. Every other cite in that table stands where that
+Note put it.
