@@ -6,11 +6,13 @@
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/encryptor/)
 [![License](https://img.shields.io/hexpm/l/encryptor.svg)](https://github.com/riddler/encryptor/blob/main/LICENSE)
 
-> **Status: pre-1.0.** This package is under active development ahead of its
-> 1.0.0 release, expected within the next few weeks. Until then, public APIs,
-> storage formats, and derivation constants may change between releases
-> without a deprecation cycle. Pin an exact version and review the changelog
-> before upgrading.
+> **Pre-1.0.** Until `encryptor` reaches v1.0, its public surface may change
+> between minor releases, sometimes drastically: a release may rename modules,
+> callbacks, table columns, telemetry events or error vocabulary with no
+> compatibility shim. Every such change is recorded in
+> [CHANGELOG.md](CHANGELOG.md) under a bold **Breaking** heading that says what
+> to do about it. Pinning to an exact minor - `~> X.Y` - is the recommended way
+> to consume the package until 1.0.
 
 Ergonomic envelope encryption for Elixir - a vault module, pluggable key
 providers, and per-tenant keys - on the
