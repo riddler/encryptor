@@ -107,9 +107,10 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
       :ok
     end
 
-    # sabotage: made recycle/1 call Supervisor.terminate_child/2 and stop -
-    # red on the second assertion, because the cache is then never started
-    # again and the vault runs on without one.
+    # sabotage: made recycle/2 call Supervisor.terminate_child/2 and stop -
+    # red at the `{:ok, after_recycle}` match below, because a recycle that
+    # never restarts answers `:ok` rather than `{:ok, pid}`, and the cache is
+    # then never started again and the vault runs on without one.
     #
     # This is the one recycling test that reads *through* the cache, and
     # `cached?/2` reaches it with a `GenServer.call`. Driving the recycle
@@ -168,7 +169,7 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
       assert second != third
     end
 
-    # sabotage: made recycle/1 kill the cache child and let the supervisor
+    # sabotage: made recycle/2 kill the cache child and let the supervisor
     # react, instead of driving the restart itself - red under a short
     # interval, because the vault supervisor's restart intensity is then spent
     # on scheduled maintenance and the whole vault comes down with it.
@@ -194,7 +195,7 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
   end
 
   describe "a recycler whose cache child is missing" do
-    # sabotage: made recycle/1 match only on :ok from terminate_child/2 - red,
+    # sabotage: made recycle/2 match only on :ok from terminate_child/2 - red,
     # because a missing cache child then crashes the recycler on every tick
     # instead of leaving a missed bound to the next one.
     test "keeps running instead of crashing the vault" do

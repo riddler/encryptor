@@ -1313,3 +1313,58 @@ availability, which is exactly the coupling A1's observable-first definition
 avoids. The alternative is a separate, explicitly-fallible
 `suspend/3` with a `check: true` option. Worth deciding with a real operator
 rather than in advance. Owner: operator, at first use.
+
+## Note (2026-09-13): Amendment A's self-cites, and the scope of A8's global-scan sentence
+
+Two corrections to Amendment A, neither of which changes a decision. Both are
+recorded here rather than edited in place, so the amendment's accepted text
+stands as accepted.
+
+### The four self-cites into this record are eleven lines short
+
+Amendment A quotes and cites this record's own decision section four times.
+Every one of those cites was taken against the file *before* the amendment's
+top note was merged, and that note inserts eleven lines at the head, so each
+self-cite now points eleven lines above its target. The external cites in the
+amendment are unaffected: they carry read-at SHAs and resolve normally. The
+quoted text is verbatim in every case; only the line numbers are wrong.
+
+Read against this file as merged (read at enc `ec6a84d`):
+
+| Amendment A cites | resolves at |
+|---|---|
+| `docs/adr/0005-rotation-and-crypto-shred.md:135-136` (decision 3's sentence) | `:146-147` |
+| `:139` ("a live set is whatever the store answers `decryption_keys/2` with") | `:150` |
+| `:108-110` ("A version stops decrypting when, and only when ...") | `:119-121` |
+| `:408-411` (P3 step 3, the cache drain) | `:419-422` |
+
+The general lesson, for any amendment written against this record afterwards:
+a self-cite taken while the amendment is still a draft is taken against a file
+the merge will shift. Cite the anchor text, or re-take the numbers against the
+merged file and label them with the SHA, as this table does.
+
+### A8's global-scan sentence is broader than the source it cites
+
+A8 says the suspended set is not held in `:persistent_term` "itself, whose
+writes and erases trigger a global scan that `Encryptor.Vault.Lifecycle`
+deliberately confines to a vault's lifecycle boundary", and cites
+`lib/encryptor/vault/lifecycle.ex:17-24`. That moduledoc names only the erase:
+"`:persistent_term.erase/1` triggers a global scan, which is why it happens
+here, on a vault's lifecycle boundary, and never on a call path"
+(`lifecycle.ex:23-24`, read at enc `ec6a84d`).
+
+The wider claim is true - Erlang/OTP's `persistent_term` documentation states
+that both `put/2` and `erase/1` may trigger a scan of all processes, which is
+why that module's stated best practice is to write rarely and read often - but
+it is true of OTP rather than of the cited source, and the cite should have
+said so. Read A8's sentence as resting on the OTP documentation for the
+"writes and erases" half and on `lifecycle.ex` for the confinement half.
+
+**A8's decision is unaffected either way.** The argument it needs is that the
+suspended set is written on a call path, and a call-path write into
+`:persistent_term` is ruled out by the erase alone: a set that can be written
+is a set that can be unwritten. The ETS table A8 fixes remains the right
+owner, for the reasons A8 gives.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.

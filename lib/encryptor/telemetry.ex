@@ -47,9 +47,10 @@ defmodule Encryptor.Telemetry do
   | `[:encryptor, :rekey, :start]` / `[..., :stop]` | span | `rekey/2` |
   | `[:encryptor, :provider, :start]` / `[..., :stop]` | span | one `encryption_key/2` or `decryption_keys/2` round trip |
 
-  The six span halves are specified by ADR-0006 and emitted by the paths they
-  instrument, which are not written yet (that record's decision 10). They are
-  in `events/0` because the vocabulary is the record's, not the emit site's.
+  The eight span halves - four pairs - are specified by ADR-0006 and emitted
+  by the paths they instrument (that record's decision 10), all of which are
+  written. `events/0` returns twelve names: the four point events above and
+  those eight halves.
 
   ## Measurements
 
@@ -257,10 +258,18 @@ defmodule Encryptor.Telemetry do
   # today and nothing anywhere says it happened.
   #
   # That failure is a supervisor term rather than an `Encryptor.Error.reason`,
-  # so it does not go through `reason_tag/1`. It reaches here only when the
-  # cache child is not there to drop, which is what ADR-0006's worked example
-  # reports it as: `reason_tag: :vault_not_started`. The supervisor's own term
-  # is not forwarded - it is not on the allow-list.
+  # so it does not go through `reason_tag/1`. Two sub-cases reach it:
+  # `Supervisor.terminate_child/2` answering `{:error, :not_found}`, which is
+  # a cache child that was not there to drop; and a terminate that succeeded
+  # followed by `Supervisor.restart_child/2` answering
+  # `{:error, :running | :restarting | term}`, which is not a not-started
+  # vault. Both are tagged `:vault_not_started` because that is the one tag
+  # ADR-0006's worked example gives this branch and the vocabulary is closed
+  # (that record's decision 5); the gap is recorded in ADR-0006's Note of
+  # 2026-09-13, and a second tag would be an amendment rather than a fix here.
+  # The supervisor's own term is not forwarded - it is not on the allow-list -
+  # but `CacheRecycler.recycle/2` returns it to its caller unchanged, which is
+  # where the sub-case is distinguishable.
   @spec cache_recycled(module(), integer(), term()) :: :ok
   def cache_recycled(vault, duration, result) do
     metadata =

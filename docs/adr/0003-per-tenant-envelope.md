@@ -1019,18 +1019,18 @@ Three positions: the value to hash, the salt to hash it under, and the
 parameter set, supplied explicitly by the caller. `params()` is a **complete**
 map of the three keys B4 fixes - every key present, every value already
 validated. `slow_hash/3` neither defaults nor interprets a partial set; it
-raises on one, because completing a parameter set at the primitive would put
-a cryptographic default in two places. Completion happens once, at start,
-where B4 validates: a `:slow_hash` declared partially is frozen onto the
-configuration struct with this record's defaults filled in, which is also
-what lets the consumer treat what it reads as opaque and pass it straight
-through. It returns **raw output
-bytes**, 32 of them, and never Argon2's encoded string. The encoded string
-carries the parameters and the salt inside it, which makes it a different
-value whenever an operator retunes the cost, and its consumer wants bytes to
-feed an HMAC rather than a self-describing credential to compare. Fixing the
-output at 32 bytes matches `@hash_length` in the same module
-(`lib/encryptor/kdf.ex:156`, enc 6c30df8) and needs no fourth argument.
+raises on one, because completing a parameter set at the primitive would put a
+cryptographic default in two places. Completion happens once, at start, where
+B4 validates: a `:slow_hash` declared partially is frozen onto the
+configuration struct with this record's defaults filled in, which is also what
+lets the consumer treat what it reads as opaque and pass it straight through.
+It returns **raw output bytes**, 32 of them, and never Argon2's encoded
+string. The encoded string carries the parameters and the salt inside it,
+which makes it a different value whenever an operator retunes the cost, and
+its consumer wants bytes to feed an HMAC rather than a self-describing
+credential to compare. Fixing the output at 32 bytes matches `@hash_length` in
+the same module (`lib/encryptor/kdf.ex:156`, enc 6c30df8) and needs no fourth
+argument.
 
 It **raises** rather than returning `{:error, _}`, under the rule that module
 already records: a bad parameter set, a short salt or a missing dependency is
@@ -1147,15 +1147,14 @@ vocabulary. Absent means the vault declares no slow parameters, and a
 consumer asking for them gets nothing rather than a guess.
 
 Unlike `:derivation_salt`, it is **not** a deployment-only option and is not
-refused in `use Encryptor.Vault` options
-(`lib/encryptor/vault/config.ex:164`, enc 6c30df8). The reason
-`:derivation_salt`
-is refused there is that a per-deployment value compiled into a `.beam` is
-shared by every deployment built from that artifact. A slow-hash parameter
-set has the opposite requirement: it is not secret, and it must be
-*identical* everywhere a given index is written or read, or the index stops
-matching itself. Compiling it in is therefore correct rather than dangerous,
-and it is redacted nowhere because there is nothing to redact.
+refused in `use Encryptor.Vault` options (`lib/encryptor/vault/config.ex:164`,
+enc 6c30df8). The reason `:derivation_salt` is refused there is that a
+per-deployment value compiled into a `.beam` is shared by every deployment
+built from that artifact. A slow-hash parameter set has the opposite
+requirement: it is not secret, and it must be *identical* everywhere a given
+index is written or read, or the index stops matching itself. Compiling it in
+is therefore correct rather than dangerous, and it is redacted nowhere because
+there is nothing to redact.
 
 How a consumer reads it: `Encryptor.Vault.config/1`
 (`lib/encryptor/vault.ex:447`, enc 6c30df8) and the generated `config/0`
@@ -1247,10 +1246,9 @@ consumer that does not is unaffected, and the gate's dependency audit sees
 the new package in this repository's own builds.
 
 **The rotation runbook (`guides/rotation-runbook.md`) gains a line.** A
-slow-hash parameter change is
-an invalidating change in the same family as a `:derivation_salt` rotation
-(Amendment A's consequences say the same of the salt). It is flagged here
-rather than assumed.
+slow-hash parameter change is an invalidating change in the same family as a
+`:derivation_salt` rotation (Amendment A's consequences say the same of the
+salt). It is flagged here rather than assumed.
 
 ### Open questions this amendment adds
 
@@ -1319,3 +1317,40 @@ decided case, and its comment says so.
 This Note is appended to Amendment B and carries that amendment's status.
 Amendment B was accepted on 2026-09-13, and the operator's acceptance reading
 covered this Note along with it.
+
+## Note (2026-09-13): open question 7's key-size half is closed, on security grounds
+
+Open question 7 bundles two things: the `0x0478` suite default and the 32-byte
+tenant master key. It asks for both to be "re-examined once there is a real
+workload, alongside ADR-0001 open question 2's cache bounds". The measurement
+pass of 2026-09-12 (`docs/measurements/260912-enc-anz-stated-bounds.md`,
+section 4) ran that re-examination. The two halves came out differently, and
+this Note records the key-size half. The suite half stays where the
+measurement left it: `0x0478` measured 16.20 µs/encrypt against `0x0578`'s
+377.21 and 325 stored bytes against 588, so ADR-0001 decision 9's
+recommendation is quantified, not changed.
+
+**The key-size half is closed as not a performance decision.** The measurement
+found no cost dimension to weigh: provisioning a tenant master key is 10.60 µs,
+unwrapping one 9.84 µs, and the stored blob 407 bytes, all of them dominated by
+the root vault's envelope round trip rather than by the 32 bytes inside it. A
+16-byte or a 64-byte master key would move none of those numbers meaningfully,
+because the key is wrapped inside a full ESDK message either way. There is no
+workload that could produce a different answer, so waiting for one is waiting
+for evidence that cannot arrive.
+
+What remains is therefore a pure security parameter, and it is settled here on
+security grounds. 32 bytes is the size the wrapped key is generated at today
+(`@material_bytes` in `lib/encryptor/envelope.ex:200`, read at enc `ec6a84d`),
+it is a 256-bit symmetric secret whose compromise costs a tenant everything
+this record's decision 1 protects, and it matches the `0x0478` suite's own data
+key width and this package's other 32-byte secrets - the reference subkey
+(ADR-0004 decision 4) and the derivation salt (Amendment A decision 3). A
+smaller key would buy nothing measurable and would make this the narrowest
+secret in the chain; a larger one would buy nothing either, since the wrapping
+suite is the ceiling. 32 bytes stands.
+
+This Note settles only the key-size half of open question 7. The suite half is
+answered by the measurement and needs no decision from this record. Nothing
+above changes: no decision is amended, no error vocabulary is added, and this
+Note carries the record's status rather than one of its own.

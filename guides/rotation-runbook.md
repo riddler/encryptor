@@ -4,7 +4,7 @@ Five operator procedures, two of them irreversible. This is the operational
 half of ADR-0005 and its Amendment A; read the [getting-started
 guide](getting-started.md) first if you have not stood a vault up yet.
 
-Two of the five read differently depending on what shape the tenant's key
+Three of the five read differently depending on what shape the tenant's key
 has. If your provider is keyring-backed - `Encryptor.Provider.Kms` - read
 ["The shred and the rotate, per key shape"](#the-shred-and-the-rotate-per-key-shape)
 before you run P2, P3 or P4. If it is `Encryptor.Provider.GcpKms`, read ["The

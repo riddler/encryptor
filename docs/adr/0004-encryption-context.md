@@ -1191,3 +1191,48 @@ separately about the pairs it did not write is a documentation call for
 whoever writes the security section, with ADR-0005 open question 7, which
 names the same unwritten section
 (`docs/adr/0005-rotation-and-crypto-shred.md:894-901`).
+
+## Note (2026-09-13): case 1 of the worked example names the wrong refusal term
+
+The worked example "a cross-tenant substitution failing" shows four ways to be
+wrong. Case 1 - tenant A's bytes moved into tenant B's row and read in tenant
+B's scope - is annotated `engine: {:key_name_mismatch, _}`, on the reasoning
+that "the EDK names tenant A's key, so tenant B's keyring cannot even unwrap
+it". That reasoning is sound about the keyring and wrong about which guard
+fires. **On a `:tenant` vault the read is refused as
+`{:encryption_context_mismatch, "tenant_ref"}`, and the engine is never
+called.** Two guards apply to case 1; this Note records which one fires first
+and why. The `reason` in the example's `%Encryptor.Error{}` - `:decrypt_failed`
+- is right either way, and no decision changes: decision 6's comparison and the
+key-name check are both real, and decision 8's oracle collapse gives them the
+same caller-visible term.
+
+The order is fixed by `Encryptor.Vault.Decrypt.decrypt/7`
+(`lib/encryptor/vault/decrypt.ex:148-160`, read at enc `ec6a84d`). Its `with`
+chain resolves candidates, builds the keyring, composes the reproduced context
+through `Resolve.context/5`, and then calls `agree/4` - all before
+`engine_decrypt/5` is reached. So the keyring for tenant B is *built*, but the
+engine that would have found the key-name mismatch is never handed it.
+
+What `agree/4` finds is decision 4's own doing. On a `:tenant` vault
+`Resolve.reference/2` derives `tenant_ref` from the `:key` selector rather than
+accepting it from the caller (`lib/encryptor/vault/resolve.ex:206-209`, same
+SHA), and `Resolve.context/5` injects that derived value as the vault-supplied
+layer (`resolve.ex:248-267`). A reader passing `key: "acct_B"` therefore
+reproduces tenant B's `tenant_ref` against a message carrying tenant A's, and
+`compare/4` (`decrypt.ex:192-206`) returns
+`Error.decrypt_failed(vault, :decrypt, {:encryption_context_mismatch,
+"tenant_ref"})`. Case 2's annotation already says the context comparison
+catches a cross-tenant claim "before the keyring is consulted"; case 1 is the
+same mechanism, reached by a different route.
+
+**Worth recording for the security section this record keeps deferring.**
+Because the context guard alone refuses the read, case 1 is not on its own
+evidence of key separation. It would refuse identically against a key store
+that handed every tenant one shared key. The key-name mismatch the example
+describes is a second, independent line of defence - it is simply not the one
+the caller observes, and a reader who took case 1 as a demonstration that the
+keyring is doing the work would be taking the wrong lesson from it.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
