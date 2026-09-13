@@ -1005,3 +1005,189 @@ are inherited; the rest are opened by this record.
    host's `:required_context` is the only knob, which is simpler to explain and
    harder to adopt incrementally. Worth revisiting after the first host
    configures one.
+
+## Amendment A (2026-09-13; proposed): the composed context on a KMS-backed vault
+
+Status: **proposed**. This amendment only adds. Decisions 1 to 12 and the two
+acceptance amendments at the top of this record are unchanged, and nothing
+below reverses, narrows, or re-words any of them.
+
+A note on labels, because this record already uses the letter. The assumption
+review of `encryptor_ecto` ADR-0001 above numbers its rows A1 to A7 (the table
+at `:831-837` and the prose that follows), and a bare "A5" elsewhere in this
+record - the cross-reference at `:822`, for one - means that table's row.
+**This amendment's decisions are written `A1` to `A5` under the house
+convention ADR-0003 and ADR-0005 use for lettered amendments, and a reference
+to one from outside this section should be spelled "Amendment A's A5".** The
+older table is not renumbered; renaming a set that other records cite would be
+a worse cure than a sentence.
+
+### Why now
+
+ADR-0008 open question 5 asks whether a KMS-backed vault should run a narrower
+encryption-context profile, and hands the question here rather than deciding
+it:
+
+> **Should a KMS-backed vault run a narrower encryption-context profile?**
+> Decision 7 records that ADR-0004's composed context reaches CloudTrail
+> unencrypted on this path. ADR-0004 fixed the profile against a threat model
+> in which the context travels in the message header only, and this record does
+> not reopen it, because narrowing the context would change what a message
+> binds - an ADR-0004 decision, taken in an ADR-0004 amendment [...]
+> (`docs/adr/0008-aws-kms-keyring-backed.md:931-939`, read at `2a84a04`)
+
+The premise is correct and it is this record's to answer. The question is
+answered **no**: there is no KMS-specific profile, and the composed context on
+a KMS-backed vault is byte-for-byte the context decision 1 composes on every
+other path. The rest of this amendment is why, what a host is owed instead,
+and the one thing that changes in `lib/`.
+
+### What is true today, per path
+
+The disclosure surface is not uniform across the three provider shapes this
+package ships, and the difference is mechanical rather than a matter of
+policy. Read at `2a84a04` (this package) and `aws_encryption_sdk` v1.0.0.
+
+| Path | What composes the context | Where the composed context goes | Reaches a third-party log? |
+|---|---|---|---|
+| Material source (`Encryptor.Provider.Static`, store-backed) | `Resolve.context/5` (`lib/encryptor/vault/resolve.ex:198`), `tenant_ref` from `Resolve.vault_supplied/2` (`:214`) | the message header, and the local `RawAes` keyring's AAD | no - it never leaves the host process |
+| GCP wrap (`Encryptor.Provider.GcpKms`, ADR-0007) | the same `Resolve.context/5` for the message; the provider composes its **own** wrap AAD from `tenant_ref`, version and namespace (`lib/encryptor/provider/gcp_kms.ex:396-401`, sent at `:344-346` and `:472-474`) | the message header; the wrap AAD, separately, to the Cloud KMS API | the wrap AAD does, and it is three fields this package chose - **not** ADR-0004's context |
+| AWS KMS keyring (`Encryptor.Provider.Kms`, ADR-0008) | the same `Resolve.context/5` | the message header **and**, wholesale, the KMS API: `materials.encryption_context` is passed to `GenerateDataKey`, `Encrypt` and `Decrypt` (`aws_encryption_sdk` v1.0.0, `lib/aws_encryption_sdk/keyring/aws_kms.ex:266`, `:291`, `:400`) | yes - a KMS encryption context is recorded unencrypted in CloudTrail |
+
+Two facts in that table decide the rest. The GCP path shows that a provider
+*can* carry a binding of its own choosing to a third-party API without
+touching ADR-0004's context, because it composes its own. The KMS path shows
+that `Encryptor.Provider.Kms` has no such seam: it and `Encryptor.Key.Kms`
+carry no context argument at all (`lib/encryptor/provider/kms.ex`,
+`lib/encryptor/key/kms.ex`, read at `2a84a04`), because the engine's keyring
+reads `materials.encryption_context` directly. On this path there is exactly
+one context object, and it serves the message and the API call both.
+
+### Decisions
+
+**A1. The context profile is unchanged on a KMS-backed vault, and this package
+ships no per-provider context narrowing.** `:context_profile` keeps the two
+values decision 3 gave it, the canonical vocabulary is decision 2's table
+unaltered, and `Resolve.context/5` composes the same map whatever the
+provider answers. A KMS-backed message binds exactly what every other message
+binds.
+
+**A2. The deciding reason is that a narrowed KMS context is a narrowed
+message, not a quieter log.** Because there is one context object on this path
+(the table above), "send KMS less" and "bind the message to less" are the same
+edit. The property that would be spent is the one decision 6 calls this
+package's own guarantee: the anti-substitution comparison covers the keys
+present in both the reproduced and the stored context, so dropping `table` and
+`column` from a KMS-backed vault's context re-opens the cross-column swap this
+record's third worked example exists to fail (`:727-739`), and dropping
+`tenant_ref` re-opens the second (`:717-724`). Trading a decided integrity
+property for the quietness of an audit log the host owns is the wrong
+direction, and it is a trade a host could not undo later without re-encrypting
+every row.
+
+The alternative shape - compose two contexts, a full one for the header and a
+narrow one for the KMS calls - is not available, and the reason is the
+engine's **closed dispatch**, not the byte-for-byte rule. KMS requires the
+context on `Decrypt` to equal the context on `GenerateDataKey`, not to equal
+the header's, so a narrowing applied deterministically on both calls would
+satisfy `aws_kms.ex:400` perfectly well. What forbids it is that there is
+nowhere to apply it: the engine dispatches on its own structs and rejects
+everything else - `Cmm.Default.call_wrap_key/2` and `call_unwrap_key/3` fall
+through to `{:error, {:unsupported_keyring_type, _}}` (`aws_encryption_sdk`
+v1.0.0, `lib/aws_encryption_sdk/cmm/default.ex:119-121` and `:154-156`), and
+`Client`'s CMM dispatch does the same with `{:error, {:unsupported_cmm_type,
+_}}` (`lib/aws_encryption_sdk/client.ex:368-370` and `:431-433`). No decorator
+keyring and no decorator CMM can sit between this package's vault and `AwsKms`
+to rewrite `materials.encryption_context` on the way out. The only remaining
+place to narrow is `Resolve.context/5` itself, and that composes the one map
+the header gets.
+
+The shape that *would* be reachable - a context argument on the provider
+behaviour, so `Encryptor.Provider.Kms` could hand the engine something narrower
+than the vault composed - is new public surface bought to make a guarantee
+weaker, which is the wrong trade in both directions at once.
+
+**A3. The profile is publishable because its vocabulary is already published
+and already pseudonymous.** This is the half of the threat model ADR-0008
+correctly declined to assume. Decision 12 states the message property
+directly - `describe/1` "discloses nothing that the ciphertext did not already
+disclose", because the whole context is in the clear in the header to anyone
+holding the bytes. The canonical vocabulary is therefore designed as non-secret
+material end to end:
+
+- `tenant_ref` is the **keyed** derivation of ADR-0003 decision 5, and the
+  first acceptance amendment at the top of this record exists precisely to
+  keep the raw tenant identifier out of the published pair. What CloudTrail
+  records is the same pseudonymous reference the EDK key name
+  `"t/<tenant_ref>/v<n>"` already carries - and on this path the EDK's key
+  name is the KMS key ARN, which CloudTrail records regardless.
+- `table` and `column` are logical names frozen at declaration (decisions 2
+  and 10), so they name a schema, not a row.
+- `blob`, `purpose` and `app` are static vault configuration (decision 2),
+  written by the host about itself.
+- Decision 7 already forbids anything that varies per row - no primary key, row
+  id, timestamp, request id or user id - which is what would make a
+  per-operation log a per-subject log. That rule was taken for a cache-cost
+  reason; it is load-bearing for disclosure too, and this amendment says so.
+
+What genuinely widens is the **audience**, as ADR-0008 decision 7's bullet
+says in as many words (`docs/adr/0008-aws-kms-keyring-backed.md:610-614`):
+from whoever holds the ciphertext bytes to whoever holds CloudTrail read in
+the host's AWS account. Both populations
+are inside the host's own trust boundary, and a host that has granted
+`kms:Decrypt` to a principal has already granted it more than the context.
+
+**A4. A host that judges its own context inappropriate for CloudTrail already
+has the knob, and it is configuration, not a profile.** The keys beyond the
+required set are the host's: `:static_encryption_context` and the per-call
+`:encryption_context` are what a host puts in, `:required_context` is what it
+makes binding (decisions 1, 3 and 10). A host running a KMS-backed vault that
+does not want `purpose: "oauth_token"` in its audit log configures it away,
+once, at the vault. This package adds no second mechanism for the same
+sentence.
+
+**A5. What this package owes instead is disclosure at the point of
+configuration.** The hazard is not that the context is published; it is that a
+host reads ADR-0004, reads "message header", configures a static context
+accordingly, and discovers the CloudTrail copy from its own audit log. So:
+`Encryptor.Provider.Kms`'s generated documentation **must** state that the
+vault's composed encryption context - every key decision 2's table names,
+`tenant_ref` included - is sent to the AWS KMS API on `GenerateDataKey`,
+`Encrypt` and `Decrypt` and is recorded unencrypted in CloudTrail, and must
+point at decision 2 for the list and decision 7 for the rule that keeps per-row
+values out of it.
+
+This is an obligation, not a description: the module carries no such sentence
+today (`lib/encryptor/provider/kms.ex`, read at `2a84a04`; `CloudTrail` appears
+nowhere in `lib/`), and writing it is the whole of this amendment's code half,
+`enc-8nr`. It is a moduledoc sentence in the one module a host is reading when
+it makes the choice. It adds no option, no function, and no configuration key,
+and there is no per-provider context seam for that bead to build.
+
+### Consequences
+
+- ADR-0008 open question 5 is closed by A1: the profile stands as fixed, and
+  the threat model is widened in this record rather than in that one.
+- A KMS-backed vault and a material-source vault under the same host write
+  interchangeable contexts, so a host that migrates a tenant between provider
+  shapes (ADR-0002 decision 5's two rows) does not have to re-encrypt for a
+  context reason.
+- The disclosure is now a documented property rather than an inference, which
+  means a host can be told in review that granting CloudTrail read is granting
+  the context, and can price that once.
+- Nothing here applies to the GCP wrap path: its third-party AAD is the
+  provider's own three fields (`gcp_kms.ex:396-401`), and ADR-0004's context
+  never reaches Cloud KMS.
+
+### Open question this amendment adds
+
+**A-1. Whether the reserved `encryptor-*` pairs deserve their own sentence in
+the disclosure.** ADR-0003 decision 4's package-owned pairs are composed as the
+`reserved` layer of `Resolve.context/5` (`resolve.ex:198`) and travel with
+everything else, so they reach CloudTrail too. They are package-chosen binding
+material rather than host-chosen description, and A5's sentence names decision
+2's table, which is the host-facing half. Whether a host needs to be told
+separately about the pairs it did not write is a documentation call for
+whoever writes the security section, with ADR-0005 open question 7, which
+names the same unwritten section
+(`docs/adr/0005-rotation-and-crypto-shred.md:894-901`).

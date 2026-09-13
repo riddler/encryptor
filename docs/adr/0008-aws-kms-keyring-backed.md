@@ -937,6 +937,15 @@ Recorded rather than guessed. Each names who should settle it.
    `tenant_ref`-in-the-header argument reconsidered as a whole rather than for
    one provider. Named here so the first host to read its own CloudTrail is not
    the first to notice. This package's owner decides.
+   *Answered (2026-09-13, proposed): no. ADR-0004 Amendment A ("the composed
+   context on a KMS-backed vault") decides that the context profile is
+   unchanged on this path and that this package ships no per-provider
+   narrowing, because there is one context object on the KMS path - narrowing
+   what KMS sees narrows what the message binds, spending ADR-0004 decision 6's
+   anti-substitution guarantee to quiet a log the host owns. What the amendment
+   adds instead is a disclosure obligation in `Encryptor.Provider.Kms`'s
+   generated documentation. Merged at proposed; see
+   `docs/adr/0004-encryption-context.md`, section "Amendment A (2026-09-13)".*
 
 6. **What does a mixed candidate list cost when the KMS child is cold and
    wrong?** Decision 6 asserts a provider-id comparison, which is correct for
