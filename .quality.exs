@@ -21,14 +21,21 @@
 #
 # Recorded deviation from the satellite shape - coveralls.json carries
 # "treat_no_relevant_lines_as_covered": true on top of the shared
-# minimum_coverage: 90. The satellites do not need it because they all have
-# executable code; this package is currently a moduledoc-only scaffold, so
-# excoveralls sees zero relevant lines and, by default, reports that as 0.0%
-# rather than "nothing to cover" - which would fail the 90% bar with no way
-# to fix it short of lowering the bar. The flag keeps the threshold at the
-# fleet's 90% and only changes the empty-file case. Drop it once the package
-# has real code if the fleet prefers strict parity. Carried from the same
-# deviation statifier_blocks recorded under sb-p6s.
+# minimum_coverage: 90. Six modules here carry no executable lines at all, so
+# excoveralls records zero relevant lines for each of them: lib/encryptor.ex
+# is a moduledoc-only namespace module, and lib/encryptor/envelope/wrapped_key.ex,
+# lib/encryptor/key.ex, lib/encryptor/key/aes.ex, lib/encryptor/key/kms.ex and
+# lib/encryptor/message/info.ex declare structs and types only. Without the
+# flag excoveralls reports each of those as 0.0% - a false "uncovered" reading
+# for a file with nothing to cover.
+#
+# The flag is NOT what keeps the gate green: minimum_coverage is checked
+# against the run total, and that total is 97.1% with the flag on or off
+# (measured 2026-09-13 under enc-xr1; the full gate passes the 90% floor
+# either way). It is kept for the honesty of the per-file table, not to clear
+# the bar, and the condition it covers is structural rather than a stage the
+# package grows out of. Carried from the same deviation statifier_blocks
+# recorded under sb-p6s.
 
 [
   format: [

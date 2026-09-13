@@ -1,5 +1,5 @@
 {
-  "_comment_treat_no_relevant_lines_as_covered": "Scaffold-stage deviation from the satellite shape, carried from statifier_blocks (sb-p6s). This package is currently moduledoc-only, so excoveralls sees zero relevant lines and reports 0.0% rather than 'nothing to cover', which fails the 90% bar with no way to fix it short of lowering the bar. The flag keeps the threshold at the fleet's 90 and only changes the empty-file case. Drop this flag once the package has real code.",
+  "_comment_treat_no_relevant_lines_as_covered": "Six modules carry no executable lines - lib/encryptor.ex (moduledoc-only namespace) plus lib/encryptor/envelope/wrapped_key.ex, lib/encryptor/key.ex, lib/encryptor/key/aes.ex, lib/encryptor/key/kms.ex and lib/encryptor/message/info.ex (structs and types only) - so excoveralls sees zero relevant lines for them and, without this flag, reports each as 0.0% rather than 'nothing to cover'. The flag is not load-bearing for the gate: minimum_coverage is checked against the run total, which is 97.1% with the flag either way (measured 2026-09-13 under enc-xr1). It is kept so the per-file table does not read a definition-only module as uncovered. Rationale carried from statifier_blocks (sb-p6s); see .quality.exs.",
   "skip_files": [
     "test/support/"
   ],
