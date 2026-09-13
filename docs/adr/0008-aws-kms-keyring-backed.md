@@ -1,6 +1,6 @@
 # ADR-0008: AWS KMS is the keyring-backed row, and the descriptor carries the client
 
-Status: proposed (2026-09-12)
+Status: accepted (2026-09-13)
 
 ## Context
 
@@ -59,7 +59,8 @@ A second amendment, to ADR-0002 decision 4, is named in decision 3 below. Those
 two are the whole of what this record changes in an accepted record, and both
 are extensions rather than reversals.
 
-**The index row for ADR-0002 is deliberately not edited.** ADR-0008 is
+**The index row for ADR-0002 was deliberately not edited while this record was
+proposed** (it was marked amended at ADR-0007's acceptance, 2026-09-13). ADR-0008 was
 `proposed`; an amendment does not take effect until the operator accepts it,
 and an unaccepted record flipping an accepted one's status would be this
 record flipping a status that is not its to flip. This is ADR-0007's practice

@@ -1,6 +1,6 @@
 # ADR-0007: GCP KMS is a wrap-provider, not a keyring, and it owns the tenant key's whole lifecycle
 
-Status: proposed (2026-09-12)
+Status: accepted (2026-09-13)
 
 ## Context
 
@@ -44,7 +44,8 @@ but not for *provisioning*, which ADR-0002 had no callback for at all. This
 record is an amendment to ADR-0002 decision 1 in that one respect and says
 so in those words. Nothing else in ADR-0002 is revised.
 
-**The index row for ADR-0002 is deliberately not edited.** ADR-0007 is
+**The index row for ADR-0002 was deliberately not edited while this record was
+proposed** (it was marked amended at this record's acceptance, 2026-09-13). ADR-0007 was
 `proposed`; an amendment does not take effect until the operator accepts it,
 and marking an accepted record as amended by an unaccepted one would be this
 record flipping a status that is not its to flip. Adding "amended" to
@@ -579,7 +580,7 @@ provider makes such a verb cheap is a finding of this record; what the verb is
 called, what surface it has, and whether it belongs in this package at all is
 the decision of a sibling record - an amendment to ADR-0005 adding the third
 verb, filed as `enc-8s9` and proposed in the same campaign as this one - cited
-here as proposed and not anticipated further. Nothing in decisions 1 through 8 depends on how it is settled.
+here as proposed at the time (accepted 2026-09-13) and not anticipated further. Nothing in decisions 1 through 8 depends on how it is settled.
 
 **9. The GCP client stack is optional, checked at `init/1`, mirroring the AWS
 stack exactly.**

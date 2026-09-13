@@ -56,7 +56,7 @@ defmodule Encryptor.Kdf do
 
   ## The salted tree
 
-  ADR-0003 amendment A (proposed, 2026-08-28) adds `extract/2` and one tree
+  ADR-0003 amendment A (2026-08-28, accepted 2026-09-13) adds `extract/2` and one tree
   that uses it: the derived-subkey surface a downstream consumer reaches
   through `Encryptor.Vault.derive/3`. Its output leaves this package, so it
   is salted with a per-deployment value that the consumer cannot supply, and

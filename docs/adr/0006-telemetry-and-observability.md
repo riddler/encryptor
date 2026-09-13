@@ -1,6 +1,6 @@
 # ADR-0006: Telemetry is a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it
 
-Status: proposed (2026-08-27)
+Status: accepted (2026-09-13)
 
 ## Context
 

@@ -4,14 +4,13 @@ Status: accepted (2026-08-27, amended at acceptance: the `tenant_ref/2`
 signature takes the reference subkey rather than a root vault, per
 ADR-0005 decision 5 and its open question 1)
 
-**Amendment A (2026-08-28) is proposed, not accepted.** It is appended at the
+**Amendment A (2026-08-28) is accepted (2026-09-13).** It is appended at the
 end of this record, it is additive, and it changes none of decisions 1 to 9
-below. Read the decisions as accepted and the amendment as a proposal
-awaiting the operator's acceptance reading.
+below.
 
-**Amendment B (2026-09-12) is proposed, not accepted.** It is appended after
-Amendment A, it is additive, and it changes none of decisions 1 to 9 below nor
-any of Amendment A decisions A1 to A7.
+**Amendment B (2026-09-12) is accepted (2026-09-13), together with its Note.** It is
+appended after Amendment A, it is additive, and it changes none of decisions 1
+to 9 below nor any of Amendment A decisions A1 to A7.
 
 ## Context
 
@@ -744,10 +743,10 @@ Recorded rather than guessed. Each names who should settle it.
    open question 2's cache bounds, rather than being treated as settled by
    repetition.
 
-## Amendment A (proposed, 2026-08-28): the salted derived-subkey surface
+## Amendment A (2026-08-28; accepted 2026-09-13): the salted derived-subkey surface
 
-Status: **proposed**. Nothing below is accepted; the acceptance reading is the
-operator's. The decisions above are unchanged, and this amendment only adds.
+Status: **accepted (2026-09-13)**, by the operator's reading. The decisions above
+are unchanged, and this amendment only adds.
 
 ### Why now
 
@@ -964,11 +963,10 @@ It is generated as `MyVault.derive/2` for symmetry with `encrypt/2` and
 its caller is another library. Leaving it on `Encryptor.Vault` alone would
 make that clearer. Settle with `encryptor_ecto`'s first real consumer.
 
-## Amendment B (proposed, 2026-09-12): the Argon2id slow-derivation surface
+## Amendment B (2026-09-12; accepted 2026-09-13): the Argon2id slow-derivation surface
 
-Status: **proposed**. Nothing below is accepted; the acceptance reading is the
-operator's. Decisions 1 to 9 and Amendment A's decisions A1 to A7 are
-unchanged, and this amendment only adds.
+Status: **accepted (2026-09-13)**, by the operator's reading. Decisions 1 to 9 and
+Amendment A's decisions A1 to A7 are unchanged, and this amendment only adds.
 
 ### Why now
 
@@ -1318,6 +1316,6 @@ all-defaults result before this Note, as a recording of what
 the completion path does rather than a decision; with the ruling it records a
 decided case, and its comment says so.
 
-This Note is appended to a proposed amendment and carries that amendment's
-status. Amendment B is still proposed, and the operator's acceptance reading
-covers this Note along with it.
+This Note is appended to Amendment B and carries that amendment's status.
+Amendment B was accepted on 2026-09-13, and the operator's acceptance reading
+covered this Note along with it.
