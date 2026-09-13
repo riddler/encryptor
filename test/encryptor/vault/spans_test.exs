@@ -403,6 +403,14 @@ defmodule Encryptor.Vault.SpansTest do
     # A per-event derivation produces the same string, so no handler can
     # observe it. This is the assertion that can: the three instrumented
     # paths hold one derivation site between them, in `Resolve`.
+    #
+    # The scan is deliberately textual and deliberately loose. It reads source
+    # rather than behaviour, so a comment naming `Reference.derive(` in
+    # `resolve.ex` would fail it and a second derivation reached through a
+    # re-alias would pass it. Both are accepted: the assertion exists to stop
+    # the obvious regression - an emit site growing its own derivation - and a
+    # tighter check would need AST analysis for a defect no reviewer of this
+    # module would miss (enc-qjx).
     test "one derivation per operation: the emit sites derive nothing" do
       resolve = File.read!("lib/encryptor/vault/resolve.ex")
       assert resolve |> String.split("Reference.derive(") |> length() == 2

@@ -956,3 +956,55 @@ Recorded rather than guessed. Each names who should settle it.
    run that shape yet, and the materials cache bounds it either way. Evidence
    from the first host that does is what should settle whether the guide needs
    to say anything.
+
+## Note (2026-09-13): three prose corrections
+
+Three corrections to prose, none of which changes a decision. Cites re-read by
+anchor at enc `ec6a84d`.
+
+### The "each one runs `checks/1`" sentence covers the two constructing clauses
+
+"The contract as typespecs" introduces the builder's three new clauses with
+"**Each one runs `checks/1` before it constructs**". The block below it shows
+three clauses, and the first - `build(vault, operation, %Kms{client: nil})` -
+returns `{:error, invalid(vault, operation, {:missing_client, Kms})}`
+immediately and constructs nothing, so there is nothing for it to run
+`checks/1` before.
+
+Read the sentence as **each clause that constructs a keyring runs `checks/1`
+first**, which is the two `%Kms{mrk: false}` and `%Kms{mrk: true}` clauses. The
+claim the sentence exists to make is untouched: no engine term reaches a
+caller, because every path that calls into `AwsKms.new/3` or `AwsKmsMrk.new/3`
+funnels its `{:error, detail}` through `invalid/3`, and the nil-client clause
+never reaches the engine at all. Decision 1's own discussion of the dedicated
+head clause already says the same thing from the other side - the failure
+table's row for "`checks/1` reached with a nil client" calls that term
+"unreachable through `build/3` - the dedicated head clause answers first".
+
+### The failure table's `Encryptor.Derive` is `Encryptor.Vault.Derive`
+
+The failure table's last row reads "a descriptor reaches `Encryptor.Derive`"
+(`:797`). The module is `Encryptor.Vault.Derive`
+(`lib/encryptor/vault/derive.ex:118` raises
+`{:invalid_key_descriptor, :not_derivable}` there), and this record names it
+correctly elsewhere - decision 4's "`Encryptor.Vault.Derive` refuses any
+non-`%Aes{}`" (`:570`). Read the table row as `Encryptor.Vault.Derive`. There
+is no `Encryptor.Derive` module in this package.
+
+### Open question 5's closure quotes the ADR-0004 section by a prefix of its heading
+
+The answer line under open question 5 points at
+`docs/adr/0004-encryption-context.md`, section "Amendment A (2026-09-13)". The
+heading in that file reads "Amendment A (2026-09-13; proposed): the composed
+context on a KMS-backed vault", so the quoted title is a prefix rather than the
+exact heading. The pointer resolves, and the parenthetical it quotes is the
+half that changes when the operator flips that amendment's acceptance.
+
+Read the pointer as naming the section **Amendment A** of
+`docs/adr/0004-encryption-context.md`, unadorned. Quoting the status
+parenthetical of a proposed amendment inside another record's answer line is
+what made this stale-able; the unadorned section name is stable across the
+flip.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.

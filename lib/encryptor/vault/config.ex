@@ -157,8 +157,10 @@ defmodule Encryptor.Vault.Config do
         {:error, error} -> {:error, error}
       end
 
-  Records: ADR-0001 decisions 5, 6, 8 and 9; ADR-0004 decisions 3, 4 and 9;
-  ADR-0005 decision 4.
+  Records: ADR-0001 decisions 5, 6, 8 and 9; ADR-0003 amendment A decision 3
+  and amendment B decision 4, with that record's Note of 2026-09-12;
+  ADR-0004 decisions 3, 4 and 9; ADR-0005 decision 4; ADR-0006 amendment A
+  decision 1.
   """
 
   alias Encryptor.Context
@@ -770,7 +772,11 @@ defmodule Encryptor.Vault.Config do
   # for them gets nothing rather than a guess. A `:slow_hash` declared with no
   # keys at all is a declaration like any other and completes to the record's
   # defaults - the completion path cannot distinguish it from a partial set,
-  # and amendment B rules the empty case nowhere (enc-bri).
+  # and ADR-0003's Note of 2026-09-12 rules it that way deliberately: an empty
+  # declaration is all-defaults, the same as any partial one, and the competing
+  # reading that refuses it with `{:invalid_config, :slow_hash, _}` is rejected.
+  # Amendment B itself left the case unstated (enc-bri); the Note is what
+  # settles it, and it carries that amendment's accepted status.
   #
   # Unlike `:derivation_salt` this is not a deployment-only option and is not
   # refused in `use` options: it is not secret, and it must be identical

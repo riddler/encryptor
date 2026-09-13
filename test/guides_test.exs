@@ -368,8 +368,13 @@ defmodule Encryptor.GuidesTest do
 
       {:ok, _v2} = GuideVaults.onboard(@merchant, 2)
 
-      # The vault caches resolved materials, so a fresh vault is what a new
-      # node would see. Restarting is one of the runbook's two drain levers.
+      # The restart is kept because it is what the runbook tells an operator
+      # to do: restarting a vault is one of P2's two drain levers, and this
+      # test walks P2. It is not load-bearing here - `MerchantVault` is
+      # `cache: false` (`test/support/guide_vaults.ex`, the `MerchantVault`
+      # `use` block), so there are no resolved materials to drain and the
+      # assertions below pass with or without it. A vault the guide gave a
+      # cache to would need it, and the step should read the same either way.
       stop_supervised!(MerchantVault)
       start_vault(MerchantVault)
 

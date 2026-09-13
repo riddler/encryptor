@@ -246,8 +246,9 @@ so the two bounds cross at a per-pair width of **123 bytes**:
 - above it, **`max_bytes` binds first**
 
 Confirmed at the edges: 32 pairs at realistic widths is 1,264 bytes (pair
-bound binds); 32 pairs at 64-byte keys and values is 4,130 bytes (byte bound
-binds); 2 pairs at ~2 KiB each is 4,021 bytes (byte bound binds at two pairs).
+bound binds); 32 pairs at 64-byte keys and 61-byte values is 4,130 bytes
+(byte bound binds); 2 pairs at ~2 KiB each is 4,021 bytes (byte bound
+binds at two pairs).
 
 Neither bound is redundant, which is the thing a measurement pass could have
 found wrong and did not.
@@ -289,6 +290,15 @@ every row**. Overhead is flat in payload size for both suites (261 B and
 ~523 B at 16 B, 64 B and 4 KiB alike), so at column sizes the signature more
 than doubles the stored bytes.
 
+Read the µs columns here against each other, not against section 1. The
+`0x0478` row and section 1's `max_messages: 100` row are the same vault on the
+same 64-byte column payload, and they read 16.20 µs and 11.65 µs: the suite
+table times 500 iterations late in the run (`bench/bounds.exs`, the section-4
+suite loop, read at `ec6a84d`) where section 1 times 2,000 earlier (same file,
+the `warm_us`/`loose_us`/`tight_us` batches, same SHA), and batch size and run
+order move the absolute by that much on this machine. Every conclusion in this
+document is a ratio inside one table, for that reason.
+
 `0x0578` is the engine's default and the package's default, and ADR-0001
 decision 9 makes `0x0478` the configured choice when writer and reader share a
 trust domain. That recommendation was made on a qualitative argument -
@@ -327,7 +337,8 @@ measurable, and it is now measured.
 
 **Outside this bead's four bullets.** Measured on the dispatch brief's
 direction because it is the same kind of evidence, and recorded separately
-because ADR-0003 **amendment B is proposed, not accepted**. Its B4 table sets
+because ADR-0003 **amendment B was proposed when this was measured and was
+accepted on 2026-09-13**. Its B4 table sets
 `memory_kib: 65_536`, `iterations: 3`, `parallelism: 1`
 (`lib/encryptor/vault/config.ex:191-194`, read at `75807a8`) and argues they are "deliberately
 memory-heavy rather than iteration-heavy".

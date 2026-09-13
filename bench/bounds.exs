@@ -306,7 +306,7 @@ widest_at_32 =
   end)
 
 Report.row(
-  "32 pairs x 64B key + 64B value, bytes",
+  "32 pairs x 64B key + 61B value, bytes",
   Encryptor.Context.serialized_size(widest_at_32)
 )
 
@@ -399,9 +399,16 @@ Report.row(
   Report.round2(tight_us - loose_us)
 )
 
+# A relative margin, not a bare microsecond count: 0.5 us is inside this
+# machine's run-to-run noise, so a fixed floor that small would let a
+# non-discriminating run pass. 10% of the cache-hit cost is well above the
+# noise and well below the gap a real cache shows (enc-1l5).
 Report.row(
   "  cache hits are real?",
-  if(tight_us - loose_us > 0.5, do: "yes - misses cost more", else: "NO - section invalid")
+  if(tight_us - loose_us > loose_us * 0.10,
+    do: "yes - misses cost more",
+    else: "NO - section invalid"
+  )
 )
 
 Report.row("decrypt cache: false, us", Report.round2(dec_nocache_us))

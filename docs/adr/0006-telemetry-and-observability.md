@@ -989,3 +989,143 @@ is about all of them at once, which immediately raises the question of whether
 first half permits it. It is out of this amendment's scope because it is not a
 tenant dimension and does not need the option. Whoever writes the recycler's
 events should decide it.
+
+## Note (2026-09-13): the enumerations are snapshots, the rules are the contract; open question 6 answered
+
+Five corrections to the accepted decisions and three to Amendment A, none of
+which changes a decision. Every code cite below was re-read by anchor at enc
+`ec6a84d` unless it says otherwise.
+
+### 1. Decision 5's "fourteen members" is a snapshot; the rule is the contract
+
+Decision 5 says "the error vocabulary is fourteen members" and enumerates
+fourteen. `t:Encryptor.Error.reason/0` has **fifteen** today
+(`lib/encryptor/error.ex:89-104`): `{:not_provisionable, module()}` was added
+by ADR-0007 decision 2 after this enumeration was written, and
+`Encryptor.Telemetry.reason_tag/1` ships fifteen clauses to match
+(`lib/encryptor/telemetry.ex:201-215`, on this branch).
+
+**Decision 5's rule is what binds, and it held.** The rule is that
+`reason_tag` is the head of the reason term and that the tag set "extends only
+when the error vocabulary does, which is itself an ADR-gated act". ADR-0007
+was that act, the vocabulary extended, and the tag set extended with it. Read
+the count and the code block as a snapshot of the vocabulary on the day the
+decision was written, not as a bound on it. The same reading applies to the
+"one function with fourteen clauses" sentence in "The contract as typespecs".
+
+### 2. Decision 3's "Ten names" is likewise a snapshot, and its own table says twelve
+
+Decision 3's table lists four point events and four span **pairs**. Four
+points plus eight halves is twelve names, and `Encryptor.Telemetry.events/0`
+returns twelve, pinned by a doctest
+(`lib/encryptor/telemetry.ex:111-124` for the attributes,
+`:181-182` for the pin; both on this branch). The sentence "Ten names, four of which are span
+halves' partners" undercounts: `t:Encryptor.Telemetry.span_name/0` has four
+members, so there are four partners, but eight halves.
+
+The rule decision 3 states is unaffected: the vocabulary is closed, defined
+once in `Encryptor.Telemetry`, `events/0` is the single definition site a host
+attaches against, and adding a name takes an amendment. Read "Ten names" as a
+count taken before the span pairs were fully enumerated in the same table.
+
+### 3. `[:encryptor, :cache, :recycled]` carries `duration` alone, as the worked example shows
+
+Decision 4's measurement table says `system_time` is on "every span start and
+every point event", and decision 3 classes `:recycled` as a point event. Read
+together those two say `:recycled` carries `system_time`. This record's own
+worked example shows it with `duration` and nothing else, and
+`Encryptor.Telemetry.cache_recycled/3` emits `%{duration: duration}`
+(`lib/encryptor/telemetry.ex:274-282`, on this branch).
+
+**The worked example is right and the code follows it.** `:recycled` is the
+one point event that measures an elapsed interval - the recycler times its own
+terminate-and-restart - so `duration` is the measurement it has to report, and
+a wall-clock reading adds nothing a handler cannot get from its own receipt
+time. Read the `system_time` row as "every span start, and every point event
+that has no duration of its own". Adding `system_time` to `:recycled` later
+would be additive and harmless, but it would be an amendment, not a defect
+fix, because this Note settles the reading the other way.
+
+### 4. The `:recycled` error branch has two sub-cases, and the closed tag set covers one
+
+The worked example tags the error branch `reason_tag: :vault_not_started`, and
+`cache_recycled/3` hard-codes that tag on every `{:error, _}`. But
+`Encryptor.Vault.CacheRecycler.recycle/2` reaches the error branch two ways
+(`lib/encryptor/vault/cache_recycler.ex:144-156`): `terminate_child/2`
+returning `{:error, :not_found}`, which genuinely is a cache child that was
+not there to drop; and `terminate_child/2` succeeding and `restart_child/2`
+then returning `{:error, :running | :restarting | term}`, which is not a
+not-started vault at all.
+
+This Note **records the gap and does not close it.** A second tag is a new
+member of a closed vocabulary, and decision 5 makes that an ADR-gated act: if
+one is wanted, it is an Amendment to this record and to
+`t:Encryptor.Error.reason/0`, not a Note. Until then, read
+`reason_tag: :vault_not_started` on `:recycled` as "the recycle did not
+complete", with the sub-case in the supervisor's own return to the caller,
+which `recycle/2` passes through unchanged.
+
+### 5. Open question 6 is answered: `:start_refused` is reachable in the case it is for
+
+Open question 6 asks whether `[:encryptor, :vault, :start_refused]` is
+reachable "in the case it is for", given that configuration resolves inside
+`Supervisor.start_link/2` before any process exists
+(`lib/encryptor/vault/supervisor.ex:34-42`) and a vault is typically started
+from the host's application supervisor, before the host's handlers attach.
+
+**It is reachable, and the case it is for is a vault started after the host's
+handlers are attached.** That is not a corner: a host that starts a tenant
+vault on demand, restarts one after a configuration change, or starts one from
+a test setup is in it, and those are exactly the starts whose refusals an
+operator has no other signal for. The open question's own second half - "It
+still fires usefully for a vault started later, or in a host that attaches
+handlers first" - is the answer; what it lacked was a decision that this is
+enough to keep the event. It is. The event stays, and hosts that want to catch
+boot-time refusals attach before their vault's supervisor starts.
+
+### 6. Amendment A's A1 refuses `true`, not the option
+
+A1 says "A `:single` vault that declares it is refused at `Config.resolve/4`".
+The implementation refuses only `telemetry_tenant_ref: true` on a `:single`
+vault; `telemetry_tenant_ref: false` declared explicitly on a `:single` vault
+is accepted, and so it should be - it asks for the default
+(`lib/encryptor/vault/config.ex:646-657`, on this branch). Read A1's sentence as **a `:single`
+vault that sets the option to `true` is refused**. A non-boolean is refused on
+either profile, which A1 already says separately and which the same clause
+implements.
+
+### 7. Amendment A's A3 ordering rule is conditional on a resolution that succeeded
+
+A3 states that the `:start` half "is emitted **after** selector resolution".
+It does not say whether a *refused* resolution counts, and as written the
+ordering rule reads unconditionally. The paragraph above it already settles
+the substance - on an `{:invalid_selector, other}` refusal "the span halves
+still fire exactly as decision 3 and decision 9 say, and they **omit**
+`tenant_ref`" - so the two are only in tension about wording.
+
+Read A3's ordering rule as: **the `:start` half is emitted after selector
+resolution has been attempted, and carries `tenant_ref` only when that
+resolution succeeded.** Both halves fire either way; a refusal produces a span
+pair with no `tenant_ref` and `reason_tag: :invalid_selector` on the stop half,
+which is what A3's own disambiguator sentence assumes.
+
+### 8. The acceptance flip's fourth site takes composed prose, not a substitution
+
+A6 lists four sites the operator's acceptance flip touches: the pointer under
+this record's `Status` line, Amendment A's heading, its `Status` line, and the
+answer line under open question 4. The first three are word substitutions. The
+fourth is not: that line reads "*Answered by Amendment A (2026-09-13;
+proposed): yes - opt-in and keyed. ...*", and the parenthetical is load-bearing
+prose rather than a status token - the sentence exists to say the question is
+answered *by a proposed amendment*, which is the thing that stops being true
+at the flip.
+
+At the flip, that line is **composed**, not substituted. The shape ADR-0004
+uses for the same job is the model: the answer line drops the proposed-ness
+and states the resolution as the record's own, dated to the acceptance. A
+find-and-replace of "proposed" with "accepted" would leave a sentence whose
+grammar still hedges.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, no event name is added or removed, and this Note carries the record's
+status rather than one of its own.

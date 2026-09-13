@@ -884,3 +884,59 @@ Recorded rather than guessed. Each names who should settle it.
    `destroy/2` function, by the same argument ADR-0005 decision 10 used
    against `shred/2` - is the neighbourhood of the suspend amendment
    (`enc-8s9`) and is named here so it is not lost.
+
+## Note (2026-09-13): one decision-3 wording, and two cites
+
+Three corrections, none of which changes a decision. Every cite below was
+re-read by anchor at enc `ec6a84d`.
+
+### Decision 3's "and algorithm" has no option behind it, and the option block is the contract
+
+Decision 3 says the `CreateCryptoKey` call takes "protection level and
+algorithm from `init/1` options, defaulted to `SOFTWARE` and the GCP default
+symmetric algorithm, with `HSM` a configuration change and not a code change"
+(`:262-264`). The record's own `init/1` option block (`:743-762`) lists
+`protection_level:` and no `:algorithm`, and the implementation exposes none:
+`Encryptor.Provider.GcpKms` validates `:protection_level` alone
+(`lib/encryptor/provider/gcp_kms.ex:540-546`) and the create call sends
+`%{"purpose" => "ENCRYPT_DECRYPT", "versionTemplate" => %{"protectionLevel" =>
+...}}` with no algorithm field
+(`lib/encryptor/provider/gcp_kms/api.ex:51-62`), so GCP applies its default
+symmetric algorithm.
+
+**The option block is the contract, and the implementation is right.** Read
+decision 3's phrase as "protection level from `init/1` options; the algorithm
+is GCP's default symmetric algorithm and is not configurable here". The rest
+of the sentence stands unchanged: `HSM` is the configuration change it
+describes, and it is reached through `protection_level:`. Only the symmetric
+algorithm is affected, and decision 1 already fixes this provider to symmetric
+wrap and unwrap, so there is nothing an `:algorithm` option could usefully
+select today. Adding one is a decision and therefore an amendment, not this
+Note.
+
+### Decision 6's ADR-0003 quote gains the cite its neighbours carry
+
+Decision 6's concurrency paragraph quotes ADR-0003 decision 8 by name - "a
+race between two requests can mint two keys for one tenant" (`:481-482`) -
+with no `file:line` and no read-at SHA, while every other quote in that cure
+carries both. The quote is faithful. It resolves at
+`docs/adr/0003-per-tenant-envelope.md:321-322`, read at enc `ec6a84d`; the
+sentence it is drawn from is decision 8's, which begins at `:314` of that
+file.
+
+### Decision 6's `WrappedKey` cite is re-pointed at the text that states the claim
+
+Decision 6 cites `lib/encryptor/envelope/wrapped_key.ex:72-83` for the claim
+that `WrappedKey` "carries the assumption that `wrapped` is an engine message
+produced by a root vault" (`:455-458`). Those lines are the `@type t` block
+and `@enforce_keys`; they state the shape, not the assumption. The sentence
+that states it is in the moduledoc: "`:wrapped` - the wrapping. A complete
+`Encryptor` message produced by a root vault (decision 2), so this package
+defines no wire format of its own" (`wrapped_key.ex:25-28`, read at enc
+`ec6a84d`). Read the cite as `wrapped_key.ex:25-28` for the assumption and
+`:72-83` for the struct the assumption is attached to; both ranges still
+resolve, and the `c85d400` the decision labels them with was correct for the
+struct block when it was written.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
