@@ -474,7 +474,7 @@ config :my_app, MyApp.MerchantVault,
   context_profile: :tenant,
   algorithm_suite_id: 0x0478,
   required_context: ["table", "column"],
-  cache: [max_age: 60]
+  cache: false
 ```
 
 `:reference_subkey` is key material, so it comes through `init/1` like every

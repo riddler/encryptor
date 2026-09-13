@@ -12,10 +12,3 @@
   times a second on the measured machine; `10_000` amortizes that where a
   cache miss is a network call, and stays five orders of magnitude below the
   engine's own 2^32 ceiling (ADR-0001 amendment A, A1 to A4).
-- The materials cache sits in front of the CMM, not in front of the provider,
-  so a hit saves a data-key generation and the keyring's wrap and nothing the
-  provider does. `Encryptor.Vault.Config`'s documentation and the getting
-  started guide now recommend `cache: false` for every provider whose cost is
-  on the resolve path - `Static`, `Function`, `GcpKms` - and a bounded cache
-  only for the keyring-backed `Encryptor.Provider.Kms` (ADR-0001 amendment A,
-  A5).
