@@ -10,6 +10,62 @@ fragment in [`changelog.d/`](changelog.d/README.md); the fragments are assembled
 into a version section at release. See that README for the format and for when a
 change warrants an entry at all.
 
+## [0.3.0] - 2026-09-12
+
+### Added
+
+- `Encryptor.Provider.Kms` answers a selector with an AWS KMS key, so a vault
+  can encrypt under keys AWS holds and never exports: the data key is
+  generated inside KMS, nothing is stored, and no call site changes.
+- `Encryptor.Key.Kms` descriptors build the engine's `AwsKms` and `AwsKmsMrk`
+  keyrings, which is the mapping that was reserved when the descriptor set was
+  closed; a candidate list may hold both descriptor shapes at once, so a
+  tenant moves from raw keys to KMS as an ordinary rotation window.
+- `Encryptor.Key.Kms` carries the KMS client its keyring is built from, on a
+  new `:client` field that defaults to `nil` and is redacted from `inspect/2`.
+  A descriptor that reaches the vault without one is
+  `{:invalid_key_descriptor, {:missing_client, Encryptor.Key.Kms}}`.
+- `Encryptor.Kdf.slow_hash/3` hashes a value with Argon2id and returns 32 raw
+  bytes, so a downstream blind index over low-entropy plaintext can be
+  pre-hashed before it is keyed.
+- Vaults take an optional `:slow_hash` parameter set - `:memory_kib`,
+  `:iterations`, `:parallelism`, defaulting to 64 MiB, 3 and 1 - readable
+  through `config/0`, so the cost is one operator decision rather than one per
+  call site.
+- `:argon2_elixir` is an optional dependency: a host whose vaults declare no
+  `:slow_hash` carries no NIF, and one that declares it without the dependency
+  refuses to start with `{:missing_optional_dependency, :argon2_elixir}`.
+- `Encryptor.Provider.GcpKms` wraps a tenant's master key through GCP Cloud
+  KMS, so a host can run per-tenant keys against GCP with no engine change and
+  byte-compatible application ciphertext.
+- `c:Encryptor.Provider.provision/2`, an optional callback, and
+  `MyApp.Vault.provision/1`, which creates a selector's key material through
+  the vault's provider and returns the row a store needs.
+- `Encryptor.Vault.suspend/2` and `Encryptor.Vault.reinstate/2` make a
+  selector's data unreadable and intact - every entry point answers
+  `{:key_unavailable, selector}` while the key store keeps its rows - so
+  offboarding a tenant provisionally no longer means running the irreversible
+  crypto-shred. The refusal is immediate on a warm cache, node-local, and
+  lost when the vault restarts.
+
+### Changed
+
+- Dropping a key from what a provider answers is a crypto-shred only on the
+  raw-material path. On the KMS path the key material is in AWS, so the shred
+  is `ScheduleKeyDeletion` on the key and is not complete until the pending
+  window elapses; `Encryptor.Provider.Kms` carries the per-shape table.
+- The shared conformance suite reads a candidate's version identity per shape
+  - the name on a raw-AES descriptor, the key ARN on a KMS one - and expects
+  the keyring that shape maps to. Every raw-AES provider passes it unchanged;
+  `assert_distinct_names/1` keeps its name.
+- A KMS-backed vault has no two-level envelope, so `derive/3` refuses its
+  descriptors with `{:invalid_key_descriptor, :not_derivable}` and
+  `provision/2` answers `{:not_provisionable, Encryptor.Provider.Kms}`.
+- The AWS client stack stays the host's: `Encryptor.Provider.Kms` declares no
+  AWS dependency, and a vault configured with `:region` but without
+  `:ex_aws_kms` refuses to start with
+  `{:missing_optional_dependency, :ex_aws_kms}`.
+
 ## [0.2.0] - 2026-08-28
 
 ### Added
