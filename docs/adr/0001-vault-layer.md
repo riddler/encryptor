@@ -630,8 +630,8 @@ decisions are lettered `A1` to `A5`, under the house convention this repo's
 other records use for lettered amendments; a reference from outside this
 section should be spelled "Amendment A's A2".
 
-Every code and document line cited below was read at `5c0652b`, the tip of
-`origin/main` when this amendment was written.
+Every code and document line cited below was read at `6f4b55d`, the tip of
+`origin/main` when this amendment was last re-anchored.
 
 ### Why now
 
@@ -661,7 +661,7 @@ Scope, from the campaign ruling that scheduled this record (RQ-SF043-3a, the
 SF043 walk, 2026-09-13): **this amendment revises the shipped bound defaults
 and records a recommended posture; it does not flip the `cache:` default,
 which is already `false`.** `Encryptor.Vault.Config.defaults/0` returns
-`cache: false` (`lib/encryptor/vault/config.ex:274-283`, the entry at `:276`),
+`cache: false` (`lib/encryptor/vault/config.ex:281-291`, the entry at `:283`),
 exactly as decision 6's first sentence says. The opt-in stands. What was wrong
 was the description of the bounds, and the silence about when the cache is
 worth opting into at all.
@@ -726,8 +726,8 @@ changes no shipped number.
 
 ### A2. The default `max_messages` rises from `100` to `10_000`
 
-`@default_max_messages 100` (`lib/encryptor/vault/config.ex:168`, applied at
-`:562`) becomes `10_000`. This is a **breaking change to a shipped default**,
+`@default_max_messages 100` (`lib/encryptor/vault/config.ex:173`, applied at
+`:572`) becomes `10_000`. This is a **breaking change to a shipped default**,
 and the code half ships it as one.
 
 The argument is A5's, run backwards. The materials cache is worth turning on
@@ -741,20 +741,25 @@ measured rate asks KMS for fresh material roughly 858 times a second. At
 That envelope is why a hundredfold raise is still conservative:
 
 - The engine's own default and the specification's maximum are both 2^32
-  (`:222-223`). `10_000` is still roughly five orders of magnitude below the
+  (`docs/adr/0001-vault-layer.md:222-223`). `10_000` is still roughly five
+  orders of magnitude below the
   ceiling decision 6 refused to inherit, so the principle it was protecting -
   do not inherit a ceiling as a default - is untouched.
 - Relaxing the bound is measurably not a performance lever on the cheap path:
-  a thousandfold raise buys 0.25 µs of 11.65 (`:104-105`). Nobody should read
+  the measurement's ten-thousandfold raise, `max_messages: 100` against
+  `1_000_000`, buys 0.25 µs of 11.65
+  (`docs/measurements/260912-enc-anz-stated-bounds.md:104-105`, which words it
+  as a thousandfold). Nobody should read
   A2 as a speed change on a raw-AES vault. On that vault, A5 says turn the
   cache off entirely.
-- It does not lengthen a crypto-shred. The shred and the suspend are bounded
-  by the deny check ahead of the cache and by the cache drain, not by a
-  message count: `lib/encryptor/vault/resolve.ex:100-102` records that "every
-  path resolves before it builds a caching CMM, so the deny is ahead of the
-  materials cache and the very next call fails, warm cache or cold", and
-  ADR-0005's destructive procedures drain the caches explicitly. `max_age` and
-  `recycle_after` are the shred-latency bounds, and A2 moves neither.
+- It does not lengthen a crypto-shred or a suspend, because neither is bounded
+  by a message count. A suspension is immediate because the deny runs ahead of
+  the cache: `lib/encryptor/vault/resolve.ex:100-102` records that "every path
+  resolves before it builds a caching CMM, so the deny is ahead of the
+  materials cache and the very next call fails, warm cache or cold". The shred
+  is the opposite case, and the same comment says so - its P3 must drain the
+  caches before a running node stops serving a tenant. `max_age`, the drain,
+  and `recycle_after` are the shred-latency bounds, and A2 moves none of them.
 
 A host that wants the old behaviour writes `max_messages: 100` explicitly. The
 option is unchanged, the validation is unchanged, and the error vocabulary is
@@ -762,7 +767,7 @@ unchanged.
 
 ### A3. `max_bytes` stays `1_073_741_824`, and its crossover is documented
 
-`@default_max_bytes` (`lib/encryptor/vault/config.ex:169`, applied at `:563`)
+`@default_max_bytes` (`lib/encryptor/vault/config.ex:174`, applied at `:573`)
 is unchanged. Lowering it would invent a second binding bound the measurement
 did not ask for, and raising it would remove the only protection a
 large-payload host has.
@@ -777,8 +782,8 @@ bound again rather than decoration.
 
 ### A4. `recycle_after: 20 * max_age` stands
 
-`@recycle_after_multiplier 20` (`lib/encryptor/vault/config.ex:170`, applied
-at `:564`) is unchanged, and this amendment records why rather than leaving it
+`@recycle_after_multiplier 20` (`lib/encryptor/vault/config.ex:175`, applied
+at `:574`) is unchanged, and this amendment records why rather than leaving it
 an implication of silence. Section 2 measured a live cache entry at 1,237 ETS
 bytes and found that what `recycle_after` bounds is the number of *distinct*
 `(tenant, context)` pairs touched in one window, not a rate: 500 tenants
@@ -795,8 +800,11 @@ The fact that decides every row: **the materials cache sits in front of the
 CMM, not in front of the provider.** Decision 2 above has encrypt and decrypt
 "build the engine's keyring, CMM, and `Client` structs per call" (`:106-109`),
 so the provider is asked for a descriptor before there is a CMM to consult,
-and `Encryptor.Vault.Encrypt` wraps `Cmm.Default` in `Cmm.Caching` only at the
-outermost step (`lib/encryptor/vault/encrypt.ex:160-172`). The measurement
+and `Encryptor.Vault.Encrypt` then wraps the `Default` CMM in `Cmm.Caching` -
+outside the keyring, inside the required-context CMM - in a pipeline that runs
+once the descriptor is already in hand
+(`lib/encryptor/vault/encrypt.ex:162-164`, with `maybe_caching/3` itself at
+`:184-194`). The measurement
 confirms it empirically: 500 encrypts on one warm partition, cache on,
 produced 500 provider closure calls (`:107-123`).
 
@@ -813,10 +821,10 @@ of a material-source adapter is on the resolve path, in front of it.
 
 | Provider | Shape (ADR-0002 d5) | What a cache hit saves | What it cannot save | Recommended posture |
 |---|---|---|---|---|
-| `Encryptor.Provider.Static` | material-source, key in frozen state | a local AES-KW wrap | nothing left to save; resolve is a lookup | **`cache: false`** - measured net cost: +2.72 µs/encrypt (~30%), +1.61 µs/decrypt (~20%) |
+| `Encryptor.Provider.Static` | material-source, key in frozen state | a local AES-KW wrap | nothing left to save; resolve is a lookup | **`cache: false`** - measured net cost: +2.72 µs/encrypt (~30%), +1.62 µs/decrypt (~20%) |
 | `Encryptor.Provider.Function`, resolving in memory | material-source | a local AES-KW wrap | nothing left to save | **`cache: false`** - the same measurement; this closure is what section 1 ran |
 | `Encryptor.Provider.Function`, resolving over I/O | material-source | a local AES-KW wrap | **the host's round trip, paid on every call** | **`cache: false`**; see the note below on where that round trip is amortized |
-| `Encryptor.Provider.GcpKms` (ADR-0007, a wrap-provider) | material-source | a local AES-KW wrap | **the GCP `Decrypt` unwrap, paid on every call** | **`cache: false`**, for the same reason |
+| `Encryptor.Provider.GcpKms` (ADR-0007, a wrap-provider) | material-source | a local AES-KW wrap | **the GCP `Decrypt` unwrap, paid on every call** | **`cache: false`**, for the same reason. Note that ADR-0007's operation-cost argument (`docs/adr/0007-gcp-kms-wrap-provider.md:627-632`, repeated at `:815-816`) rests on the round-trip claim A5 revises, and is contradicted by this row; it needs the amendment named below. |
 | `Encryptor.Provider.Kms` (ADR-0008) | keyring-backed | **the KMS `GenerateDataKey` / `Decrypt` network call**, because the wrap happens inside the keyring the CMM calls (`lib/encryptor/vault/keyring.ex:85-109`) | - | **`cache: [max_age: <threat model>, ...]`** - the case the materials cache exists for |
 
 Three consequences, because they are what a reader will otherwise get wrong:
@@ -826,7 +834,7 @@ Three consequences, because they are what a reader will otherwise get wrong:
    the materials cache as one that reads a map, because its cost is on the
    resolve path and the resolve path runs first.
 2. **A material-source adapter that wants its round trips collapsed caches
-   them itself, under ADR-0002's rule, not this one.** Decision 1's last
+   them itself, under ADR-0002's rule, not this one.** Decision 2's last
    bullet there already permits it and already constrains it: "A provider that
    caches anyway must bound it and document the bound"
    (`docs/adr/0002-key-providers.md:130-136`). A5 does not loosen that; it
@@ -847,7 +855,7 @@ below.
 `enc-d3u`, and nothing else this amendment implies:
 
 1. `@default_max_messages`, `100` -> `10_000`
-   (`lib/encryptor/vault/config.ex:168`), carrying a breaking changelog entry.
+   (`lib/encryptor/vault/config.ex:173`), carrying a breaking changelog entry.
 2. The `:cache` paragraph of `Encryptor.Vault.Config`'s moduledoc (`:90-92`),
    restated for A1 to A3: the new default, `max_messages` as the binding
    bound, `max_age` as the required backstop, the ~107 KB crossover.
@@ -855,20 +863,24 @@ below.
    stated defaults at `:170-171`), restated for A5, so the guide recommends
    `cache: false` outside the keyring-backed row instead of presenting the
    cache as a default good.
-4. `@default_max_bytes` (`:169`) and `@recycle_after_multiplier` (`:170`) are
-   **not** touched, and neither is `defaults/0`'s `cache: false` (`:276`).
+4. `@default_max_bytes` (`config.ex:174`) and `@recycle_after_multiplier`
+   (`config.ex:175`) are **not** touched, and neither is `defaults/0`'s
+   `cache: false` (`config.ex:283`).
 
 ### What this leaves open
 
 1. **Open question 2 above (`:589-592`) is answered** by A1 to A3. It is left
    standing rather than rewritten, because an amendment appends; striking it
    belongs to the acceptance flip, which is the operator's.
-2. **ADR-0002 decision 2's round-trip sentence is wrong in one record and two
+2. **ADR-0002 decision 2's round-trip sentence is wrong in two records and two
    documents, and this amendment fixes none of them.**
    `docs/adr/0002-key-providers.md:130-132`,
+   `docs/adr/0007-gcp-kms-wrap-provider.md:627-632` and `:815-816`,
    `lib/encryptor/provider/gcp_kms.ex:293-295`, and
    `guides/getting-started.md:351-353` each say the materials cache collapses
-   provider resolutions, which A5 shows it cannot.
+   provider resolutions, which A5 shows it cannot. ADR-0007's is the
+   load-bearing one: its per-operation GCP cost is argued from that claim, so
+   the ADR-0002 amendment has to carry an ADR-0007 amendment with it.
    `lib/encryptor/vault/encrypt.ex:59-84` already records the tension and
    correctly refuses to resolve it from code. That is an ADR-0002 amendment
    plus the doc edits that follow it, and it is out of this record's scope.
