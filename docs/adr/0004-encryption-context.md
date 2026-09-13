@@ -1006,11 +1006,12 @@ are inherited; the rest are opened by this record.
    harder to adopt incrementally. Worth revisiting after the first host
    configures one.
 
-## Amendment A (2026-09-13; proposed): the composed context on a KMS-backed vault
+## Amendment A (2026-09-13; accepted 2026-09-13): the composed context on a KMS-backed vault
 
-Status: **proposed**. This amendment only adds. Decisions 1 to 12 and the two
-acceptance amendments at the top of this record are unchanged, and nothing
-below reverses, narrows, or re-words any of them.
+Status: **accepted (2026-09-13)**, by the operator's reading. This amendment
+only adds. Decisions 1 to 12 and the two acceptance amendments at the top of
+this record are unchanged, and nothing below reverses, narrows, or re-words
+any of them.
 
 A note on labels, because this record already uses the letter. The assumption
 review of `encryptor_ecto` ADR-0001 above numbers its rows A1 to A7 (the table
@@ -1236,3 +1237,88 @@ keyring is doing the work would be taking the wrong lesson from it.
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-13): Amendment A accepted; A5 discharged, and where its cites resolve today
+
+The operator accepted Amendment A on 2026-09-13. This Note records that
+acceptance, records that A5's obligation has since been met, and re-locates
+the amendment's cites against `main` at `6acefff`. It changes no decision:
+decisions 1 to 12, the two acceptance amendments at the top, and A1 to A5
+stand exactly as written, and it carries the record's status rather than one
+of its own.
+
+### 1. What the flip touched
+
+Two sites: this amendment's heading and its `Status` line. Unlike ADR-0003 and
+ADR-0005, this record carries no per-amendment pointer paragraph under its own
+`Status` line to flip - its top line has read "accepted (2026-08-27, with
+amendments)" since acceptance - and the ADR index and README rows have marked
+it amended since then too. Nothing else in the record's words changed.
+
+No sentence in Amendment A's body names its own proposed status, so there is
+none to meet here.
+
+### 2. A5 is discharged
+
+A5 states an obligation and says so: "the module carries no such sentence
+today (`lib/encryptor/provider/kms.ex`, read at `2a84a04`; `CloudTrail`
+appears nowhere in `lib/`), and writing it is the whole of this amendment's
+code half, `enc-8nr`". That sentence is anchored to `2a84a04` and was true
+there. It is no longer the state of the tree, because the obligation was met:
+`Encryptor.Provider.Kms`'s moduledoc now carries the section "What KMS sees,
+and what CloudTrail records" (`lib/encryptor/provider/kms.ex:70-86`, read at
+`6acefff`), which states that the vault's composed context is sent on
+`GenerateDataKey`, `Encrypt` and `Decrypt` and recorded unencrypted in
+CloudTrail, names ADR-0004 decision 2 as the list and decision 7 as the rule
+that keeps per-row values out of it, and adds no option, function or
+configuration key. Read A5's "today" as the state at `2a84a04`, and A5 itself
+as met.
+
+### 3. Where Amendment A's cites resolve at `6acefff`
+
+Amendment A labels its cites `read at 2a84a04`, and ADR-0006 Amendment A's
+implementation has moved two of them since. Every cite below was re-read by
+anchor at `6acefff`. **Every claim holds**; what follows is re-location, not
+correction.
+
+| Cited in Amendment A | Resolves at `6acefff` |
+|---|---|
+| `lib/encryptor/vault/resolve.ex:198`, `Resolve.context/5` (the per-path table, and A-1) | `lib/encryptor/vault/resolve.ex:248` |
+| `lib/encryptor/vault/resolve.ex:214`, `tenant_ref` from `Resolve.vault_supplied/2` | the derivation is `Resolve.reference/2` (`lib/encryptor/vault/resolve.ex:206-209`) and `vault_supplied/1` (`:263-267`) receives the derived string; the arity changed when ADR-0006 Amendment A's A3 fixed one derivation per operation. What the table asserts - that the vault supplies `tenant_ref` into the composed context - is unchanged |
+| `lib/encryptor/provider/gcp_kms.ex:396-401`, `:344-346`, `:472-474` | unchanged, at those anchors |
+| `lib/encryptor/provider/kms.ex` and `lib/encryptor/key/kms.ex` carry no context argument | still true: neither module takes or forwards an encryption context, which is A2's "no such seam" |
+| `aws_encryption_sdk` v1.0.0 `keyring/aws_kms.ex:266`, `:291`, `:400`; `cmm/default.ex:119-121`, `:154-156`; `client.ex:368-370`, `:431-433` | the dependency is version-pinned, so these are unmoved |
+| this record's own `:717-724`, `:727-739`, `:822`, `:831-837` | unchanged, at those anchors |
+| `docs/adr/0008-aws-kms-keyring-backed.md:931-939` and `:610-614`; `docs/adr/0005-rotation-and-crypto-shred.md:894-901` | unchanged, at those anchors |
+
+### 4. ADR-0008 open question 5's answer line still reads proposed
+
+This amendment's consequences say "ADR-0008 open question 5 is closed by A1".
+That record already carries an answer line saying so, and the line is labelled
+with this amendment's pre-acceptance status: "*Answered (2026-09-13, proposed):
+no. ADR-0004 Amendment A [...] Merged at proposed*"
+(`docs/adr/0008-aws-kms-keyring-backed.md:940-948`, read at `6acefff`, under
+question 5 at `:931-939`). With the acceptance the closure is no longer
+provisional, so that line and its "Merged at proposed" clause want flipping,
+and so does the heading ADR-0008's own Note quotes at `:998`. That Note
+(`:994-1007`) already anticipates it, recording that "the parenthetical it
+quotes is the half that changes when the operator flips that amendment's
+acceptance" and directing a reader to the unadorned section name instead.
+Both edits belong to ADR-0008 and not to this flip. Recorded here so the
+pending edit is not lost between the two records.
+
+### 5. A-1 stays open
+
+The open question this amendment added - whether the reserved `encryptor-*`
+pairs deserve their own sentence in the disclosure - is not settled by the
+acceptance. It stays open, with ADR-0005 open question 7, for whoever writes
+the security section.
+
+### 6. What the pass-1 direction review corrected in this Note
+
+The cold direction review of this flip found section 4 wrong: it said ADR-0008
+carried no answer line under open question 5, when that record carries one
+labelled proposed and a Note subsection anticipating this very flip. Section 4
+above is corrected, and the deferral it makes - that the edit is ADR-0008's -
+is unchanged, because what is owed there is a flip of an existing line rather
+than the writing of a new one.
