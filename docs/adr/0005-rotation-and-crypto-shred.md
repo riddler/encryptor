@@ -900,6 +900,10 @@ that this record deliberately did not make itself.
    half a control. Owner: whoever writes the security section of the
    documentation, with ADR-0001 open question 2's unmeasured cache bounds.
 
+   *The security section is written, as a foot Note on this record dated
+   2026-09-13; it answers ADR-0004 Amendment A's open question A-1 and leaves
+   this question's cadence subject open.*
+
 ## Amendment A (2026-09-12; accepted 2026-09-13): suspend, the third verb
 
 Status: **accepted (2026-09-13)**, by the operator's reading. This amendment only adds: it reverses and rewrites nothing in
@@ -1392,3 +1396,101 @@ where that guidance would land.
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
 
+
+## Note (2026-09-13): the security section, and the reserved `encryptor-*` pairs in the KMS disclosure
+
+This is the section that ADR-0004 Amendment A's open question A-1 and this
+record's open question 7 both name as their owner - "whoever writes the
+security section of the documentation" (A-1 at
+`docs/adr/0004-encryption-context.md:1183-1194`; open question 7 at `:894-901`
+above). It answers A-1, and it answers nothing else. Open question 7's own
+subject is rotation cadence guidance, and the Note above it leaves that open:
+this record still gives no numbers and no default.
+
+**A-1's answer: yes, the reserved pairs get their own sentence, and it is this
+one.** A-1 asked whether the package-owned pairs a host did not write deserve
+naming separately from A5's host-facing list. They do, because the reason a
+host reads A5 - that granting CloudTrail read grants the context - applies to a
+layer the host cannot see in its own configuration.
+
+### What the pairs are
+
+ADR-0003 decision 4 fixes a package-owned encryption context on the
+tenant-key-wrap path, set by `provision/3` and reproduced and required by
+`unwrap/2`, and its own block writes four pairs - `encryptor-purpose`,
+`encryptor-tenant-ref`, `encryptor-key-version` and `encryptor-key-namespace`
+(`docs/adr/0003-per-tenant-envelope.md:194-201`). Decision 4 commits to the
+binding being package-owned and to those four facts being in it, and defers
+the spellings, leaving "whether these exact key names are the canonical
+vocabulary" to the context record (`:224-226`); ADR-0004 answers that it does
+ratify, without restating the names
+(`docs/adr/0004-encryption-context.md:45-48`). The
+spellings as shipped are `Encryptor.Envelope.binding/3`'s
+(`lib/encryptor/envelope.ex:582-589`, read at enc `2e6eaed`), and the wrapping
+they bind is "an ordinary `Encryptor` message produced by a root vault"
+(ADR-0003 decision 2, `docs/adr/0003-per-tenant-envelope.md:124-126`).
+
+### Where they travel
+
+They are the `reserved` layer, the top of the four that
+`Encryptor.Vault.Resolve.context/5` composes
+(`lib/encryptor/vault/resolve.ex:248`, its doc comment on the layer at
+`:233-240`, read at enc `2e6eaed`). It is a positional argument rather than an
+option: "Nothing on the public vault surface passes it; only the envelope
+does" (`resolve.ex:239-240`). The two call sites that supply one are
+`Vault.Encrypt` (`lib/encryptor/vault/encrypt.ex:144`) and `Vault.Decrypt`
+(`lib/encryptor/vault/decrypt.ex:154`). Composed, it is part of what A5 calls
+"the vault's composed encryption context", and A5's disclosure therefore covers
+it: on a KMS-backed vault that context is sent to the AWS KMS API on
+`GenerateDataKey`, `Encrypt` and `Decrypt` and is recorded unencrypted in
+CloudTrail (A5 at `docs/adr/0004-encryption-context.md:1150-1166`; the
+discharged moduledoc section is `lib/encryptor/provider/kms.ex:70-86`, read at
+enc `2e6eaed`). So the vault whose CloudTrail carries these four pairs is the
+root vault, when the root vault is the KMS-backed one. Amendment A's own
+consequence excludes the other wrap path: "Nothing here applies to the GCP wrap
+path" (`:1179-1181`), whose third-party AAD is the provider's own three fields.
+
+A-1 cites the composition as `resolve.ex:198`. Amendment A's acceptance Note
+already re-located that cite to `:248` at `6acefff`, and it is still `:248` at
+`2e6eaed`.
+
+### What a CloudTrail reader sees
+
+The four key names and their four values, alongside whatever ADR-0004
+decision 2's table and the host's own configuration contribute: the constant
+`"tenant-key-wrap"`, the `tenant_ref`, the key version as a decimal string,
+and the namespace
+(one value per tenant vault, configured, defaulting to `"encryptor-tenant"`,
+ADR-0003 decision 5). That is the whole of what this layer adds.
+
+### What it does not see
+
+**No plaintext and no key material.** An encryption context is binding
+material, not a payload, and none of the four values is key material or a
+column value. ADR-0004 decision 7 is the rule that keeps anything varying per
+row out of the context in the first place (`:369`), and these four vary per
+tenant and per version rather than per row.
+
+**Not which tenant.** ADR-0003 decision 5 makes `tenant_ref` a keyed
+derivation under a subkey of the root rather than a hash of the identifier,
+precisely so that it is "unguessable without the root key, so a header
+discloses that two ciphertexts belong to the same tenant without disclosing
+which tenant that is". A CloudTrail reader holding no root key is in that same
+position, with the same stability consequence decision 5 already states for a
+header: the reference is stable, so one tenant's operations are linkable to
+each other, and the version is legible as the pair's value. Neither property is
+new here; what is new is that they are now stated for the audit log as well as
+for the message.
+
+### What this Note does not do
+
+It states no obligation. A5's obligation was discharged before this Note was
+written, and this Note asks for no sentence to be added to
+`Encryptor.Provider.Kms` - A5's sentence is about the host-facing list, and this
+Note is about the package-owned layer beneath it. It adds no option, no
+function, no configuration key and no error term, and it writes no guide: a
+guide waits for a reader who asks for one. Being documentation, it takes no
+changelog fragment (`changelog.d/README.md:33`).
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
