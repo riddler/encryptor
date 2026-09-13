@@ -331,7 +331,7 @@ good one, because the record is what makes it reviewable.
 
 | Record | Decides | Status |
 |---|---|---|
-| [ADR-0001](https://github.com/riddler/encryptor/blob/main/docs/adr/0001-vault-layer.md) | The vault layer: one host-owned module that wraps the engine completely, what it supervises, how it is configured, how its cache is bounded, and its error vocabulary | accepted |
+| [ADR-0001](https://github.com/riddler/encryptor/blob/main/docs/adr/0001-vault-layer.md) | The vault layer: one host-owned module that wraps the engine completely, what it supervises, how it is configured, how its cache is bounded, and its error vocabulary | accepted, amended |
 | [ADR-0002](https://github.com/riddler/encryptor/blob/main/docs/adr/0002-key-providers.md) | The key-provider behaviour: a provider resolves a selector to a key descriptor, and only the vault turns a descriptor into a keyring | accepted, amended |
 | [ADR-0003](https://github.com/riddler/encryptor/blob/main/docs/adr/0003-per-tenant-envelope.md) | The per-tenant envelope: a tenant key is 32 random bytes wrapped into an ordinary message, and the host stores the wrapping | accepted, amended |
 | [ADR-0004](https://github.com/riddler/encryptor/blob/main/docs/adr/0004-encryption-context.md) | The encryption-context convention: the canonical keys, who supplies each, and how a vault enforces them | accepted, amended |
