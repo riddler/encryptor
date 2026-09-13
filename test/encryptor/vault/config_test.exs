@@ -563,15 +563,23 @@ defmodule Encryptor.Vault.ConfigTest do
       assert params == %{memory_kib: 131_072, iterations: 2, parallelism: 4}
     end
 
-    # sabotage: dropped the map arm of slow_hash_params/2 - red on the map
-    # case. A host reading the set back off one vault and handing it to
-    # another is handing over a map, not a keyword list.
-    test "is declarable as a keyword list or as a map" do
-      assert {:ok, %Config{slow_hash: from_list}} = single(slow_hash: [memory_kib: 32_768])
+    # Amendment B names one declared shape and it is keyword-shaped (decision
+    # 4's option table, and the Note's `slow_hash: []`). The map shape this
+    # module accepted until enc-l5t is refused, with the `:shape` detail every
+    # other unnamed shape already gets rather than a new one.
+    #
+    # sabotage: restored the `when is_map(declared)` arm ahead of the
+    # catch-all - red, because the map then starts a vault under a shape the
+    # record does not name.
+    test "is declarable as a keyword list, and a map is refused" do
+      assert {:ok, %Config{slow_hash: params}} = single(slow_hash: [memory_kib: 32_768])
+      assert params == %{memory_kib: 32_768, iterations: 3, parallelism: 1}
 
-      assert {:ok, %Config{slow_hash: from_map}} = single(slow_hash: %{memory_kib: 32_768})
+      assert {:invalid_config, :slow_hash, :shape} =
+               reason(single(slow_hash: %{memory_kib: 32_768}))
 
-      assert from_list == from_map
+      assert {:invalid_config, :slow_hash, :shape} =
+               reason(single(slow_hash: %{memory_kib: 32_768, iterations: 3, parallelism: 1}))
     end
 
     # sabotage: removed the @min_slow_hash_memory_kib comparison from
