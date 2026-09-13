@@ -67,6 +67,24 @@ defmodule Encryptor.Provider.Kms do
   single-region one. `:mrk` selects the engine struct and this package asserts
   nothing else about it (ADR-0008 decision 8).
 
+  ## What KMS sees, and what CloudTrail records
+
+  **The vault's composed encryption context is sent to the AWS KMS API.** On
+  this path there is one context object and it serves the message header and
+  the API call both: `GenerateDataKey`, `Encrypt` and `Decrypt` each carry it,
+  and a KMS encryption context is recorded *unencrypted* in CloudTrail. Every
+  key ADR-0004 decision 2's table names - `tenant_ref` included, along with
+  whatever `:static_encryption_context` and a per-call `:encryption_context`
+  add - is therefore readable by whoever holds CloudTrail read in the host's
+  AWS account, and not only by whoever holds the ciphertext bytes. ADR-0004
+  decision 2 is the list; ADR-0004 decision 7 is the rule that keeps per-row
+  values out of it - no primary key, row id, timestamp, request id or user id -
+  which is what keeps a per-operation log from becoming a per-subject one. A
+  host that judges a context key of its own inappropriate for its audit log
+  configures it away at the vault: this adapter runs no narrower profile, and
+  the composed context here is byte-for-byte the one every other provider
+  shape composes (ADR-0004 Amendment A).
+
   ## The AWS dependencies are the host's
 
   This package declares none of them. The engine's AWS client stack is
@@ -114,8 +132,8 @@ defmodule Encryptor.Provider.Kms do
   this adapter answers KMS keys only - and `Encryptor.Provider.Function` is
   the shape that composes them without one.
 
-  Records: ADR-0002 decisions 1, 3, 4, 5 and 6; ADR-0005 decisions 2 and 3;
-  ADR-0008 decisions 1, 3, 4, 6, 7, 8 and 9.
+  Records: ADR-0002 decisions 1, 3, 4, 5 and 6; ADR-0004 Amendment A decision
+  A5; ADR-0005 decisions 2 and 3; ADR-0008 decisions 1, 3, 4, 6, 7, 8 and 9.
   """
 
   @behaviour Encryptor.Provider
