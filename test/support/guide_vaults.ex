@@ -83,7 +83,7 @@ defmodule Encryptor.GuideVaults do
       algorithm_suite_id: 0x0478,
       required_context: ["table", "column"],
       static_encryption_context: %{"app" => "acme_payments"},
-      cache: [max_age: 60]
+      cache: false
 
     @impl true
     def init(config) do
@@ -301,7 +301,7 @@ defmodule Encryptor.GuideVaults do
       context_profile: :tenant,
       algorithm_suite_id: 0x0478,
       required_context: ["table", "column"],
-      cache: [max_age: 60]
+      cache: false
 
     @impl true
     def init(config) do
