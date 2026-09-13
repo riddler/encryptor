@@ -1354,3 +1354,32 @@ This Note settles only the key-size half of open question 7. The suite half is
 answered by the measurement and needs no decision from this record. Nothing
 above changes: no decision is amended, no error vocabulary is added, and this
 Note carries the record's status rather than one of its own.
+
+## Note (2026-09-13): the two "collapses" sentences are re-anchored to one provider resolution per call
+
+ADR-0002's Amendment A (proposed 2026-09-13) withdraws decision 2's sentence
+that the engine's materials cache collapses provider round trips to one per
+partition per `max_age`, and rules that the provider is resolved once per call
+because the cache sits in front of the CMM rather than in front of the provider.
+Two sentences in this record lean on the withdrawn reading. Neither is a
+decision of this record, so both are re-anchored here rather than amended, and
+this Note carries the record's status rather than one of its own.
+
+- **Decision 2's root-vault rationale (`:160-163`), read at enc `efd71c5`.**
+  "Provisioning is rare and unwraps are already collapsed by the tenant vault's
+  cache" overstates what the tenant vault's cache does: it collapses the engine
+  data-key generation and EDK wrap, not the provider resolutions behind them.
+  The configuration it justifies is unaffected - `cache: false` on the root
+  vault stands, and stands more simply, because provisioning is rare and a
+  second cache would hold the root's own data keys for nothing.
+- **The Consequences bullet on tenant key resolution (`:397-399`), read at enc
+  `efd71c5`.** "Every tenant key resolution is a database read plus an engine
+  decrypt. The materials cache collapses this to once per tenant per `max_age`"
+  is the claim ADR-0002 withdrew. Read it as: every tenant key resolution is a
+  database read plus an engine decrypt, on every call, and the materials cache
+  collapses neither. The second-order effects the bullet draws are therefore
+  larger than it says, not smaller - a short `max_age` is not what drives
+  root-vault decrypts, traffic is - and the thundering-herd effect it describes
+  after a recycle is about data-key regeneration rather than about store reads.
+  A host that wants those store reads collapsed caches them in its own provider,
+  under ADR-0002 decision 2's bounded-and-documented rule.
