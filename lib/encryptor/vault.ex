@@ -94,6 +94,29 @@ defmodule Encryptor.Vault do
   All three entry points are built on `ready/2` from here, which is why the
   lifecycle checks live in one place rather than three.
 
+  ## Telemetry, and the one option that is a disclosure decision
+
+  Every entry point above emits ADR-0006's span pair around itself, with a
+  nested provider span around key resolution, through `Encryptor.Telemetry`.
+  Metadata is an allow-list and carries no plaintext, no key, no context
+  value, no selector and no partition id.
+
+  `:telemetry_tenant_ref` is the one configuration option here that is a
+  disclosure decision rather than a verbosity one. It is a boolean, it
+  defaults to `false`, and a `:single` vault that sets it to `true` is refused
+  at start - a `:single` vault has no tenant to name.
+
+  > With `telemetry_tenant_ref: true`, every encrypt, decrypt, rekey and
+  > provider event carries `tenant_ref` - ADR-0003 decision 5's keyed
+  > reference for the tenant the call routed to. It is a pseudonym and not an
+  > identifier: it does not contain the tenant identifier and cannot be
+  > reversed into it. Anyone holding the vault's reference subkey can
+  > re-identify it, by deriving the reference for a candidate tenant and
+  > comparing, and so can anyone who can enumerate or guess your tenant
+  > identifiers. Telemetry metadata is forwarded verbatim by handlers you did
+  > not write to vendors whose retention you did not choose. Turning this on
+  > is a decision about that, and it is off by default.
+
   ## What the vault stores about a message: nothing
 
   This module reads the engine's header in exactly one place, through
@@ -106,7 +129,8 @@ defmodule Encryptor.Vault do
   question 5).
 
   Records: ADR-0001 decisions 1, 2, 3, 4, 5 and 10; ADR-0002 decision 6;
-  ADR-0004 decision 11; ADR-0005 decision 7 and amendment A.
+  ADR-0004 decision 11; ADR-0005 decision 7 and amendment A; ADR-0006
+  decisions 2, 3, 7, 8 and 9 and its amendment A.
   """
 
   alias Encryptor.Error

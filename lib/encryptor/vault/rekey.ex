@@ -95,7 +95,7 @@ defmodule Encryptor.Vault.Rekey do
   alias Encryptor.Error
   alias Encryptor.Message
   alias Encryptor.Message.Info
-  alias Encryptor.Vault
+  alias Encryptor.Telemetry
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Decrypt
   alias Encryptor.Vault.Encrypt
@@ -105,16 +105,40 @@ defmodule Encryptor.Vault.Rekey do
   @doc false
   @spec call(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
   def call(vault, ciphertext, opts) when is_binary(ciphertext) and is_list(opts) do
-    with {:ok, config} <- Vault.ready(vault, :rekey),
-         {:ok, selector} <- Resolve.selector(config, opts, :rekey),
-         :ok <- refuse_context(config, opts),
-         {:ok, candidates} <- Resolve.decryption_keys(config, selector, :rekey),
+    opened = Resolve.open(vault, opts, :rekey)
+    tenant_ref = Resolve.telemetry_reference(opened)
+    span = Telemetry.operation_start(vault, :rekey, tenant_ref)
+
+    result =
+      with {:ok, config, selector, reference} <- opened do
+        rekey(config, selector, reference, ciphertext, opts, tenant_ref)
+      end
+
+    Telemetry.operation_stop(vault, :rekey, span, tenant_ref, result)
+
+    result
+  end
+
+  # Two provider round trips, so two nested provider spans: a rekey reads
+  # under every candidate and writes under the current one, and an operator
+  # watching a `key_unavailable` rate wants both.
+  defp rekey(config, selector, reference, ciphertext, opts, tenant_ref) do
+    vault = config.vault
+
+    with :ok <- refuse_context(config, opts),
+         {:ok, candidates} <-
+           Telemetry.provider_span(config, :decryption_keys, :rekey, tenant_ref, fn ->
+             Resolve.decryption_keys(config, selector, :rekey)
+           end),
          {:ok, readers} <- Keyring.build_all(vault, :rekey, candidates),
-         {:ok, composed} <- Resolve.context(config, selector, [], :rekey),
+         {:ok, composed} <- Resolve.context(config, reference, [], :rekey),
          {:ok, stored} <- stored_context(config, ciphertext),
          :ok <- Decrypt.agree(config, ciphertext, composed, :rekey),
          {:ok, plaintext} <- open(config, readers, selector, ciphertext, stored),
-         {:ok, descriptor} <- Resolve.encryption_key(config, selector, :rekey),
+         {:ok, descriptor} <-
+           Telemetry.provider_span(config, :encryption_key, :rekey, tenant_ref, fn ->
+             Resolve.encryption_key(config, selector, :rekey)
+           end),
          {:ok, writer} <- Keyring.build(vault, :rekey, descriptor) do
       config
       |> Encrypt.client(writer, selector)

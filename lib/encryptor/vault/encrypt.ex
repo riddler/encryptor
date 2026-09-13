@@ -99,6 +99,7 @@ defmodule Encryptor.Vault.Encrypt do
   alias AwsEncryptionSdk.Cmm.RequiredEncryptionContext
   alias Encryptor.Context
   alias Encryptor.Error
+  alias Encryptor.Telemetry
   alias Encryptor.Vault
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Keyring
@@ -115,11 +116,32 @@ defmodule Encryptor.Vault.Encrypt do
           {:ok, binary()} | {:error, Error.t()}
   def call(vault, plaintext, opts, reserved \\ %{})
       when is_binary(plaintext) and is_list(opts) and is_map(reserved) do
-    with {:ok, config} <- Vault.ready(vault, :encrypt),
-         {:ok, selector} <- Resolve.selector(config, opts, :encrypt),
-         {:ok, descriptor} <- Resolve.encryption_key(config, selector, :encrypt),
-         {:ok, keyring} <- Keyring.build(vault, :encrypt, descriptor),
-         {:ok, context} <- Resolve.context(config, selector, opts, :encrypt, reserved) do
+    opened = Resolve.open(vault, opts, :encrypt)
+    tenant_ref = Resolve.telemetry_reference(opened)
+
+    # ADR-0006 decision 3's span pair, by hand rather than through
+    # `:telemetry.span/3` (decision 2), with `size` on the start half - the
+    # plaintext's length is already recoverable from the ciphertext the host
+    # stores, so measuring it discloses nothing the row did not (decision 4).
+    span = Telemetry.operation_start(vault, :encrypt, tenant_ref, %{size: byte_size(plaintext)})
+
+    result =
+      with {:ok, config, selector, reference} <- opened do
+        encrypt(config, selector, reference, plaintext, opts, reserved, tenant_ref)
+      end
+
+    Telemetry.operation_stop(vault, :encrypt, span, tenant_ref, result)
+
+    result
+  end
+
+  defp encrypt(config, selector, reference, plaintext, opts, reserved, tenant_ref) do
+    with {:ok, descriptor} <-
+           Telemetry.provider_span(config, :encryption_key, :encrypt, tenant_ref, fn ->
+             Resolve.encryption_key(config, selector, :encrypt)
+           end),
+         {:ok, keyring} <- Keyring.build(config.vault, :encrypt, descriptor),
+         {:ok, context} <- Resolve.context(config, reference, opts, :encrypt, reserved) do
       config
       |> client(keyring, selector)
       |> engine_encrypt(config, plaintext, context, :encrypt)

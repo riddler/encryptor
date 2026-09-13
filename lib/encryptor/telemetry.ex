@@ -4,7 +4,9 @@ defmodule Encryptor.Telemetry do
 
   No event carries a plaintext, a key of any kind, an encryption context
   value, a `:key` selector, a partition id, or an `Encryptor.Error`'s
-  `:engine` term. No event carries a per-tenant dimension, keyed or unkeyed.
+  `:engine` term. No event carries a per-tenant dimension unless the vault
+  opted in with `telemetry_tenant_ref: true`, and then it is the keyed
+  `tenant_ref` and never the partition id.
   Handlers run on the calling process, so a slow handler is a slow encrypt.
 
   This module is the single definition site for the vocabulary (ADR-0006
@@ -77,6 +79,29 @@ defmodule Encryptor.Telemetry do
   | `cache` | `boolean()` | `[:encryptor, :vault, :started]` |
   | `profile` | `:single \\| :tenant` | `[:encryptor, :vault, :started]` |
   | `reference_check` | `:verified \\| :unpinned` | `[:encryptor, :vault, :started]` |
+  | `tenant_ref` | `String.t()` | the four span names' halves, only when `:telemetry_tenant_ref` is on |
+
+  ## The opt-in tenant dimension
+
+  With `telemetry_tenant_ref: true`, every encrypt, decrypt, rekey and
+  provider event carries `tenant_ref` - ADR-0003 decision 5's keyed reference
+  for the tenant the call routed to. It is a pseudonym and not an identifier:
+  it does not contain the tenant identifier and cannot be reversed into it.
+  Anyone holding the vault's reference subkey can re-identify it, by deriving
+  the reference for a candidate tenant and comparing, and so can anyone who
+  can enumerate or guess your tenant identifiers. Telemetry metadata is
+  forwarded verbatim by handlers you did not write to vendors whose retention
+  you did not choose. Turning this on is a decision about that, and it is off
+  by default.
+
+  It is vault configuration, refused as `true` on a `:single` vault, and the
+  reference is derived once per operation and threaded through both halves of
+  the operation span and through the nested provider span's halves. When the
+  option is off the key is **absent** from the metadata map rather than
+  present as `nil`: a handler tells "this host did not opt in" from any value
+  by `Map.has_key?/2`, and a `nil` in a `:telemetry_metrics` tag is a
+  dimension value. Cardinality is your tenant count, which is what you asked
+  for and is your vendor's bill (ADR-0006 amendment A).
   """
 
   alias Encryptor.Error
@@ -139,7 +164,8 @@ defmodule Encryptor.Telemetry do
           optional(:callback) => :encryption_key | :decryption_keys,
           optional(:cache) => boolean(),
           optional(:profile) => Config.profile(),
-          optional(:reference_check) => :verified | :unpinned
+          optional(:reference_check) => :verified | :unpinned,
+          optional(:tenant_ref) => String.t()
         }
 
   @doc """
@@ -245,6 +271,140 @@ defmodule Encryptor.Telemetry do
 
     execute([:encryptor, :cache, :recycled], %{duration: duration}, metadata)
   end
+
+  @typedoc false
+  @type span :: {reference(), integer()}
+
+  @doc false
+  # The `:start` half of one of ADR-0006 decision 3's operation span pairs,
+  # emitted by hand: decision 2 refuses `:telemetry.span/3`, because that
+  # helper wraps the work in a `rescue` and ADR-0001 decision 10 says this
+  # package does not rescue exceptions. The consequence decision 2 states
+  # rather than hides is that an entry point which raises leaves an unmatched
+  # start, and a consumer pairing on `span_ref` must not assume every start
+  # arrives again as a stop.
+  #
+  # Returns the pair `operation_stop/6` needs: the `span_ref` that is the only
+  # correct way to pair the halves, and a monotonic reading, which is what a
+  # duration may be measured from and `System.system_time/0` is not.
+  @spec operation_start(module(), :encrypt | :decrypt | :rekey, String.t() | nil, map()) :: span()
+  def operation_start(vault, operation, tenant_ref, measurements \\ %{}) do
+    span_ref = make_ref()
+
+    execute(
+      [:encryptor, operation, :start],
+      Map.put(measurements, :system_time, System.system_time()),
+      tenant(%{vault: vault, operation: operation, span_ref: span_ref}, tenant_ref)
+    )
+
+    {span_ref, System.monotonic_time()}
+  end
+
+  @doc false
+  # The `:stop` half. `outcome` and, on a failure, `reason_tag` and nothing
+  # finer: ADR-0006 decision 7's oracle rule holds harder here than in a
+  # return value, because an error return goes to the caller who made the call
+  # while an event goes to every attached handler whether or not anyone asked.
+  @spec operation_stop(
+          module(),
+          :encrypt | :decrypt | :rekey,
+          span(),
+          String.t() | nil,
+          {:ok, term()} | {:error, Error.t()},
+          map()
+        ) :: :ok
+  def operation_stop(vault, operation, {span_ref, started}, tenant_ref, result, extra \\ %{}) do
+    metadata =
+      %{vault: vault, operation: operation, span_ref: span_ref}
+      |> outcome(result)
+      |> tenant(tenant_ref)
+
+    execute(
+      [:encryptor, operation, :stop],
+      Map.put(extra, :duration, System.monotonic_time() - started),
+      metadata
+    )
+  end
+
+  @doc false
+  # ADR-0006 decision 8: provider resolution is a span of its own, nested
+  # inside the operation span, and its stop half is what gives an operator a
+  # `key_unavailable` rate, an `unknown_key` rate, and the latency
+  # distribution of whatever store the host's provider talks to.
+  #
+  # It wraps the whole of `Encryptor.Vault.Resolve.encryption_key/3` or
+  # `decryption_keys/3`, suspension gate included, rather than the provider
+  # callback alone. ADR-0005 amendment A decision 4 makes a suspension
+  # deliberately indistinguishable from a provider that could not reach its
+  # store - both are `{:key_unavailable, selector}`, by design - and a span
+  # that reported only one of them would rebuild in a metric the distinction
+  # that amendment collapsed.
+  #
+  # `Encryptor.Vault.Derive` and `provision/2` reach the same two callbacks
+  # and are deliberately not instrumented: their `operation` is `:derive` or
+  # `:provision`, and decision 4's allow-list admits neither as a metadata
+  # value.
+  @spec provider_span(
+          Config.t(),
+          :encryption_key | :decryption_keys,
+          :encrypt | :decrypt | :rekey,
+          String.t() | nil,
+          (-> {:ok, term()} | {:error, Error.t()})
+        ) :: {:ok, term()} | {:error, Error.t()}
+  def provider_span(%Config{} = config, callback, operation, tenant_ref, round_trip) do
+    {module, _opts} = config.provider
+    base = %{vault: config.vault, provider: module, callback: callback, operation: operation}
+    span_ref = make_ref()
+
+    execute(
+      [:encryptor, :provider, :start],
+      %{system_time: System.system_time()},
+      tenant(Map.put(base, :span_ref, span_ref), tenant_ref)
+    )
+
+    started = System.monotonic_time()
+    result = round_trip.()
+
+    metadata =
+      base
+      |> Map.put(:span_ref, span_ref)
+      |> outcome(result)
+      |> tenant(tenant_ref)
+
+    execute(
+      [:encryptor, :provider, :stop],
+      %{duration: System.monotonic_time() - started} |> candidates(callback, result),
+      metadata
+    )
+
+    result
+  end
+
+  # ADR-0002's consequence "Long-lived tenants accumulate candidates" says the
+  # list grows without bound; this is the measurement that would tell an
+  # operator it had. Only on a successful `decryption_keys/2` - there is no
+  # candidate list on the write side, and a failure produced none.
+  @spec candidates(map(), :encryption_key | :decryption_keys, term()) :: map()
+  defp candidates(measurements, :decryption_keys, {:ok, keys}) when is_list(keys),
+    do: Map.put(measurements, :candidates, length(keys))
+
+  defp candidates(measurements, _callback, _result), do: measurements
+
+  @spec outcome(map(), {:ok, term()} | {:error, Error.t()}) :: map()
+  defp outcome(metadata, {:ok, _answer}), do: Map.put(metadata, :outcome, :ok)
+
+  defp outcome(metadata, {:error, %Error{reason: reason}}),
+    do: metadata |> Map.put(:outcome, :error) |> Map.put(:reason_tag, reason_tag(reason))
+
+  # ADR-0006 amendment A decision 3: absent, never `nil`. A handler
+  # distinguishes "this host did not opt in" from any value by
+  # `Map.has_key?/2`, and a `nil` in a `:telemetry_metrics` tag is a dimension
+  # value.
+  @spec tenant(map(), String.t() | nil) :: map()
+  defp tenant(metadata, nil), do: metadata
+
+  defp tenant(metadata, reference) when is_binary(reference),
+    do: Map.put(metadata, :tenant_ref, reference)
 
   # ADR-0006 decision 9: synchronously, on the caller's process, before the
   # entry point returns. No task, no queue, no timeout - the process hop costs

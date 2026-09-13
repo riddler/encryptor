@@ -491,6 +491,53 @@ defmodule Encryptor.Vault.ConfigTest do
     end
   end
 
+  describe "the opt-in tenant dimension" do
+    # sabotage: dropped `telemetry_tenant_ref: false` from defaults/0 - red,
+    # because the option then arrives at the emit site as `nil` on every vault
+    # that never named it, and ADR-0006 amendment A decision 1's "off by
+    # default" is a default rather than an absence.
+    test "defaults to false on both profiles" do
+      assert {:ok, %Config{telemetry_tenant_ref: false}} = single()
+      assert {:ok, %Config{telemetry_tenant_ref: false}} = tenant()
+      assert Keyword.fetch(Config.defaults(), :telemetry_tenant_ref) == {:ok, false}
+    end
+
+    # sabotage: returned {:ok, true} for a `:single` vault instead of
+    # refusing - red, because a host that asked for the dimension and quietly
+    # did not get it builds a dashboard on a key that is never there
+    # (amendment A decision 1).
+    test "is refused as true on a single-profile vault, at start" do
+      assert {:invalid_config, :telemetry_tenant_ref, :vault_is_single_profile} =
+               reason(single(telemetry_tenant_ref: true))
+    end
+
+    # sabotage: deleted the `:single` clause's `true` guard so `false` was
+    # refused too - red, because every `:single` vault ever written then fails
+    # to start on the package's own default.
+    test "false on a single-profile vault is the default, not a declaration" do
+      assert {:ok, %Config{telemetry_tenant_ref: false}} =
+               single(telemetry_tenant_ref: false)
+    end
+
+    # sabotage: replaced the is_boolean guard with a truthiness test - red,
+    # because `telemetry_tenant_ref: "true"` then reaches the emit site and
+    # every span carries a dimension the host never turned on.
+    test "a non-boolean is refused on either profile" do
+      assert {:invalid_config, :telemetry_tenant_ref, :not_a_boolean} =
+               reason(tenant(telemetry_tenant_ref: "true"))
+
+      assert {:invalid_config, :telemetry_tenant_ref, :not_a_boolean} =
+               reason(single(telemetry_tenant_ref: 1))
+    end
+
+    # sabotage: dropped :telemetry_tenant_ref from the struct built in
+    # build/3 - red, because the resolved value is then not frozen and the
+    # emit site has nothing to read.
+    test "is frozen onto the configuration a tenant vault runs with" do
+      assert {:ok, %Config{telemetry_tenant_ref: true}} = tenant(telemetry_tenant_ref: true)
+    end
+  end
+
   describe "the derivation salt" do
     # sabotage: gave :derivation_salt a default in defaults/0 - red, because
     # an unconfigured vault then reports a salt it was never given, and the

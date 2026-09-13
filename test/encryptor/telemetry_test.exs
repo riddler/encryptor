@@ -1,6 +1,7 @@
 defmodule Encryptor.TelemetryTest do
   use ExUnit.Case, async: false
 
+  alias Encryptor.EncryptVaults
   alias Encryptor.Error
   alias Encryptor.LifecycleVaults
   alias Encryptor.Telemetry
@@ -8,6 +9,7 @@ defmodule Encryptor.TelemetryTest do
   alias Encryptor.Vault
   alias Encryptor.Vault.CacheRecycler
   alias Encryptor.Vault.Partition
+  alias Encryptor.Vault.Reference
 
   doctest Encryptor.Telemetry
 
@@ -25,7 +27,8 @@ defmodule Encryptor.TelemetryTest do
     :callback,
     :cache,
     :profile,
-    :reference_check
+    :reference_check,
+    :tenant_ref
   ]
 
   @allowed_measurement_keys [:duration, :system_time, :size, :candidates]
@@ -368,9 +371,23 @@ defmodule Encryptor.TelemetryTest do
       {:error, %Error{}} = LifecycleVaults.Unconfigured.start_link([])
       Supervisor.stop(pid)
 
+      # The span halves too, on the vault that opted in to the one metadata
+      # key amendment A adds: the sweep is only a sweep if it covers every
+      # name in events/0 that the package can be made to emit.
+      start_vault(TelemetryVaults.Merchant)
+      {:ok, ciphertext} = TelemetryVaults.Merchant.encrypt("4111", key: "merchant_a")
+      {:ok, _plaintext} = TelemetryVaults.Merchant.decrypt(ciphertext, key: "merchant_a")
+      {:ok, _rotated} = TelemetryVaults.Merchant.rekey(ciphertext, key: "merchant_a")
+      {:error, %Error{}} = TelemetryVaults.Merchant.encrypt("4111", key: :default)
+
       events = drain()
 
       assert length(events) >= 5
+
+      assert events
+             |> Enum.map(fn {name, _m, _md} -> name end)
+             |> Enum.uniq()
+             |> Enum.sort() == Enum.sort(Telemetry.events())
 
       Enum.each(events, fn {name, measurements, metadata} ->
         assert Map.keys(metadata) -- @allowed_metadata_keys == [],
@@ -379,6 +396,58 @@ defmodule Encryptor.TelemetryTest do
         assert Map.keys(measurements) -- @allowed_measurement_keys == [],
                "#{inspect(name)} carried a measurement the record does not allow"
       end)
+    end
+
+    # sabotage: added `tenant_ref` to the `:vault, :started` metadata - red,
+    # because amendment A decision 3 rides the dimension on the four span
+    # names and on nothing else: a vault start has no tenant in scope, and the
+    # refusal event fires before a frozen configuration exists to read the
+    # option from at all.
+    test "the tenant dimension rides on the four span names and nothing else" do
+      capture()
+
+      start_vault(TelemetryVaults.Merchant)
+      {:ok, ciphertext} = TelemetryVaults.Merchant.encrypt("4111", key: "merchant_a")
+      {:ok, _plaintext} = TelemetryVaults.Merchant.decrypt(ciphertext, key: "merchant_a")
+
+      {spans, points} =
+        Enum.split_with(drain(), fn {[:encryptor, name, _half], _m, _md} ->
+          name in [:encrypt, :decrypt, :rekey, :provider]
+        end)
+
+      assert spans != []
+      assert points != []
+
+      reference = Reference.derive(EncryptVaults.reference_subkey(), "merchant_a")
+
+      Enum.each(spans, fn {_name, _m, metadata} -> assert metadata.tenant_ref == reference end)
+
+      Enum.each(points, fn {name, _m, metadata} ->
+        refute Map.has_key?(metadata, :tenant_ref),
+               "#{inspect(name)} is not a span half and carried a tenant dimension"
+      end)
+    end
+
+    # sabotage: emitted the raw `:key` selector beside the reference "so an
+    # operator can read the metric" - red, and it is ADR-0004's acceptance
+    # amendment 1 in a second place: publishing the tenant identifier beside
+    # its derived reference voids the keying for every tenant that ever wrote
+    # a row, and a metrics backend has worse retention, no authentication and
+    # a vendor boundary.
+    test "the only binary an opted-in vault emits is the keyed reference" do
+      capture()
+
+      start_vault(TelemetryVaults.Merchant)
+      {:ok, _ciphertext} = TelemetryVaults.Merchant.encrypt("4111", key: "merchant_a")
+
+      reference = Reference.derive(EncryptVaults.reference_subkey(), "merchant_a")
+      values = Enum.flat_map(drain(), fn {_name, _m, metadata} -> Map.values(metadata) end)
+      binaries = Enum.filter(values, &is_binary/1)
+
+      assert binaries != []
+      assert Enum.uniq(binaries) == [reference]
+      refute "merchant_a" in values
+      refute Partition.id(TelemetryVaults.Merchant, "merchant_a") in values
     end
 
     # sabotage: emitted the pinned `:reference_check` string itself instead of

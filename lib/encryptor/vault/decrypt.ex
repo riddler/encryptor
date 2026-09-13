@@ -108,7 +108,7 @@ defmodule Encryptor.Vault.Decrypt do
   alias Encryptor.Error
   alias Encryptor.Message
   alias Encryptor.Message.Info
-  alias Encryptor.Vault
+  alias Encryptor.Telemetry
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Encrypt
   alias Encryptor.Vault.Keyring
@@ -125,11 +125,33 @@ defmodule Encryptor.Vault.Decrypt do
           {:ok, binary()} | {:error, Error.t()}
   def call(vault, ciphertext, opts, reserved \\ %{})
       when is_binary(ciphertext) and is_list(opts) and is_map(reserved) do
-    with {:ok, config} <- Vault.ready(vault, :decrypt),
-         {:ok, selector} <- Resolve.selector(config, opts, :decrypt),
-         {:ok, candidates} <- Resolve.decryption_keys(config, selector, :decrypt),
-         {:ok, keyring} <- Keyring.build_all(vault, :decrypt, candidates),
-         {:ok, context} <- Resolve.context(config, selector, opts, :decrypt, reserved),
+    opened = Resolve.open(vault, opts, :decrypt)
+    tenant_ref = Resolve.telemetry_reference(opened)
+    span = Telemetry.operation_start(vault, :decrypt, tenant_ref)
+
+    result =
+      with {:ok, config, selector, reference} <- opened do
+        decrypt(config, selector, reference, ciphertext, opts, reserved, tenant_ref)
+      end
+
+    # ADR-0006 decision 4 puts `size` on this half rather than on the start:
+    # what a decrypt measures is the plaintext it produced, and a failure
+    # produced none. Decision 7 is why the metadata stops at `reason_tag`.
+    Telemetry.operation_stop(vault, :decrypt, span, tenant_ref, result, %{size: size(result)})
+
+    result
+  end
+
+  defp size({:ok, plaintext}), do: byte_size(plaintext)
+  defp size({:error, _error}), do: 0
+
+  defp decrypt(config, selector, reference, ciphertext, opts, reserved, tenant_ref) do
+    with {:ok, candidates} <-
+           Telemetry.provider_span(config, :decryption_keys, :decrypt, tenant_ref, fn ->
+             Resolve.decryption_keys(config, selector, :decrypt)
+           end),
+         {:ok, keyring} <- Keyring.build_all(config.vault, :decrypt, candidates),
+         {:ok, context} <- Resolve.context(config, reference, opts, :decrypt, reserved),
          :ok <- agree(config, ciphertext, context) do
       config
       |> Encrypt.client(keyring, selector)

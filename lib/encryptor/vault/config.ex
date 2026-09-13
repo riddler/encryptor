@@ -110,6 +110,11 @@ defmodule Encryptor.Vault.Config do
       `:argon2_elixir` dependency present refuses the start with
       `{:missing_optional_dependency, :argon2_elixir}` (ADR-0003 amendment B
       decisions 4 and 5).
+    * `:telemetry_tenant_ref` is a boolean, defaults to `false`, and is
+      refused as `true` on a `:single` vault with
+      `{:invalid_config, :telemetry_tenant_ref, :vault_is_single_profile}`. It
+      is a disclosure decision rather than a verbosity one - see
+      `Encryptor.Telemetry` (ADR-0006 amendment A decision 1).
     * `:static_encryption_context` is validated and bounded here, against the
       vocabulary and the bounds `Encryptor.Context` owns: at most
       `Encryptor.Context.max_pairs/0` pairs, at most
@@ -228,6 +233,7 @@ defmodule Encryptor.Vault.Config do
           max_encrypted_data_keys: pos_integer(),
           static_encryption_context: context(),
           context_profile: profile(),
+          telemetry_tenant_ref: boolean(),
           required_context: [String.t()],
           required_keys: [String.t()],
           reference_subkey: binary() | nil,
@@ -247,6 +253,7 @@ defmodule Encryptor.Vault.Config do
     :max_encrypted_data_keys,
     :static_encryption_context,
     :context_profile,
+    :telemetry_tenant_ref,
     :required_context,
     :required_keys,
     :reference_subkey,
@@ -278,7 +285,8 @@ defmodule Encryptor.Vault.Config do
       algorithm_suite_id: @default_algorithm_suite_id,
       max_encrypted_data_keys: @default_max_encrypted_data_keys,
       static_encryption_context: %{},
-      required_context: []
+      required_context: [],
+      telemetry_tenant_ref: false
     ]
   end
 
@@ -411,6 +419,7 @@ defmodule Encryptor.Vault.Config do
          {:ok, edks} <- max_encrypted_data_keys(vault, opts),
          {:ok, cache} <- cache(vault, opts),
          {:ok, profile} <- context_profile(vault, opts),
+         {:ok, tenant_ref_dimension} <- telemetry_tenant_ref(vault, profile, opts),
          {:ok, required} <- required_context(vault, profile, opts),
          {:ok, static} <- static_encryption_context(vault, profile, opts),
          {:ok, subkey} <- reference_subkey(vault, profile, opts),
@@ -429,6 +438,7 @@ defmodule Encryptor.Vault.Config do
          max_encrypted_data_keys: edks,
          static_encryption_context: static,
          context_profile: profile,
+         telemetry_tenant_ref: tenant_ref_dimension,
          required_context: required,
          required_keys: required_keys(profile, required),
          reference_subkey: subkey,
@@ -609,6 +619,33 @@ defmodule Encryptor.Vault.Config do
 
       :error ->
         {:error, error(vault, {:missing_config, [:context_profile]})}
+    end
+  end
+
+  # ADR-0006 amendment A decision 1: the opt-in keyed tenant dimension, as a
+  # vault option rather than an attach-time one. `:telemetry.execute/3` does
+  # not tell the emitting process who is attached or with what configuration,
+  # so an attach-time flag could only be honoured by deriving the reference
+  # unconditionally and letting handlers discard it - which pays the cost open
+  # question 4 refused and puts the pseudonym into every handler's metadata
+  # including the ones that did not opt in.
+  #
+  # `true` on a `:single` vault is a start-time error and not a silent no-op,
+  # for `Encryptor.Envelope.tenant_ref/2`'s own reason - a `:single` vault has
+  # no tenant to name - and because a host that asked for the dimension and
+  # quietly did not get it would build a dashboard on a key that is never
+  # there. `false` there is the package default rather than a declaration, and
+  # refusing it would refuse every `:single` vault ever written.
+  defp telemetry_tenant_ref(vault, profile, opts) do
+    case Keyword.fetch!(opts, :telemetry_tenant_ref) do
+      value when not is_boolean(value) ->
+        {:error, error(vault, {:invalid_config, :telemetry_tenant_ref, :not_a_boolean})}
+
+      true when profile == :single ->
+        {:error, error(vault, {:invalid_config, :telemetry_tenant_ref, :vault_is_single_profile})}
+
+      value ->
+        {:ok, value}
     end
   end
 
