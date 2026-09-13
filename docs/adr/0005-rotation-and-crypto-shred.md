@@ -1426,7 +1426,7 @@ vocabulary" to the context record (`:224-226`); ADR-0004 answers that it does
 ratify, without restating the names
 (`docs/adr/0004-encryption-context.md:45-48`). The
 spellings as shipped are `Encryptor.Envelope.binding/3`'s
-(`lib/encryptor/envelope.ex:582-589`, read at enc `2e6eaed`), and the wrapping
+(`lib/encryptor/envelope.ex:581-589`, read at enc `b359bce`), and the wrapping
 they bind is "an ordinary `Encryptor` message produced by a root vault"
 (ADR-0003 decision 2, `docs/adr/0003-per-tenant-envelope.md:124-126`).
 
@@ -1435,7 +1435,7 @@ they bind is "an ordinary `Encryptor` message produced by a root vault"
 They are the `reserved` layer, the top of the four that
 `Encryptor.Vault.Resolve.context/5` composes
 (`lib/encryptor/vault/resolve.ex:248`, its doc comment on the layer at
-`:233-240`, read at enc `2e6eaed`). It is a positional argument rather than an
+`:233-240`, read at enc `b359bce`). It is a positional argument rather than an
 option: "Nothing on the public vault surface passes it; only the envelope
 does" (`resolve.ex:239-240`). The two call sites that supply one are
 `Vault.Encrypt` (`lib/encryptor/vault/encrypt.ex:144`) and `Vault.Decrypt`
@@ -1445,14 +1445,14 @@ it: on a KMS-backed vault that context is sent to the AWS KMS API on
 `GenerateDataKey`, `Encrypt` and `Decrypt` and is recorded unencrypted in
 CloudTrail (A5 at `docs/adr/0004-encryption-context.md:1150-1166`; the
 discharged moduledoc section is `lib/encryptor/provider/kms.ex:70-86`, read at
-enc `2e6eaed`). So the vault whose CloudTrail carries these four pairs is the
+enc `b359bce`). So the vault whose CloudTrail carries these four pairs is the
 root vault, when the root vault is the KMS-backed one. Amendment A's own
 consequence excludes the other wrap path: "Nothing here applies to the GCP wrap
 path" (`:1179-1181`), whose third-party AAD is the provider's own three fields.
 
 A-1 cites the composition as `resolve.ex:198`. Amendment A's acceptance Note
 already re-located that cite to `:248` at `6acefff`, and it is still `:248` at
-`2e6eaed`.
+`b359bce`.
 
 ### What a CloudTrail reader sees
 
