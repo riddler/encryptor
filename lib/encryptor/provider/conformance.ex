@@ -62,16 +62,20 @@ defmodule Encryptor.Provider.Conformance do
       are newest first and the encryption key is the current one, so a
       provider whose head is something else will write messages it cannot read
       back through its own decrypt path.
-    * **Candidate names are distinct.** A name is bound to its bytes forever;
-      two entries sharing one is the failure the name contract exists to
-      prevent.
+    * **Candidate version identities are distinct.** A version identity is
+      bound to its key forever; two entries sharing one is the failure the
+      name contract exists to prevent. The identity is `:name` on an
+      `Encryptor.Key.Aes` descriptor and the key ARN on an
+      `Encryptor.Key.Kms` one (ADR-0008 decision 3).
     * **Resolution is stable.** Two calls with the same state and selector
       return the same descriptor. A provider that mints material on demand
       fails here, which is the point: key creation is a rotation procedure,
       not a side effect of being asked.
-    * **The candidate list builds the right keyring.** One element builds a
-      bare `RawAes`; more than one builds a `Multi` with `generator: nil` and
-      one child per candidate, in the same order.
+    * **The candidate list builds the right keyring.** One element builds the
+      bare keyring its descriptor's shape maps to - `RawAes` for
+      `Encryptor.Key.Aes`, `AwsKms` or `AwsKmsMrk` for `Encryptor.Key.Kms`;
+      more than one builds a `Multi` with `generator: nil` and one child per
+      candidate, in the same order.
     * An unserved selector, when the case names one, is
       `{:unknown_key, selector}` - a settled negative answer, never
       `{:key_unavailable, _}` and never a raise.
@@ -86,8 +90,12 @@ defmodule Encryptor.Provider.Conformance do
 
   import ExUnit.Assertions
 
+  alias AwsEncryptionSdk.Keyring.AwsKms
+  alias AwsEncryptionSdk.Keyring.AwsKmsMrk
   alias AwsEncryptionSdk.Keyring.Multi
   alias AwsEncryptionSdk.Keyring.RawAes
+  alias Encryptor.Key.Aes
+  alias Encryptor.Key.Kms
   alias Encryptor.Provider
   alias Encryptor.Vault.Keyring
 
@@ -219,7 +227,14 @@ defmodule Encryptor.Provider.Conformance do
     :ok
   end
 
-  @doc "Asserts no two candidates share a name."
+  @doc """
+  Asserts no two candidates share a name.
+
+  "Name" here means the descriptor's version identity: `:name` on an
+  `Encryptor.Key.Aes`, the key ARN on an `Encryptor.Key.Kms`. The function
+  keeps its name-shaped name because it is public surface an adapter in
+  another package calls (ADR-0008 decision 5).
+  """
   @spec assert_distinct_names(case_spec()) :: :ok
   def assert_distinct_names(spec) do
     state = assert_state(spec)
@@ -227,7 +242,7 @@ defmodule Encryptor.Provider.Conformance do
     for selector <- selectors(spec) do
       assert {:ok, descriptors} = spec.provider.decryption_keys(state, selector)
 
-      names = Enum.map(descriptors, & &1.name)
+      names = Enum.map(descriptors, &identity/1)
       assert names == Enum.uniq(names)
     end
 
@@ -257,8 +272,9 @@ defmodule Encryptor.Provider.Conformance do
   end
 
   @doc """
-  Asserts the vault's mapping from a candidate list to one keyring: a bare
-  `RawAes` for one candidate, a `Multi` with `generator: nil` for more.
+  Asserts the vault's mapping from a candidate list to one keyring: the bare
+  keyring the single candidate's shape maps to, a `Multi` with
+  `generator: nil` for more.
   """
   @spec assert_candidate_keyring(case_spec()) :: :ok
   def assert_candidate_keyring(spec) do
@@ -269,13 +285,13 @@ defmodule Encryptor.Provider.Conformance do
       assert {:ok, keyring} = Keyring.build_all(__MODULE__, :decrypt, descriptors)
 
       case descriptors do
-        [_one] ->
-          assert %RawAes{} = keyring
+        [one] ->
+          assert keyring.__struct__ == expected_keyring(one)
 
         many ->
           assert %Multi{generator: nil, children: children} = keyring
           assert length(children) == length(many)
-          assert Enum.map(children, & &1.key_name) == Enum.map(many, & &1.name)
+          assert Enum.map(children, &keyring_identity/1) == Enum.map(many, &identity/1)
       end
     end
 
@@ -306,4 +322,24 @@ defmodule Encryptor.Provider.Conformance do
 
   @spec selectors(case_spec()) :: [Provider.selector(), ...]
   defp selectors(spec), do: Map.get(spec, :selectors, [:default])
+
+  # The three shape-aware substitutions, private on purpose. Exactly one
+  # caller needs them, and a published function is a promise; if a second
+  # caller appears - a host writing its own assertions, a guide rendering a
+  # descriptor - the named exit is promoting them to `Encryptor.Key.identity/1`
+  # (ADR-0008 decision 5). For an Aes-shaped provider every one of them
+  # answers what the suite answered before this change.
+  @spec identity(Provider.descriptor()) :: String.t()
+  defp identity(%Aes{name: name}), do: name
+  defp identity(%Kms{key_id: key_id}), do: key_id
+
+  @spec expected_keyring(Provider.descriptor()) :: module()
+  defp expected_keyring(%Aes{}), do: RawAes
+  defp expected_keyring(%Kms{mrk: false}), do: AwsKms
+  defp expected_keyring(%Kms{mrk: true}), do: AwsKmsMrk
+
+  @spec keyring_identity(Keyring.t()) :: String.t()
+  defp keyring_identity(%RawAes{key_name: name}), do: name
+  defp keyring_identity(%AwsKms{kms_key_id: key_id}), do: key_id
+  defp keyring_identity(%AwsKmsMrk{kms_key_id: key_id}), do: key_id
 end

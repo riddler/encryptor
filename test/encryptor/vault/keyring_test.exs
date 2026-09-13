@@ -122,16 +122,17 @@ defmodule Encryptor.Vault.KeyringTest do
   end
 
   describe "build/3 with a descriptor it cannot build from" do
-    # sabotage: deleted the %Kms{} clause so the catch-all handles it - this
-    # goes red. "Recognized, no mapping yet" and "not a descriptor at all" are
-    # different facts and the detail has to keep them apart.
-    test "declines a KMS descriptor without calling it unrecognized" do
+    # sabotage: deleted the %Kms{client: nil} clause so the catch-all handles
+    # it - this goes red. "A recognized descriptor the provider left
+    # incomplete" and "not a descriptor at all" are different facts and the
+    # detail has to keep them apart.
+    test "declines a clientless KMS descriptor without calling it unrecognized" do
       key = %Kms{key_id: "arn:aws:kms:us-east-1:111122223333:key/abcd1234"}
 
       assert {:error, %Error{reason: {:invalid_key_descriptor, detail}}} =
                Keyring.build(TestVault, :encrypt, key)
 
-      assert detail == {:no_keyring_mapping, Encryptor.Key.Kms}
+      assert detail == {:missing_client, Encryptor.Key.Kms}
     end
 
     test "names the struct of an unrecognized descriptor" do

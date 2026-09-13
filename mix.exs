@@ -15,8 +15,11 @@ defmodule Encryptor.MixProject do
       # ADR-0003 amendment B decision 5: a compile warning about an optional
       # module is exactly the warning an optional dependency is supposed to
       # produce, and exactly the one that trains a reader to ignore warnings.
-      # `Encryptor.Kdf.slow_hash/3` checks for the module at runtime instead.
-      xref: [exclude: [Argon2.Base, Goth]],
+      # `Encryptor.Kdf.slow_hash/3` checks for the module at runtime instead,
+      # and so does `Encryptor.Provider.Kms.init/1` for the engine's shipped
+      # KMS client - which the engine itself compiles only when the host has
+      # added `:ex_aws_kms` (ADR-0008 decision 9).
+      xref: [exclude: [Argon2.Base, AwsEncryptionSdk.Keyring.KmsClient.ExAws, Goth]],
       name: "Encryptor",
       description:
         "Ergonomic envelope encryption for Elixir - vault module, pluggable key providers, per-tenant keys",
