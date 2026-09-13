@@ -164,7 +164,7 @@ defmodule Encryptor.Vault.ConfigTest do
     # max_messages then survives from the lower layer instead of taking the
     # package default.
     test "a higher layer replaces the whole cache setting rather than deep-merging" do
-      assert {:ok, %Config{cache: %{max_age: 300, max_messages: 100}}} =
+      assert {:ok, %Config{cache: %{max_age: 300, max_messages: 10_000}}} =
                Config.resolve(
                  TestVaults.NoInit,
                  :encryptor,
@@ -303,10 +303,38 @@ defmodule Encryptor.Vault.ConfigTest do
 
       assert %{
                max_age: 300,
-               max_messages: 100,
+               max_messages: 10_000,
                max_bytes: 1_073_741_824,
                recycle_after: 6_000
              } = cache
+    end
+
+    # ADR-0001 amendment A, A2: the KMS amortization factor, raised from 100.
+    # Pinned by name so a later tuning change has to come through this test.
+    # sabotage: set @default_max_messages back to 100 - red.
+    test "max_messages defaults to 10_000" do
+      assert {:ok, %Config{cache: %{max_messages: 10_000}}} = single(cache: [max_age: 300])
+    end
+
+    # ADR-0001 amendment A, A3: unchanged, and now the bound that fires first
+    # above a ~107 KB payload rather than a 10.7 MB one.
+    # sabotage: halved @default_max_bytes - red.
+    test "max_bytes defaults to 1 GiB" do
+      assert {:ok, %Config{cache: %{max_bytes: 1_073_741_824}}} = single(cache: [max_age: 300])
+    end
+
+    # ADR-0001 amendment A, A4: the multiplier stands.
+    # sabotage: changed @recycle_after_multiplier to 10 - red.
+    test "recycle_after defaults to 20 * max_age" do
+      assert {:ok, %Config{cache: %{recycle_after: 1_200}}} = single(cache: [max_age: 60])
+    end
+
+    # RQ-SF043-3a and amendment A's scope line: the amendment revises the bound
+    # defaults and does not flip this one.
+    # sabotage: made defaults/0 return `cache: [max_age: 60]` - red.
+    test "the cache itself is still opt-in: the default is false" do
+      assert false == Keyword.fetch!(Config.defaults(), :cache)
+      assert {:ok, %Config{cache: false}} = single()
     end
 
     # sabotage: made cache_bound/4 ignore the configured value - red on every

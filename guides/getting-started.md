@@ -120,7 +120,7 @@ config :my_app, MyApp.Vault,
   algorithm_suite_id: 0x0478,
   required_context: ["table", "column"],
   static_encryption_context: %{"app" => "acme_payments"},
-  cache: [max_age: 60]
+  cache: false
 ```
 
 `:context_profile` and `:provider` are the two settings with no default.
@@ -156,10 +156,30 @@ read; `:forbid_encrypt_allow_decrypt` is refused outright at start, because a
 setting that turns key commitment off will eventually be turned off by someone
 who does not know what it does (ADR-0001 decision 8).
 
+### The materials cache, and when to turn it on
+
+`:cache` is `false` or a keyword list, and it defaults to `false`. On most
+vaults - including all three of this guide's - `false` is the right answer, and
+the vault above says so explicitly.
+
+The materials cache sits in front of the **CMM**, not in front of the provider.
+A hit saves a data-key generation and the keyring's wrap of it, and saves
+nothing your provider does: the provider is asked for a descriptor before there
+is a CMM to consult. So the question is not whether your provider is expensive,
+it is whether your **keyring** is (ADR-0001 amendment A, A5):
+
+| Provider | Recommended posture |
+|---|---|
+| `Encryptor.Provider.Static` | `cache: false` - a hit saves a local AES-KW wrap, and the cache measures as a net cost: about +30% per encrypt, +20% per decrypt |
+| `Encryptor.Provider.Function`, resolving in memory | `cache: false` - the same shape, the same measurement |
+| `Encryptor.Provider.Function`, resolving over I/O | `cache: false` - the round trip is on the resolve path, in front of the cache, so the cache cannot collapse it. A provider that wants its round trips collapsed caches them itself, bounded and documented (ADR-0002 decision 2) |
+| `Encryptor.Provider.GcpKms` | `cache: false` - a wrap-provider, so its unwrap is on the resolve path too |
+| `Encryptor.Provider.Kms` | `cache: [max_age: ...]` - the keyring-backed case the cache exists for, where a miss is a KMS `GenerateDataKey` or `Decrypt` call |
+
 ### `max_age` is required, and has no default
 
-`:cache` is `false` or a keyword list. When it is a list, **`:max_age` is
-required and the package supplies no default** (ADR-0001 decision 6):
+When `:cache` is a list, **`:max_age` is required and the package supplies no
+default** (ADR-0001 decision 6):
 
 ```elixir
 # This vault does not start:
@@ -168,19 +188,25 @@ cache: [max_messages: 500]
 ```
 
 `:max_age` is in **seconds**. So is `:recycle_after`. (`:max_messages`
-defaults to 100, `:max_bytes` to 1 GiB, `:recycle_after` to `20 * max_age`.)
+defaults to `10_000`, `:max_bytes` to 1 GiB, `:recycle_after` to
+`20 * max_age`.)
 
-There is no default because `max_age` is the answer to a question this package
-cannot answer for you: **how long a data key may stay in this node's memory,
-and therefore how long a crypto-shred takes to actually take effect.** Deleting
-a tenant's wrapping does not stop a running node from decrypting that tenant's
-data for up to `max_age` afterwards - which is why cache drainage is an
-explicit step in every destructive procedure in the
+The three bounds do not cooperate. `:max_messages` is the one that fires on an
+active partition; `:max_age` is the backstop on an idle or slow one; and
+`:max_bytes` fires first only above a payload of `max_bytes / max_messages`,
+about 107 KB under these defaults (ADR-0001 amendment A, A1 to A3).
+
+There is no default for `max_age` because it is the answer to a question this
+package cannot answer for you: **how long a data key may stay in this node's
+memory, and therefore how long a crypto-shred takes to actually take effect.**
+Deleting a tenant's wrapping does not stop a running node from decrypting that
+tenant's data for up to `max_age` afterwards - which is why cache drainage is
+an explicit step in every destructive procedure in the
 [rotation runbook](rotation-runbook.md).
 
 Naming a number forces you to have decided. A shorter `max_age` means more
-provider round trips and a faster shred; a longer one means fewer round trips
-and a longer tail on every deletion.
+data-key generations and keyring wraps, and a faster shred; a longer one means
+fewer of both and a longer tail on every deletion.
 
 That whole paragraph assumes deleting the wrapping is what destroys the key,
 which is true of every provider in this guide and **not** true of a
@@ -190,8 +216,6 @@ tenant's KMS key and cache drainage is not what bounds it. ADR-0008 decision 4
 reconciles the two shapes row by row; the runbook reproduces its table under
 ["The shred and the rotate, per key
 shape"](rotation-runbook.md#the-shred-and-the-rotate-per-key-shape).
-
-`cache: false` is a legitimate answer, and it is what a root vault uses.
 
 ### Encrypting and decrypting
 

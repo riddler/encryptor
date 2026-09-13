@@ -211,7 +211,7 @@ defmodule Encryptor.Vault.EncryptTest do
       config = config(vault)
       {:ok, keyring} = RawAes.new("ns", "name", EncryptVaults.single_key(), :aes_256_gcm)
 
-      assert %Caching{max_age: 60, max_messages: 100, max_bytes: 1_073_741_824} =
+      assert %Caching{max_age: 60, max_messages: 10_000, max_bytes: 1_073_741_824} =
                Encrypt.stack(config, keyring, :default)
     end
 
