@@ -270,10 +270,11 @@ package's).
 
 **Nothing that varies per row may go in the context.** Not a primary key, not a
 row id, not a timestamp, not a request id. The serialized context is hashed
-into the materials cache id, so each distinct context is its own cache entry
-and its own cold-cache provider round trip - a key-store read and a root-vault
-decrypt, per row, forever. `table` and `column` are bounded by your schema;
-a row id is not. The vault cannot tell the difference and will not stop you.
+into the materials cache id, so each distinct context is its own cache entry.
+The provider round trip behind it - a key-store read and a root-vault decrypt -
+is paid on every call in any case, per row, forever. `table` and `column` are
+bounded by your schema; a row id is not. The vault cannot tell the difference
+and will not stop you.
 
 ## Part 2: a per-tenant vault
 
@@ -392,9 +393,8 @@ every stored tenant reference stays valid (ADR-0003 decision 6).
 
 Two constraints on a root vault, and both are load-bearing:
 
-- **`cache: false`.** Provisioning is rare, and unwraps are already collapsed
-  by the tenant vault's own materials cache. A second cache here would hold the
-  root's data keys in memory for no measurable benefit.
+- **`cache: false`.** Provisioning is rare, so a second cache here would hold
+  the root's own data keys in memory for no measurable benefit.
 - **A `Static` provider, never a store-backed one.** A root vault whose
   provider reads from the store it is used to unwrap would be a genuine cycle,
   and it would recurse or deadlock rather than fail cleanly.

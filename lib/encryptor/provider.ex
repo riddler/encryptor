@@ -57,10 +57,11 @@ defmodule Encryptor.Provider do
       being asked. Key creation is a rotation procedure reached deliberately,
       not a lazy consequence of the first encrypt after a deploy.
     * **A provider may not add a second unbounded cache.** The engine's
-      materials cache already collapses provider round trips to one per
-      partition per `max_age`, so a provider-level cache is a second copy of
-      the same idea with none of the vault's bounds on it. A provider that
-      caches anyway must bound it and document the bound.
+      materials cache sits in front of the CMM, not in front of the provider,
+      so it never collapses a provider round trip: a provider whose resolve
+      path does I/O pays that I/O on every call, and the only place that I/O
+      can be collapsed is the provider itself. A provider that caches anyway
+      must bound it and document the bound (ADR-0002 Amendment A's A1).
 
   ## `name` is public, it is bound to bytes, and dropping it is what shreds
 
