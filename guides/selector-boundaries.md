@@ -111,8 +111,17 @@ buys, and it is worth being explicit about what follows from it:
   so it lives and dies with the boundary without being inventoried
   separately. That is intended, and it means erasure reaches further than a
   list of encrypted columns suggests.
-- **Compromise is scoped to it.** The blast-radius tables in ADR-0003 and
-  ADR-0005 are read per selector. A wider boundary is a wider table.
+- **Compromise is scoped to it, in one row of the table and not in all of
+  them.** ADR-0003 decision 10's attacker table is layered by *what the
+  attacker holds*, not by selector: its "wrapped-key store + the root key" row
+  reaches every tenant however the boundary is drawn, and a wider boundary does
+  not widen it. The row the boundary governs is "ciphertext + one tenant's
+  unwrapped master key", which reaches "that tenant, all versions that key
+  covers" (`docs/adr/0003-per-tenant-envelope.md:353-360`, read at `6f4b55d`).
+  The per-boundary bound is stated as prose beside the table rather than in it -
+  "tenant compromise is bounded by version, not by time"
+  (`docs/adr/0003-per-tenant-envelope.md:376-379`, read at `6f4b55d`) - and it
+  is that sentence, not the table's shape, that a wider boundary makes worse.
 
 ## The three verbs
 
@@ -120,7 +129,7 @@ buys, and it is worth being explicit about what follows from it:
 |---|---|---|---|---|---|---|
 | **Rotate** | Mints a new version under the same selector; older versions keep decrypting until their wrappings are deleted | yes, by minting again | nothing - reads and writes continue | `Encryptor.Envelope.provision/3`, then a re-encrypt pass | ADR-0005 P1, P2 | yes |
 | **Suspend** | Denies every operation for the selector while leaving its wrappings untouched | **yes**, by `reinstate/2` | `{:key_unavailable, selector}` | `Encryptor.Vault.suspend/2` | ADR-0005 Amendment A | yes |
-| **Shred** | Destroys every wrapping of the selector's master key | **no** | `{:unknown_key, selector}` | a `DELETE` against your key store, per runbook P3 | ADR-0005 P3, decision 9 | not as a function, by design |
+| **Shred** | Destroys every wrapping of the selector's master key | **no** | `{:unknown_key, selector}` | a `DELETE` against your key store, per runbook P3 | ADR-0005 P3, decisions 9 and 10 | not as a function, by design |
 
 Three things about that table need saying rather than reading between.
 
@@ -142,6 +151,19 @@ design: the suspended set lives in an ETS table owned by the vault's
 lifecycle process, so a restarted vault serves the selector again and a
 four-node host suspends four times. A suspension that must survive a deploy
 belongs at the provider instead, where a backing authority can deny durably.
+
+**The Shred row assumes the key material is yours to destroy.** It is, on every
+material-source provider - `Static`, `Function`, `GcpKms`, an Ecto-backed
+wrapped-key table - where destroying the wrapping destroys the key. It is not on
+a keyring-backed one: under `Encryptor.Provider.Kms` the wrapping key lives in
+AWS KMS and never in your store, so a `DELETE` hides the selector from this
+vault while KMS can still decrypt its data. There the shred is
+`ScheduleKeyDeletion` on the tenant's KMS key, and its pending-deletion window
+is the interval in which `CancelKeyDeletion` still works rather than a reprieve
+to plan around. ADR-0008 decision 4 is where the two shapes are reconciled per
+row; the runbook reproduces its table under ["The shred and the rotate, per key
+shape"](rotation-runbook.md#the-shred-and-the-rotate-per-key-shape), and
+`Encryptor.Provider.Kms`'s moduledoc carries the same reconciliation.
 
 **Shred is not a function here and will not become one.** ADR-0005 decision 10
 declines `shred/2`, `retire/2` and `rotate/2` for one reason: deleting a
@@ -166,7 +188,11 @@ they are the ones a host has to meet rather than assume:
 - **Every copy of the key must be sanitized**, not only the convenient one.
   This is the precondition that does the most work in practice, and the
   runbook's "a shred is only as good as the copies" is the same sentence from
-  the operator's side.
+  the operator's side. On a keyring-backed provider it does less work, because
+  the wrapping key was never in a copy of your store to begin with: ADR-0008
+  decision 4's "does the shred survive a backup" row says the KMS-path shred
+  does, where the material-source shred does so "only if every copy of the store
+  was found".
 - **The encryption has to be strong**, and the key must not be recoverable
   from anything else that survives.
 - **The media itself is not sanitized.** The ciphertext is still there. What
@@ -254,6 +280,9 @@ offboarding flow has a "provisional" state, do not implement it with P3.
   as the third verb (accepted 2026-09-13).
 - **ADR-0007** decision 8 - KMS-backed destruction as ADR-0005's shred, and
   what it still does not erase (accepted 2026-09-13).
+- **ADR-0008** decision 4 - rotation, the shred and suspend per key shape; the
+  table the runbook reproduces, and the reason the Shred row above is not one
+  sentence for every provider.
 
 Where this guide and a record disagree, the record wins and the disagreement
 is a bug in this guide.
