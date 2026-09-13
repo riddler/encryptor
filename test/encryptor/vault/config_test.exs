@@ -622,9 +622,10 @@ defmodule Encryptor.Vault.ConfigTest do
                reason(single(slow_hash: [memory: 65_536, t_cost: 3]))
     end
 
-    # sabotage: dropped the non-list, non-map arm - red, because a bare
-    # integer then hit the map arm and crashed the start instead of refusing.
-    test "a set that is neither a keyword list nor a map is refused as a shape" do
+    # sabotage: replaced the catch-all clause's refusal with a pass-through to
+    # complete_slow_hash/2 - red, because a bare integer then reaches
+    # Map.keys/1 and crashes the start instead of refusing it by shape.
+    test "a set that is not a keyword list is refused as a shape" do
       assert {:invalid_config, :slow_hash, :shape} = reason(single(slow_hash: 65_536))
 
       assert {:invalid_config, :slow_hash, :shape} =
