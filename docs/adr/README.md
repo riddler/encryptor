@@ -2,7 +2,7 @@
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](0001-vault-layer.md) | A vault is a supervised, host-owned module that wraps the engine completely | accepted (2026-08-27) |
+| [0001](0001-vault-layer.md) | A vault is a supervised, host-owned module that wraps the engine completely | accepted (2026-08-27, amended) |
 | [0002](0002-key-providers.md) | A key provider resolves a selector to key descriptors, and the vault alone builds keyrings | accepted (2026-08-27, amended) |
 | [0003](0003-per-tenant-envelope.md) | A tenant key is a random key wrapped into an ordinary message, and the host stores the wrapping | accepted (2026-08-27, amended) |
 | [0004](0004-encryption-context.md) | The encryption context is a vault-composed, profile-enforced set of identifying keys | accepted (2026-08-27, amended) |

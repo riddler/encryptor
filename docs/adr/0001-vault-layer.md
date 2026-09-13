@@ -1,6 +1,6 @@
 # ADR-0001: A vault is a supervised, host-owned module that wraps the engine completely
 
-Status: accepted (2026-08-27)
+Status: accepted (2026-08-27, amended)
 
 ## Context
 
@@ -591,6 +591,15 @@ Recorded rather than guessed. Each names who should settle it.
    plausibly above a single request. They want a benchmark against a real
    provider before they are treated as recommendations.
 
+   *Resolved at Amendment A's acceptance (2026-09-13): the benchmark ran, as
+   `enc-anz` and `docs/measurements/260912-enc-anz-stated-bounds.md`, and
+   Amendment A's A1 to A3 answer this question. `max_messages` is the bound
+   that fires on an active partition and its default is `10_000`; `max_age`
+   is the backstop and stays required with no default; `max_bytes` stays
+   `1_073_741_824`, with its crossover at about 107 KB recorded rather than
+   left to be discovered. The question is answered here rather than struck,
+   so the amendment that answers it still has something to point at.*
+
 3. **`recycle_after` is a workaround for a missing upstream seam.** The
    durable fixes are upstream in the engine: either a bounded-capacity
    `LocalCache`, or making `Cmm.Caching` dispatch through the
@@ -622,10 +631,10 @@ Recorded rather than guessed. Each names who should settle it.
    want revisiting, but only with a rule that makes the shared bounds
    explicit.
 
-## Amendment A (2026-09-13; proposed): the measured cache bounds, and the posture per provider shape
+## Amendment A (2026-09-13; accepted 2026-09-13): the measured cache bounds, and the posture per provider shape
 
-Status: **proposed**. This amendment only adds. Decisions 1 to 10 above are
-unchanged, and nothing below reverses, narrows, or re-words any of them. Its
+Status: **accepted (2026-09-13)**, by the operator's reading. This amendment
+only adds. Decisions 1 to 10 above are unchanged, and nothing below reverses, narrows, or re-words any of them. Its
 decisions are lettered `A1` to `A5`, under the house convention this repo's
 other records use for lettered amendments; a reference from outside this
 section should be spelled "Amendment A's A2".
@@ -891,3 +900,117 @@ below.
    keyring-backed row wants a different number from a material-source vault
    that opted in anyway, the fix is a per-shape default rather than one
    compromise, and that is a new decision rather than a tuning change.
+
+## Note (2026-09-13): Amendment A accepted; open question 2 answered in place, and where its cites resolve today
+
+The operator accepted Amendment A on 2026-09-13. This Note records that
+acceptance, says what the flip did with the amendment's own instruction about
+open question 2, records which of the amendment's obligations its code half
+has since discharged, and re-locates every cite against `main` at `6acefff`.
+It changes no decision: decisions 1 to 10 and A1 to A5 stand exactly as
+written, and it carries the record's status rather than one of its own.
+
+### 1. Open question 2 is answered in place, not struck
+
+Amendment A's "What this leaves open" item 1 says open question 2 "is left
+standing rather than rewritten, because an amendment appends; striking it
+belongs to the acceptance flip, which is the operator's." The flip **answers
+it in place rather than striking it**, and says so here rather than leaving
+the difference unexplained. Two reasons. A record is amended by addition, so
+removing a question a merged amendment cites by anchor (`:589-592`) would
+break that cite and delete the thing A1 to A3 are an answer to. And this
+repository already has a house form for exactly this: an answer line in
+italics under the question, which is what ADR-0004 uses at `:939` and what
+ADR-0006's acceptance flip used for its own open question 4. Open question 2
+now carries that line, and the question text above it is untouched.
+
+One half of that precedent needs stating precisely. ADR-0004's answer line at
+`:939` is an acceptance-time line and is the model. ADR-0006's answer line
+under its open question 4 was written by its amendment rather than by an
+acceptance flip, and ADR-0006's own A6 records that flipping it is still owed
+to the operator's acceptance; it is being flipped in the same sitting as this
+one, not before it. The form is ADR-0004's.
+
+### 2. The top `Status` line now reads amended
+
+`Status: accepted (2026-08-27)` becomes `accepted (2026-08-27, amended)`.
+This record carries no per-amendment pointer paragraph of the kind ADR-0003
+and ADR-0005 have, so the top line is the only place a reader learns the
+record has an amendment at all. It follows the precedent of the 2026-09-13
+acceptance commit `fbbd36b`, which made the same edit to ADR-0005's top line
+when it accepted that record's Amendment A.
+
+### 3. What the code half has already discharged
+
+A2 and the "What the code half changes" list are written in the future tense,
+against the tree at `6f4b55d`. `enc-d3u` has since shipped them, so read those
+sentences as the state at `6f4b55d` and the obligations as met:
+
+- `@default_max_messages` is `10_000` at `lib/encryptor/vault/config.ex:180`,
+  applied at `:579`. A2's "`@default_max_messages 100` ... becomes `10_000`"
+  is done.
+- `@default_max_bytes` (`:181`, applied at `:580`) and
+  `@recycle_after_multiplier` (`:182`, applied at `:581`) are untouched, as A3
+  and A4 required, and `defaults/0` still carries `cache: false`
+  (`:288-297`, the entry at `:290`).
+- The `:cache` paragraph of `Encryptor.Vault.Config`'s moduledoc is restated
+  for A1 to A3 at `lib/encryptor/vault/config.ex:90-97`, including the ~107 KB
+  crossover.
+- `guides/getting-started.md`'s cache section is restated for A5 as "The
+  materials cache, and when to turn it on" (`:159-177`), with the per-shape
+  posture table at `:171-177`. The stated defaults left that section for
+  "`max_age` is required, and has no default": `10_000`, 1 GiB and
+  `20 * max_age` at `:190-192`, and the ~107 KB crossover at `:194-197`.
+
+### 4. What A5 says is still wrong is still wrong
+
+"What this leaves open" item 2 names four sites that say the materials cache
+collapses provider resolutions, and says this amendment fixes none of them.
+All four still say it at `6acefff`, so the ADR-0002 amendment that item calls
+for is still owed: `docs/adr/0002-key-providers.md:130-132`,
+`docs/adr/0007-gcp-kms-wrap-provider.md:627-632` and `:815-816`,
+`lib/encryptor/provider/gcp_kms.ex:293-295`, and the root-vault bullet in
+`guides/getting-started.md`, which has moved from `:351-353` to `:395-397`.
+
+### 5. Where Amendment A's cites resolve at `6acefff`
+
+Amendment A says every line it cites was read at `6f4b55d`. Every cite was
+re-read by anchor at `6acefff`. **Every claim holds**; what follows is
+re-location, not correction.
+
+| Cited in Amendment A | Resolves at `6acefff` |
+|---|---|
+| `lib/encryptor/vault/config.ex:173`, `:174`, `:175` (the three constants), applied at `:572`, `:573`, `:574` | `:180`, `:181`, `:182`, applied at `:579`, `:580`, `:581` |
+| `lib/encryptor/vault/config.ex:281-291`, the `cache: false` entry at `:283` | `:288-297`, the entry at `:290` |
+| `lib/encryptor/vault/config.ex:90-92`, the `:cache` moduledoc paragraph | `:90-97`, restated for A1 to A3 |
+| `guides/getting-started.md:160-186`, the cache section | `:159-177`, "The materials cache, and when to turn it on", restated for A5, with the per-shape posture table at `:171-177` |
+| `guides/getting-started.md:170-171`, the stated defaults | MOVED OUT of the cache section into "`max_age` is required, and has no default": the defaults are at `:190-192` and the ~107 KB crossover at `:194-197` |
+| `guides/getting-started.md:351-353` | `:395-397`, unchanged in wording |
+| `lib/encryptor/vault/resolve.ex:100-102`; `lib/encryptor/vault/encrypt.ex:162-164`, `:184-194`, `:59-84`; `lib/encryptor/vault/keyring.ex:85-109`; `lib/encryptor/provider/gcp_kms.ex:293-295` | unchanged, at those anchors |
+| `docs/adr/0002-key-providers.md:130-136`, `:130-132`, `:203-255`; `docs/adr/0007-gcp-kms-wrap-provider.md:627-632`, `:815-816` | unchanged, at those anchors |
+| `docs/measurements/260912-enc-anz-stated-bounds.md:25-43`, `:38-43`, `:47-151`, `:52-60`, `:82-92`, `:96-98`, `:104-105`, `:107-123`, `:130-138`, `:137-138`, `:196-217` | unchanged, at those anchors |
+| this record's own `:106-109`, `:222-223`, `:589-592` | unchanged, at those anchors |
+
+### 6. What the acceptance does not settle
+
+Items 2, 3 and 4 of "What this leaves open" stay open: the ADR-0002
+round-trip amendment and the ADR-0007 amendment it has to carry, the
+unmeasured KMS row, and whether `max_messages` should have a per-shape default
+rather than one global compromise.
+
+### 7. What the pass-1 direction review corrected in this Note
+
+Three things, all in this Note rather than in the record:
+
+1. Section 5's table gave one destination for two different cites, and it was
+   wrong for the second. `guides/getting-started.md`'s stated defaults did not
+   stay in the cache section; they moved into the `max_age` subsection. The
+   table and section 3's fourth bullet now say where each lands.
+2. Section 1 credited ADR-0006's acceptance flip with a precedent it does not
+   yet set. The paragraph added there says so.
+3. `docs/adr/0005-rotation-and-crypto-shred.md:901` still sends a reader to
+   "ADR-0001 open question 2's unmeasured cache bounds". Those bounds are
+   measured now and the question is answered, so that pointer is stale. It
+   states nothing about this record's amendment status, so it is not a flip
+   site; it is an edit ADR-0005 owes, recorded here so it is not lost. ADR-0003
+   already cured its parallel reference in its own Note.
