@@ -324,8 +324,7 @@ exactly what it is for.
   variable is a material-source *shape* rather than an adapter.
 - **ADR-0003** amendment A decision 3 - `:derivation_salt` is refused at
   layer 2 as well, for a different reason: not secret, but per deployment.
-  The amendment is **proposed**, not accepted (the record says so at its
-  head); the refusal itself is landed, in `Encryptor.Vault.Config`'s
+  The amendment is accepted (2026-09-13); the refusal itself is landed, in `Encryptor.Vault.Config`'s
   deployment-option list.
 - **ADR-0004** decision 4 - the reference subkey is key material and is
   refused at layer 2 with the rest (accepted, with amendments).

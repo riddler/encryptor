@@ -3,13 +3,13 @@
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-vault-layer.md) | A vault is a supervised, host-owned module that wraps the engine completely | accepted (2026-08-27) |
-| [0002](0002-key-providers.md) | A key provider resolves a selector to key descriptors, and the vault alone builds keyrings | accepted (2026-08-27) |
+| [0002](0002-key-providers.md) | A key provider resolves a selector to key descriptors, and the vault alone builds keyrings | accepted (2026-08-27, amended) |
 | [0003](0003-per-tenant-envelope.md) | A tenant key is a random key wrapped into an ordinary message, and the host stores the wrapping | accepted (2026-08-27, amended) |
 | [0004](0004-encryption-context.md) | The encryption context is a vault-composed, profile-enforced set of identifying keys | accepted (2026-08-27, amended) |
-| [0005](0005-rotation-and-crypto-shred.md) | Rotation is three independent lifecycles, and only the shred is irreversible | accepted (2026-08-27) |
-| [0006](0006-telemetry-and-observability.md) | Telemetry is a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | proposed (2026-08-27) |
-| [0007](0007-gcp-kms-wrap-provider.md) | GCP KMS is a wrap-provider, not a keyring, and it owns the tenant key's whole lifecycle | proposed (2026-09-12) |
-| [0008](0008-aws-kms-keyring-backed.md) | AWS KMS is the keyring-backed row, and the descriptor carries the client | proposed (2026-09-12) |
+| [0005](0005-rotation-and-crypto-shred.md) | Rotation is three independent lifecycles, and only the shred is irreversible | accepted (2026-08-27, amended) |
+| [0006](0006-telemetry-and-observability.md) | Telemetry is a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | accepted (2026-09-13) |
+| [0007](0007-gcp-kms-wrap-provider.md) | GCP KMS is a wrap-provider, not a keyring, and it owns the tenant key's whole lifecycle | accepted (2026-09-13) |
+| [0008](0008-aws-kms-keyring-backed.md) | AWS KMS is the keyring-backed row, and the descriptor carries the client | accepted (2026-09-13) |
 
 New ADRs: next number, same three-section format (Context, Decision,
 Consequences), plus typespecs, at least one worked example, and any open

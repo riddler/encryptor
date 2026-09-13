@@ -1,8 +1,8 @@
 # ADR-0005: Rotation is three independent lifecycles, and only the shred is irreversible
 
-Status: accepted (2026-08-27)
+Status: accepted (2026-08-27, amended)
 
-**Amendment A (2026-09-12) is proposed, not accepted.** It is appended at the
+**Amendment A (2026-09-12) is accepted (2026-09-13).** It is appended at the
 end of this record and it is additive. It reverses none of decisions 1 to 10
 below and rewrites none of them; the one decision it extends rather than
 leaves alone is decision 10, whose "Shipped, as functions" list gains two
@@ -900,10 +900,9 @@ that this record deliberately did not make itself.
    half a control. Owner: whoever writes the security section of the
    documentation, with ADR-0001 open question 2's unmeasured cache bounds.
 
-## Amendment A (proposed, 2026-09-12): suspend, the third verb
+## Amendment A (2026-09-12; accepted 2026-09-13): suspend, the third verb
 
-Status: **proposed**. Nothing below is accepted; the acceptance reading is the
-operator's. This amendment only adds: it reverses and rewrites nothing in
+Status: **accepted (2026-09-13)**, by the operator's reading. This amendment only adds: it reverses and rewrites nothing in
 decisions 1 to 10, and the one it extends is decision 10's shipped list (A1).
 
 ### Why now
