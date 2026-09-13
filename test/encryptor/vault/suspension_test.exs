@@ -18,6 +18,7 @@ defmodule Encryptor.Vault.SuspensionTest do
   alias AwsEncryptionSdk.Cache.LocalCache
   alias AwsEncryptionSdk.Cmm.Caching
   alias AwsEncryptionSdk.Materials.EncryptionMaterials
+  alias Encryptor.Context
   alias Encryptor.DecryptVaults
   alias Encryptor.DeriveVaults
   alias Encryptor.EncryptVaults
@@ -26,6 +27,7 @@ defmodule Encryptor.Vault.SuspensionTest do
   alias Encryptor.LifecycleVaults
   alias Encryptor.Vault
   alias Encryptor.Vault.Partition
+  alias Encryptor.Vault.Reference
   alias Encryptor.Vault.Suspension
 
   @pan "4111111111111111"
@@ -47,11 +49,25 @@ defmodule Encryptor.Vault.SuspensionTest do
 
   # An entry written where the engine would write one, so a test can hold
   # materials resident for a partition without going through an encrypt.
+  #
+  # The cache id is computed over the composed context, not over the caller's
+  # half of it: `Encryptor.Vault.Resolve.context/5` adds the tenant reference
+  # on a `:tenant` vault, and the required-context CMM passes the whole map
+  # down to the caching one. Planting under `%{}` would leave a resident entry
+  # at an id the asserted call never looks up, and a test that means "the
+  # materials are still there" would pass on an empty partition.
   defp put_entry(vault, selector) do
-    id = Caching.compute_encryption_cache_id(Partition.id(vault, selector), suite(), %{})
-    entry = CacheEntry.new(EncryptionMaterials.new_for_encrypt(suite(), %{}), 300)
+    context = composed_context(selector)
+    id = Caching.compute_encryption_cache_id(Partition.id(vault, selector), suite(), context)
+    entry = CacheEntry.new(EncryptionMaterials.new_for_encrypt(suite(), context), 300)
 
     :ok = LocalCache.put_cache_entry(Vault.cache_name(vault), id, entry)
+  end
+
+  defp composed_context(selector) do
+    reference = Reference.derive(EncryptVaults.reference_subkey(), selector)
+
+    Map.put(@columns, Context.tenant_ref_key(), reference)
   end
 
   describe "the observable (A1)" do
