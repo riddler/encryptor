@@ -96,7 +96,7 @@ defmodule Encryptor.Vault.Suspension do
   @spec suspend(Config.t(), Error.selector()) :: :ok | {:error, Error.t()}
   def suspend(%Config{vault: vault}, selector) do
     with :ok <- put(vault, selector) do
-      _ = CacheRecycler.recycle(Vault.supervisor_name(vault))
+      _ = CacheRecycler.recycle(vault, Vault.supervisor_name(vault))
 
       :ok
     end

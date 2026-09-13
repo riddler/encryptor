@@ -87,6 +87,13 @@ defmodule Encryptor.MixProject do
     [
       {:aws_encryption_sdk, "~> 1.0"},
 
+      # Hard runtime dependency, deliberately not optional (ADR-0006 decision
+      # 1). An optional telemetry dependency buys two builds with different
+      # observability, and the un-observed one is the build in production at
+      # three in the morning. `:telemetry` has no dependencies of its own and
+      # brings no AWS, HTTP or XML library with it.
+      {:telemetry, "~> 1.3"},
+
       # Optional: only a host whose vaults declare `:slow_hash` carries the
       # NIF (ADR-0003 amendment B decision 5).
       {:argon2_elixir, "~> 4.0", optional: true},

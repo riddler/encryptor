@@ -48,6 +48,8 @@ defmodule Encryptor.Vault.Supervisor do
 
   use Supervisor
 
+  alias Encryptor.Error
+  alias Encryptor.Telemetry
   alias Encryptor.Vault
   alias Encryptor.Vault.CacheRecycler
   alias Encryptor.Vault.Config
@@ -58,16 +60,52 @@ defmodule Encryptor.Vault.Supervisor do
   under `Encryptor.Vault.supervisor_name/1`.
 
   `start_opts` are layer 4 of the configuration precedence chain.
+
+  ## Telemetry
+
+  A resolved configuration whose supervisor comes up emits
+  `[:encryptor, :vault, :started]`, and a configuration the vault refuses
+  emits `[:encryptor, :vault, :start_refused]` (ADR-0006 decision 10). Both
+  fire here rather than in `init/1` because resolution happens here, before
+  any process exists, and because `Encryptor.Vault.Lifecycle` is the first
+  child - so by the time `Supervisor.start_link/3` returns, the configuration
+  is frozen and `:started` is telling the truth.
+
+  The refusal event is the one whose usefulness is bounded by when it fires:
+  a vault started from the host's application supervisor is refused before
+  the host's own handlers are attached, and the event goes nowhere. It still
+  fires for a vault started later.
   """
   @spec start_link(module(), keyword()) :: Supervisor.on_start()
   def start_link(vault, start_opts \\ []) do
     otp_app = vault.__vault__(:otp_app)
     use_opts = vault.__vault__(:use_opts)
 
-    with {:ok, config} <- Config.resolve(vault, otp_app, use_opts, start_opts) do
-      Supervisor.start_link(__MODULE__, config, name: Vault.supervisor_name(vault))
+    case Config.resolve(vault, otp_app, use_opts, start_opts) do
+      {:ok, config} ->
+        started(
+          config,
+          Supervisor.start_link(__MODULE__, config, name: Vault.supervisor_name(vault))
+        )
+
+      {:error, %Error{} = error} ->
+        Telemetry.vault_start_refused(vault, error)
+
+        {:error, error}
     end
   end
+
+  # A supervisor that did not come up did not start a vault, so it gets no
+  # `:started`. What it reports is a supervisor failure rather than a
+  # configuration one, and `:start_refused` is decision 3's name for the
+  # latter only.
+  defp started(%Config{} = config, {:ok, pid}) do
+    Telemetry.vault_started(config)
+
+    {:ok, pid}
+  end
+
+  defp started(%Config{}, other), do: other
 
   @impl Supervisor
   def init(%Config{} = config) do
@@ -97,6 +135,7 @@ defmodule Encryptor.Vault.Supervisor do
           {CacheRecycler, :start_link,
            [
              [
+               vault: vault,
                supervisor: Vault.supervisor_name(vault),
                interval: bounds.recycle_after * 1_000,
                name: Vault.recycler_name(vault)
