@@ -13,8 +13,9 @@ defmodule Encryptor.Key do
 
     * `Encryptor.Key.Aes` - raw AES wrapping material. Maps to the engine's
       `RawAes` keyring.
-    * `Encryptor.Key.Kms` - an AWS KMS key id. Reserved for the KMS adapter,
-      which is where its keyring mapping is specified and where it ships.
+    * `Encryptor.Key.Kms` - an AWS KMS key id and the client that reaches it.
+      Maps to the engine's `AwsKms` or `AwsKmsMrk` keyring, and is answered by
+      `Encryptor.Provider.Kms` alone.
 
   The set being closed is the engine's closed dispatch reappearing one layer
   up. Publishing an open behaviour that would reject most implementations of
@@ -35,7 +36,7 @@ defmodule Encryptor.Key do
   the vault, immediately before it constructs the keyring, in the vault-internal
   keyring builder.
 
-  Records: ADR-0002 decisions 3, 4, and 5.
+  Records: ADR-0002 decisions 3, 4, and 5; ADR-0008 decisions 1 and 3.
   """
 
   @typedoc """

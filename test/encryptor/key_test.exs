@@ -69,6 +69,27 @@ defmodule Encryptor.KeyTest do
     test "accepts an explicit multi-region key" do
       assert %Kms{mrk: true} = %Kms{key_id: "mrk-abcd1234", mrk: true}
     end
+
+    # sabotage: added :client to @enforce_keys - this goes red. The struct
+    # shipped at 0.2.0 with two fields, and enforcing the third would break a
+    # host that had built one by hand.
+    test "defaults :client to nil rather than enforcing it" do
+      assert %Kms{client: nil} = %Kms{key_id: "arn:aws:kms:us-east-1:111122223333:key/abcd1234"}
+    end
+
+    # sabotage: dropped the @derive Inspect line - this goes red. The engine's
+    # shipped client carries a free-form config keyword, which is where a
+    # static access key id and secret conventionally live, and a descriptor
+    # reaches an error struct a host may well log.
+    test "redacts :client from inspect/2" do
+      client = %URI{host: "kms.us-east-1.amazonaws.com", userinfo: "AKIAIOSFODNN7EXAMPLE"}
+
+      rendered =
+        inspect(%Kms{key_id: "arn:aws:kms:us-east-1:111122223333:key/abcd1234", client: client})
+
+      refute rendered =~ "AKIAIOSFODNN7EXAMPLE"
+      assert rendered =~ "abcd1234"
+    end
   end
 
   # Not a key. Bytes shaped like one, for a struct that never looks at them.

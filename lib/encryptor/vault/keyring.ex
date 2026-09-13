@@ -36,6 +36,16 @@ defmodule Encryptor.Vault.Keyring do
   # material. `Encryptor.Error` does not render the detail into a message
   # either; this is the belt, that is the braces.
   #
+  # ## Two shapes, one rule
+  #
+  # `%Encryptor.Key.Aes{}` maps to a `RawAes` keyring and `%Encryptor.Key.Kms{}`
+  # to one of the engine's two AWS KMS keyrings, against the client the
+  # descriptor carries (ADR-0008 decision 1). The set is closed at those two
+  # and both are buildable. What differs between them is not the rule above -
+  # every field is validated here first, in this package's vocabulary - but
+  # what the header ends up recording: on the KMS path the engine writes the
+  # provider id and the key ARN, and this package writes nothing.
+  #
   # ## If the engine rejects what we accepted
   #
   # Our validation is a superset of the engine's, so the construction below
@@ -43,6 +53,8 @@ defmodule Encryptor.Vault.Keyring do
   # own term arrives as the detail rather than being swallowed - that is a
   # defect in this module's validation, and it should be visible as one.
 
+  alias AwsEncryptionSdk.Keyring.AwsKms
+  alias AwsEncryptionSdk.Keyring.AwsKmsMrk
   alias AwsEncryptionSdk.Keyring.Behaviour, as: EngineKeyring
   alias AwsEncryptionSdk.Keyring.Multi
   alias AwsEncryptionSdk.Keyring.RawAes
@@ -51,7 +63,7 @@ defmodule Encryptor.Vault.Keyring do
   alias Encryptor.Key.Kms
 
   @typedoc false
-  @type t :: RawAes.t() | Multi.t()
+  @type t :: RawAes.t() | AwsKms.t() | AwsKmsMrk.t() | Multi.t()
 
   @doc false
   @spec build(module(), Error.operation(), term()) :: {:ok, t()} | {:error, Error.t()}
@@ -65,13 +77,34 @@ defmodule Encryptor.Vault.Keyring do
     end
   end
 
-  # Recognized, and deliberately not buildable yet: the KMS mapping ships with
-  # the KMS provider, which ADR-0002 decision 5 sequences after the envelope.
-  # The detail says "no mapping", not "unknown struct", because the two are
-  # different facts and a reader of the failure needs to be able to tell them
-  # apart.
-  def build(vault, operation, %Kms{}) do
-    {:error, invalid(vault, operation, {:no_keyring_mapping, Kms})}
+  # The commonest misconfiguration on this path gets its own answer, ahead of
+  # the general validation: a provider that forgot to copy the client it built
+  # in `init/1` onto the descriptor it answered with. The generic
+  # `{:invalid_key_field, :client, :missing}` would name the descriptor's
+  # author as the culprit, and the provider is (ADR-0008 decision 1).
+  def build(vault, operation, %Kms{client: nil}) do
+    {:error, invalid(vault, operation, {:missing_client, Kms})}
+  end
+
+  # `:mrk` selects the engine struct and nothing else. At engine v1.0.0 the
+  # two are the same code path; keeping the mapping is what makes an engine
+  # version that separates them need no change here (ADR-0008 decision 8).
+  def build(vault, operation, %Kms{mrk: false} = key) do
+    with :ok <- checks(key),
+         {:ok, keyring} <- AwsKms.new(key.key_id, key.client) do
+      {:ok, keyring}
+    else
+      {:error, detail} -> {:error, invalid(vault, operation, detail)}
+    end
+  end
+
+  def build(vault, operation, %Kms{mrk: true} = key) do
+    with :ok <- checks(key),
+         {:ok, keyring} <- AwsKmsMrk.new(key.key_id, key.client) do
+      {:ok, keyring}
+    else
+      {:error, detail} -> {:error, invalid(vault, operation, detail)}
+    end
   end
 
   def build(vault, operation, other) do
@@ -144,7 +177,7 @@ defmodule Encryptor.Vault.Keyring do
     end
   end
 
-  @spec checks(Aes.t()) :: :ok | {:error, term()}
+  @spec checks(Aes.t() | Kms.t()) :: :ok | {:error, term()}
   defp checks(%Aes{} = key) do
     with :ok <- validate_header_string(key.namespace, :namespace),
          :ok <- validate_namespace(key.namespace),
@@ -154,7 +187,28 @@ defmodule Encryptor.Vault.Keyring do
     end
   end
 
-  @spec validate_header_string(term(), :namespace | :name) :: :ok | {:error, term()}
+  # The superset rule the moduledoc states is not waived for this shape.
+  # `AwsKms.new/3`'s own `:key_id_required`, `:key_id_empty`,
+  # `:invalid_key_id_type` and `:invalid_client_type` would otherwise reach a
+  # caller as the engine's bare atoms, which is the defect the moduledoc says
+  # it would be. `validate_header_string/2` is reused unchanged: its three
+  # failures are the engine's three `key_id` failures, in this package's
+  # vocabulary.
+  defp checks(%Kms{} = key) do
+    with :ok <- validate_header_string(key.key_id, :key_id) do
+      validate_client(key.client)
+    end
+  end
+
+  # Total on its own, including the `nil` case `build/3`'s dedicated head
+  # clause answers first, so that a caller running the checks without the
+  # construction gets a settled answer rather than a FunctionClauseError.
+  @spec validate_client(term()) :: :ok | {:error, term()}
+  defp validate_client(nil), do: {:error, {:invalid_key_field, :client, :missing}}
+  defp validate_client(%_struct{}), do: :ok
+  defp validate_client(_other), do: {:error, {:invalid_key_field, :client, :not_a_struct}}
+
+  @spec validate_header_string(term(), :namespace | :name | :key_id) :: :ok | {:error, term()}
   defp validate_header_string(value, field) do
     cond do
       not is_binary(value) -> {:error, {:invalid_key_field, field, :not_a_string}}
