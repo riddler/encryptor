@@ -336,7 +336,7 @@ good one, because the record is what makes it reviewable.
 | [ADR-0003](https://github.com/riddler/encryptor/blob/main/docs/adr/0003-per-tenant-envelope.md) | The per-tenant envelope: a tenant key is 32 random bytes wrapped into an ordinary message, and the host stores the wrapping | accepted, amended |
 | [ADR-0004](https://github.com/riddler/encryptor/blob/main/docs/adr/0004-encryption-context.md) | The encryption-context convention: the canonical keys, who supplies each, and how a vault enforces them | accepted, amended |
 | [ADR-0005](https://github.com/riddler/encryptor/blob/main/docs/adr/0005-rotation-and-crypto-shred.md) | Rotation and crypto-shred: three independent lifecycles, five operator procedures, and the one step that cannot be undone | accepted, amended |
-| [ADR-0006](https://github.com/riddler/encryptor/blob/main/docs/adr/0006-telemetry-and-observability.md) | Telemetry: a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | accepted |
+| [ADR-0006](https://github.com/riddler/encryptor/blob/main/docs/adr/0006-telemetry-and-observability.md) | Telemetry: a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | accepted, amended |
 | [ADR-0007](https://github.com/riddler/encryptor/blob/main/docs/adr/0007-gcp-kms-wrap-provider.md) | GCP KMS: a wrap-provider rather than a keyring, owning the tenant key's whole lifecycle from `provision/2` to the destroyed key version | accepted |
 | [ADR-0008](https://github.com/riddler/encryptor/blob/main/docs/adr/0008-aws-kms-keyring-backed.md) | AWS KMS: the keyring-backed row, where the descriptor carries the client and the data key never leaves KMS | accepted |
 

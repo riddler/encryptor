@@ -2,9 +2,10 @@
 
 Status: accepted (2026-09-13)
 
-**Amendment A (2026-09-13) is proposed.** It is appended at the end of this
-record, it is additive, and it changes none of decisions 1 to 10 below; the
-three sentences it narrows are quoted with their amended wording in its A6.
+**Amendment A (2026-09-13) is accepted (2026-09-13).** It is appended at the
+end of this record, it is additive, and it changes none of decisions 1 to 10
+below; the three sentences it narrows are quoted with their amended wording in
+its A6.
 
 ## Context
 
@@ -636,10 +637,11 @@ Recorded rather than guessed. Each names who should settle it.
    costs an HMAC per event on a path the same record was careful about. Worth
    revisiting after a real incident says how badly it was wanted.
 
-   *Answered by Amendment A (2026-09-13; proposed): yes - opt-in and keyed.
-   The vault option `:telemetry_tenant_ref` is off by default, refused on a
-   `:single` vault, and carries ADR-0003 decision 5's `tenant_ref` in full and
-   never the partition id.*
+   *Resolved at Amendment A's acceptance (2026-09-13): yes - opt-in and
+   keyed. The vault option `:telemetry_tenant_ref` is off by default, refused
+   on a `:single` vault, and carries ADR-0003 decision 5's `tenant_ref` in full
+   and never the partition id. Amendment A below is this record's answer to
+   this question.*
 
 5. **Whether `size` should exist at all.** The argument for it is ADR-0004
    decision 12's - the ciphertext already discloses the length to anyone
@@ -667,10 +669,10 @@ Recorded rather than guessed. Each names who should settle it.
    `opentelemetry_encryptor`, and whether it belongs beside the statifier
    bridge or on its own, is not this record's and not this repository's.
 
-## Amendment A (2026-09-13; proposed): the opt-in keyed tenant dimension
+## Amendment A (2026-09-13; accepted 2026-09-13): the opt-in keyed tenant dimension
 
-Status: **proposed (2026-09-13)**. This amendment answers open question 4. It
-only adds: decisions 1 to 10 stand as written, and the three sentences it
+Status: **accepted (2026-09-13)**, by the operator's reading. This amendment
+answers open question 4. It only adds: decisions 1 to 10 stand as written, and the three sentences it
 narrows are quoted with their amended wording in A6 rather than edited where
 they sit.
 
@@ -1129,3 +1131,72 @@ grammar still hedges.
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, no event name is added or removed, and this Note carries the record's
 status rather than one of its own.
+
+## Note (2026-09-13): Amendment A accepted; the flip's four sites, and where its cites resolve today
+
+The operator accepted Amendment A on 2026-09-13, in the same reading that
+accepted this record itself. This Note records that acceptance, meets the
+sentences in Amendment A's body that named its own proposed status, and
+re-locates the amendment's cites against `main` at `6acefff`. It changes no
+decision: decisions 1 to 10 and A1 to A6 stand exactly as written, and it
+carries the record's status rather than one of its own.
+
+### 1. The four sites A6 named are flipped
+
+A6 says the flip touches "the pointer under the record's own `Status` line,
+this amendment's heading, its `Status` line, and the answer line under open
+question 4". All four are flipped in this commit, and nothing else in the
+record's words changed. The fourth is composed rather than substituted,
+because the Note above (item 8) settled that it takes composed prose and
+named ADR-0004's `*Resolved at acceptance (...)*` form as the model.
+
+### 2. The sentences that named the proposed status are met, not reworded
+
+Two sentences speak of Amendment A as proposed. They are left exactly as they
+stand, and this Note is where they are answered.
+
+- A6's closing paragraph: "Until then the question is answered by a proposed
+  amendment and the line says so, because a proposed record may not record
+  itself as resolved." **Met.** The "until then" ended on 2026-09-13, and open
+  question 4's answer line now records the resolution as this record's own.
+- The Note above, item 8: "At the flip, that line is **composed**, not
+  substituted." **Met**, in the form that item prescribed.
+
+### 3. Where Amendment A's cites resolve at `6acefff`
+
+Amendment A labels its cites `read at 40957e6`. Its own implementation - the
+four spans and the opt-in dimension - and the prose corrections that landed
+with the Note above have moved several of them since. Every cite below was
+re-read by anchor at `6acefff`. **Every claim holds**; what follows is
+re-location, not correction.
+
+| Cited in Amendment A | Resolves at `6acefff` |
+|---|---|
+| `lib/encryptor/vault/resolve.ex:213-216`, `Resolve.vault_supplied/2` deriving the reference | `Encryptor.Vault.Resolve.reference/2` (`lib/encryptor/vault/resolve.ex:206-209`) derives it once per `open/3`, and `vault_supplied/1` (`:263-267`) receives the derived string. The arity changed because A3's derive-once threading is what this code now implements |
+| `lib/encryptor/vault/config.ex:252` and `:677-687`, the reference subkey frozen onto the configuration | the typespec at `lib/encryptor/vault/config.ex:246`, the struct field at `:266`, the resolve at `:432` and `:451`, the `:tenant` clause of `reference_subkey/3` at `:721-732`, with the `:single` clause beside it at `:734-743` |
+| `lib/encryptor/vault/config.ex:274-283`, `defaults/0` beside `cache: false` | `lib/encryptor/vault/config.ex:288-297`, where `telemetry_tenant_ref: false` now sits at `:296` as A1 decided |
+| `lib/encryptor/vault/config.ex:552`, `{:invalid_config, :cache, :not_false_or_keyword_list}` | `lib/encryptor/vault/config.ex:569` and `:572` |
+| `lib/encryptor/envelope.ex:435-450` and `:441`; `lib/encryptor/vault/reference.ex:47-54`; `lib/encryptor/vault/resolve.ex:60-65` | unchanged, at those anchors |
+| `docs/adr/0003-per-tenant-envelope.md:228-246`; `docs/adr/0004-encryption-context.md:227-234`, `:908-939` and `:939` | unchanged, at those anchors |
+| this record's own `:180-186`, `:188-199`, `:239-241`, `:245-246`, `:270-273`, `:321-341`, `:382-390`, `:408`, `:430-441`, `:623-633` | each five lines later **in this record as it now stands**: read them as `:185-191`, `:193-204`, `:244-246`, `:250-251`, `:275-278`, `:326-346`, `:387-395`, `:413`, `:435-446`, `:628-638`. Four of those five lines are the Amendment A pointer paragraph that landed under the record's `Status` line with the amendment itself; the fifth is this flip re-wrapping that paragraph. Nothing in decision 4's tables moved relative to its own neighbours. Against `6acefff`, before this flip, the same anchors read one line lower |
+
+### 4. A1 to A6 are implemented, and the implementation matches
+
+A1's option is in `defaults/0` and its two refusals are at
+`lib/encryptor/vault/config.ex:646-657`. A3's derive-once rule is the
+`reference/2` and `telemetry_reference/1` pair at
+`lib/encryptor/vault/resolve.ex:202-225`. A6's amended moduledoc wording is
+written at `lib/encryptor/telemetry.ex:7`. The three sentences A6 quotes are
+still unamended where they sit in this record, which is what A6 said it would
+do: record their amended wording rather than edit them in place.
+
+### 6. What the pass-1 direction review corrected in this Note
+
+The cold direction review of this flip found section 3's table wrong in two
+ways, and it is corrected above rather than left for a reader to trip over.
+`:180-186` and `:188-199` were listed as unchanged; they moved with every
+other self-cite. And the stated cause - four rows added to decision 4's
+metadata table - was false: those four rows already existed when Amendment A
+was written, and the whole shift is the amendment's own pointer paragraph
+under the record's `Status` line. The re-located values are also now given
+as they read in this record after the flip, rather than one line lower.
