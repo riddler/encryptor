@@ -180,6 +180,51 @@ defmodule Encryptor.Vault.Resolve do
   end
 
   @doc false
+  # ADR-0006 amendment A decision 3: the two steps every instrumented path
+  # takes before its `:start` half fires, taken together, with the tenant
+  # reference derived **once per operation** here and threaded from here on.
+  #
+  # The ordering is the amendment's and not a convenience: a `:start` half
+  # emitted before selector resolution could not carry the key the option
+  # promises, and decision 3's span pairing gives no other place to put it. A
+  # selector this vault refuses still opens and closes its span - it simply
+  # has no reference to report, and `reason_tag: :invalid_selector` on the
+  # stop half is the disambiguator a handler uses.
+  @spec open(module(), keyword(), Error.operation()) ::
+          {:ok, Config.t(), Error.selector(), String.t() | nil} | {:error, Error.t()}
+  def open(vault, opts, operation) do
+    with {:ok, config} <- Encryptor.Vault.ready(vault, operation),
+         {:ok, selector} <- selector(config, opts, operation) do
+      {:ok, config, selector, reference(config, selector)}
+    end
+  end
+
+  @doc false
+  # ADR-0004 decision 4's `tenant_ref`, derived once. `nil` on a `:single`
+  # vault, which has no tenant to name.
+  @spec reference(Config.t(), Error.selector()) :: String.t() | nil
+  def reference(%Config{context_profile: :tenant} = config, selector) when is_binary(selector),
+    do: Reference.derive(config.reference_subkey, selector)
+
+  def reference(%Config{}, _selector), do: nil
+
+  @doc false
+  # What the span halves of an `open/3` operation carry, or `nil` when this
+  # vault did not opt in. `nil` means the key is **absent** from the metadata
+  # map rather than present as `nil` (amendment A decision 3): a handler
+  # distinguishes "this host did not opt in" from any value by
+  # `Map.has_key?/2`, and a `nil` in a `:telemetry_metrics` tag is a dimension
+  # value.
+  @spec telemetry_reference(
+          {:ok, Config.t(), Error.selector(), String.t() | nil}
+          | {:error, Error.t()}
+        ) :: String.t() | nil
+  def telemetry_reference({:ok, %Config{telemetry_tenant_ref: true}, _selector, reference}),
+    do: reference
+
+  def telemetry_reference(_opened), do: nil
+
+  @doc false
   # The four layers, composed. At encrypt this is the context the message will
   # carry; at decrypt it is the context the reader claims the message carries,
   # and the two are built the same way on purpose - a reader that composed its
@@ -193,13 +238,18 @@ defmodule Encryptor.Vault.Resolve do
   # under a prefix `Encryptor.Context` refuses it - which is the whole content
   # of `{:reserved_context_key, key}`. Nothing on the public vault surface
   # passes it; only the envelope does.
-  @spec context(Config.t(), Error.selector(), keyword(), Error.operation(), Context.context()) ::
+  #
+  # `reference` is the value `reference/2` derived for this operation rather
+  # than the selector it was derived from: ADR-0006 amendment A decision 3
+  # fixes one derivation per operation, and a second call here would be a
+  # defect against that amendment rather than a slow implementation of it.
+  @spec context(Config.t(), String.t() | nil, keyword(), Error.operation(), Context.context()) ::
           {:ok, Context.context()} | {:error, Error.t()}
-  def context(config, selector, opts, operation, reserved \\ %{}) do
+  def context(config, reference, opts, operation, reserved \\ %{}) do
     per_call = Keyword.get(opts, :encryption_context, %{})
 
     Context.compose(config, per_call,
-      supplied: vault_supplied(config, selector),
+      supplied: vault_supplied(reference),
       reserved: reserved,
       operation: operation
     )
@@ -210,12 +260,11 @@ defmodule Encryptor.Vault.Resolve do
   # argument and the context pair are incapable of disagreeing. A caller that
   # supplies `tenant_ref` or `tenant_id` is refused by `Encryptor.Context`,
   # which is where the reserved vocabulary lives.
-  @spec vault_supplied(Config.t(), Error.selector()) :: Context.context()
-  defp vault_supplied(%Config{context_profile: :tenant} = config, selector) do
-    %{Context.tenant_ref_key() => Reference.derive(config.reference_subkey, selector)}
-  end
+  @spec vault_supplied(String.t() | nil) :: Context.context()
+  defp vault_supplied(reference) when is_binary(reference),
+    do: %{Context.tenant_ref_key() => reference}
 
-  defp vault_supplied(%Config{context_profile: :single}, _selector), do: %{}
+  defp vault_supplied(nil), do: %{}
 
   @spec error(Config.t(), Error.operation(), Error.reason(), term()) :: Error.t()
   defp error(%Config{vault: vault}, operation, reason, engine \\ nil) do
