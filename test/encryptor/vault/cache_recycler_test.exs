@@ -110,6 +110,20 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
     # sabotage: made recycle/1 call Supervisor.terminate_child/2 and stop -
     # red on the second assertion, because the cache is then never started
     # again and the vault runs on without one.
+    #
+    # This is the one recycling test that reads *through* the cache, and
+    # `cached?/2` reaches it with a `GenServer.call`. Driving the recycle
+    # synchronously rather than starting a ticking recycler is what makes
+    # those reads safe: `recycle/2` returns only once
+    # `Supervisor.restart_child/2` has returned, and the child registers its
+    # name inside `start_link`, so the cache is alive and registered under
+    # its name before the first read runs. A ticking recycler instead kept
+    # firing underneath the assertions, and every further tick reopened the
+    # microsecond `:noproc` window the moduledoc describes - `await_recycle`
+    # answers the moment a *new* pid is registered, which says nothing about
+    # the *next* recycle - so a read could land in one and exit `:noproc`
+    # (enc-eaa). The tick itself is covered by the two tests below, neither
+    # of which reads through the cache.
     test "a recycle empties every partition at once" do
       put_entry(LifecycleVaults.Cached, "tenant-42")
       put_entry(LifecycleVaults.Cached, "tenant-43")
@@ -119,18 +133,16 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
 
       before = cache_pid(LifecycleVaults.Cached)
 
-      start_supervised!(
-        {CacheRecycler,
-         [
-           vault: LifecycleVaults.Cached,
-           supervisor: Vault.supervisor_name(LifecycleVaults.Cached),
-           interval: 25
-         ]}
-      )
-
-      after_recycle = await_recycle(LifecycleVaults.Cached, before)
+      assert {:ok, after_recycle} =
+               CacheRecycler.recycle(
+                 LifecycleVaults.Cached,
+                 Vault.supervisor_name(LifecycleVaults.Cached)
+               )
 
       assert is_pid(after_recycle)
+      assert after_recycle != before
+      assert cache_pid(LifecycleVaults.Cached) == after_recycle
+
       refute cached?(LifecycleVaults.Cached, "tenant-42")
       refute cached?(LifecycleVaults.Cached, "tenant-43")
     end
