@@ -290,9 +290,10 @@ defmodule Encryptor.Provider.GcpKms do
   @doc """
   Every live master key for the tenant, newest first.
 
-  One `Decrypt` per row on a cache miss; the vault's materials cache collapses
-  repeated resolutions to one round trip per partition per `max_age`
-  (ADR-0002 decision 2).
+  One `Decrypt` per row, on every call. The vault's materials cache sits in
+  front of the CMM rather than in front of the provider, so it does not reduce
+  that count, whatever `max_age` is set to (ADR-0002 Amendment A's A1,
+  ADR-0007 Amendment A's A1).
   """
   @impl Provider
   @spec decryption_keys(state(), Provider.selector()) ::
