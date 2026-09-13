@@ -40,9 +40,15 @@ answers them.
 
 - **Per-tenant keys and rotation are first-class.** A ciphertext records which
   key wrote it, decryption resolves the key it names, and rotation is
-  re-encryption against a new version rather than a flag day. A tenant master
-  key is 32 random bytes rather than a derivation of the tenant id, so
-  destroying its wrapping destroys the key and a crypto-shred is honest.
+  re-encryption against a new version rather than a flag day. On a
+  material-source provider a tenant master key is 32 random bytes rather than a
+  derivation of the tenant id, so destroying its wrapping destroys the key and a
+  crypto-shred is honest. On the keyring-backed provider
+  (`Encryptor.Provider.Kms`) the wrapping key never leaves AWS KMS, so the shred
+  is `ScheduleKeyDeletion` on the tenant's key and the pending-deletion window
+  is not a reprieve - ADR-0008 decision 4 states the difference row by row and
+  the runbook [reproduces its
+  table](guides/rotation-runbook.md#the-shred-and-the-rotate-per-key-shape).
 
 - **The message format stays the AWS ESDK's.** Ciphertexts are interoperable
   with the official ESDKs, so data written from Elixir is readable from Java,
@@ -98,12 +104,13 @@ def deps do
 end
 ```
 
-Pin an exact version and read the changelog before upgrading: per the
-stability notice above, public APIs, storage formats, and derivation
-constants may change between releases until 1.0.0. **Do not depend on
-`encryptor 0.1.0`** - that version is a name reservation published before
-the implementation existed and holds no code; 0.2.0 is the first release
-that does.
+Read the changelog before upgrading. Per the pre-1.0 notice above, the public
+surface (modules, callbacks, table columns, telemetry events, error vocabulary)
+may change between minor releases with no compatibility shim, and every such
+change is recorded under a bold **Breaking** heading saying what to do about
+it. **Do not depend on `encryptor 0.1.0`** - that version is a name
+reservation published before the implementation existed and holds no code;
+0.2.0 is the first release that does.
 
 Requires Elixir ~> 1.18.
 
@@ -184,7 +191,10 @@ Three configuration notes the quickstart above is making silently:
   crosses a trust boundary.
 - `:max_age` is **required** whenever `:cache` is a list, in seconds, with no
   default. It is how long a data key may stay in this node's memory, and
-  therefore how long a crypto-shred takes to take effect.
+  therefore how long a crypto-shred takes to take effect on a material-source
+  provider. On the keyring-backed path the shred is a KMS key deletion and its
+  own window bounds it, not `max_age`; see the [per-shape
+  table](guides/rotation-runbook.md#the-shred-and-the-rotate-per-key-shape).
 
 The [getting-started guide](guides/getting-started.md) continues from here
 into the per-tenant vault, the two root secrets a deployment provisions on day
@@ -303,10 +313,13 @@ parameters that produced it. Treat a `:slow_hash` change the way you treat a
   is, how to choose the boundary it names, what one key per boundary buys,
   the rotate/suspend/shred verb table, and cryptographic erasure at its true
   strength.
-- **[Rotation runbook](guides/rotation-runbook.md)** - the four operator
-  procedures, what each step destroys, which steps this package ships as
-  functions and which are actions on a store it does not own, and what a
-  crypto-shred does and does not achieve.
+- **[Rotation runbook](guides/rotation-runbook.md)** - the five operator
+  procedures, including suspend and reinstate; what each step destroys, which
+  steps this package ships as functions and which are actions on a store it
+  does not own, what a crypto-shred does and does not achieve, how the shred
+  and the rotate read per key shape, and the GCP operator section (the ring and
+  the IAM bindings out of band, the Terraform destroy-time hazard, and P3 step
+  2a).
 - **[CHANGELOG](CHANGELOG.md)** - read it before every upgrade until 1.0.0.
 
 ### Decision records

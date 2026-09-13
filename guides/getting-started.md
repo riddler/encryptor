@@ -182,6 +182,15 @@ Naming a number forces you to have decided. A shorter `max_age` means more
 provider round trips and a faster shred; a longer one means fewer round trips
 and a longer tail on every deletion.
 
+That whole paragraph assumes deleting the wrapping is what destroys the key,
+which is true of every provider in this guide and **not** true of a
+keyring-backed one. Under `Encryptor.Provider.Kms` the wrapping key lives in AWS
+KMS and never in your store, so the shred is `ScheduleKeyDeletion` on the
+tenant's KMS key and cache drainage is not what bounds it. ADR-0008 decision 4
+reconciles the two shapes row by row; the runbook reproduces its table under
+["The shred and the rotate, per key
+shape"](rotation-runbook.md#the-shred-and-the-rotate-per-key-shape).
+
 `cache: false` is a legitimate answer, and it is what a root vault uses.
 
 ### Encrypting and decrypting
@@ -261,6 +270,17 @@ That is what makes a crypto-shred honest: destroying every copy of the wrapping
 destroys the key. A key derived from the tenant id could be recomputed forever
 by anyone holding the root, and deleting its row would delete a memo rather
 than a secret.
+
+This is the **material-source** shape, and it is the one this guide builds. A
+**keyring-backed** provider - `Encryptor.Provider.Kms` - does not have level 2
+in your store at all: the wrapping key stays inside AWS KMS, so dropping a
+version from `decryption_keys/2` hides the data from this vault without
+shredding anything, and the shred is `ScheduleKeyDeletion` on the tenant's KMS
+key, irreversible once its pending-deletion window elapses. ADR-0008 decision 4
+states the difference row by row and the runbook reproduces its table under
+["The shred and the rotate, per key
+shape"](rotation-runbook.md#the-shred-and-the-rotate-per-key-shape). Read it
+before you promise anyone a shred on that path.
 
 ### Provision two root secrets at install, holding the same bytes
 
@@ -553,12 +573,15 @@ row to that tenant has built an access check out of an attacker-editable field.
 - **[Selector boundaries](selector-boundaries.md)** - what the `:key` selector
   is, how to choose the boundary it names, and the rotate/suspend/shred verbs
   that act on one. Read it before you draw the boundary, not after.
-- **[The rotation runbook](rotation-runbook.md)** - the four operator
-  procedures, what each one destroys, and the one step that cannot be undone.
-  Read it before you need it; two of the four procedures are irreversible.
+- **[The rotation runbook](rotation-runbook.md)** - the five operator
+  procedures, what each one destroys, the one step that cannot be undone, and
+  how the shred and the rotate read per key shape. Read it before you need it;
+  two of the five procedures are irreversible.
 - **The decision records** in `docs/adr/` - ADR-0001 (the vault layer),
   ADR-0002 (key providers), ADR-0003 (the per-tenant envelope), ADR-0004 (the
-  encryption context), ADR-0005 (rotation and crypto-shred).
+  encryption context), ADR-0005 (rotation and crypto-shred, amended with
+  suspend), ADR-0007 (the GCP wrap-provider), ADR-0008 (AWS KMS as the
+  keyring-backed shape).
 - **[`encryptor_ecto`](https://github.com/riddler/encryptor_ecto)** - the Ecto
   types, the wrapped-key schema and its migration, and the re-encryption
   migrator. It supplies `table` and `column` from its declared values and

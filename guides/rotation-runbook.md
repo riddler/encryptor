@@ -1,8 +1,14 @@
 # Rotation runbook
 
-Four operator procedures, two of them irreversible. This is the operational
-half of ADR-0005; read the [getting-started guide](getting-started.md) first if
-you have not stood a vault up yet.
+Five operator procedures, two of them irreversible. This is the operational
+half of ADR-0005 and its Amendment A; read the [getting-started
+guide](getting-started.md) first if you have not stood a vault up yet.
+
+Two of the five read differently depending on what shape the tenant's key
+has. If your provider is keyring-backed - `Encryptor.Provider.Kms` - read
+["The shred and the rotate, per key shape"](#the-shred-and-the-rotate-per-key-shape)
+before you run P2, P3 or P4. If it is `Encryptor.Provider.GcpKms`, read ["The
+GCP operator runbook"](#the-gcp-operator-runbook) as well.
 
 Every step below is labelled with who performs it:
 
@@ -51,9 +57,33 @@ Shipped, as functions:
 - `Encryptor.Envelope.provision/3` - mints a version (P2 step 1).
 - `Encryptor.Envelope.rewrap/2` - rewraps one wrapping (P1 step 3).
 - `Encryptor.Vault.rekey/2` - what `rewrap/2` is built on.
+- `Encryptor.Vault.provision/2` - asks the **provider** to provision the
+  selector, on a provider that implements the optional `provision/2` callback
+  (`lib/encryptor/vault.ex:501`, read at `6f4b55d`; the `use`-generated
+  `MyApp.Vault.provision/1` at `:296` is the same call with the vault module
+  filled in).
+
+  This is **not** the envelope-level mint, and the two are not
+  interchangeable. `Encryptor.Envelope.provision/3` mints 32 random bytes and
+  hands you a wrapping to store (P2 step 1). `Encryptor.Vault.provision/2`
+  creates whatever the provider's own backing authority needs before a
+  selector can be resolved at all - for `Encryptor.Provider.GcpKms`, the
+  tenant's `CryptoKey`, which the record makes a one-time act at tenant mint
+  (ADR-0007 decision 3). A wrap-provider deployment runs the vault-level one
+  at onboarding; a deployment that stores its own wrappings runs the
+  envelope-level one. Neither replaces the other, and a provider that does not
+  export the callback answers `{:not_provisionable, module}` rather than
+  raising. What comes back on success is what a store needs to rebuild the
+  descriptor, keyed by `tenant_ref`, never the plaintext key; persisting it is
+  the host's, because this package owns no storage (ADR-0003 decision 9).
+- `Encryptor.Vault.suspend/2` and its inverse `Encryptor.Vault.reinstate/2` -
+  the vault-local deny gate of P5 (`lib/encryptor/vault.ex:547` and `:566`,
+  read at `6f4b55d`). They are deliberately not generated onto your vault
+  module: they are an operator's verbs, invoked from a console or a release
+  task against a named vault (ADR-0005 Amendment A decision 1).
 - `Encryptor.Provider.Static`'s `keys:` option - the staged candidate list.
 
-Documented, as procedures: all four below, including every step that touches a
+Documented, as procedures: all five below, including every step that touches a
 store this package does not own.
 
 Not shipped, and deliberately:
@@ -344,7 +374,11 @@ Destroys every version of one tenant's master key. **Irreversible.**
 1. **[your store]** Confirm the tenant reference resolves and enumerate the
    wrappings that are about to be destroyed. Record the count and the version
    numbers in the change record.
-2. **[your store]** Delete every wrapping for the tenant.
+2. **[your store]** Delete every wrapping for the tenant. **On a
+   keyring-backed provider this step is not the shred** - see ["The shred and
+   the rotate, per key shape"](#the-shred-and-the-rotate-per-key-shape) for
+   the step that is, and ["The GCP operator runbook"](#the-gcp-operator-runbook)
+   for step 2a on the GCP wrap-provider path.
 3. **[operator]** Drain the caches: wait `max_age` on every vault that serves
    the tenant, or restart those vaults. Until this completes, a running node
    can still decrypt the tenant's data from cached materials.
@@ -404,6 +438,84 @@ procedure.
 ### Failure and rollback
 
 None.
+
+---
+
+## P5. Suspend and reinstate (R-none, the third verb)
+
+Denies every operation for one selector while leaving its wrappings untouched.
+**Reversible throughout.** ADR-0005 Amendment A decision 1 defines the verb by
+its observable: a selector is suspended when, on every vault that serves it,
+`encrypt/2`, `decrypt/2`, `rekey/2` and `derive/2` fail with
+`{:key_unavailable, selector}` and the wrappings that selector resolves to are
+intact in the key store. The data is unreadable and not destroyed.
+
+It exists because P3 was otherwise the only tool for "stop serving this tenant
+now", and P3 cannot be undone. A suspended account, a disputed data licence, a
+subject-access hold, a tenant migrating out and not yet gone: all of those want
+this and none of them wants a shred.
+
+**The suspension is node-local and volatile.** This is the property most often
+got wrong, and it is a decision rather than a side effect (Amendment A decision
+8). The suspended set lives in an ETS table owned by the vault's `Lifecycle`
+child, so it dies with the vault: a restarted vault serves the selector again,
+and a host running four nodes has four vaults and must suspend on each. Step 1
+therefore runs **on every node, and again after every deploy**, unless the
+provider locus of step 2 is used instead or as well.
+
+### Preconditions
+
+- **[operator]** A recorded decision naming the selector, the reason, and - the
+  part that is usually left out - **who may lift it**. A suspension with no
+  named owner becomes a shred by neglect.
+- **[operator]** The volatility above is understood, and the node fan-out and
+  the post-deploy re-application are planned rather than remembered.
+- **[operator]** Callers tolerate `{:key_unavailable, selector}`.
+  `encryptor_ecto`'s tenant filter (ece-ADR-0002 decision 11) is the shape that
+  already works for this.
+
+### Steps
+
+1. **[encryptor]** `Encryptor.Vault.suspend(MyApp.Vault, selector)`, **on every
+   node**.
+2. **[operator]** Optionally, revoke at the provider's own backing authority -
+   an IAM binding on the tenant's key. This is the durable locus, it survives
+   every restart, and it is the half that needs the change record.
+
+There is no cache-drainage step, and that asymmetry with P3 is deliberate. The
+deny gate sits at resolution, ahead of the materials cache, so the very next
+call fails on a warm cache as on a cold one (Amendment A decision 5). Suspending
+does drop this vault's materials cache as hygiene, because no partition-scoped
+eviction exists (decision 6), so every other selector on the vault takes one
+cold miss; a vault configured `cache: false` has no cache to drop and is
+unaffected.
+
+### Verification
+
+- `encrypt/2` and `decrypt/2` for that selector return
+  `{:error, %Encryptor.Error{reason: {:key_unavailable, selector}}}` - **not**
+  `:decrypt_failed`, and **not** `{:unknown_key, selector}`, which would mean a
+  shred rather than a suspension.
+- The key store still returns the tenant's rows. If it does not, this was not a
+  suspension.
+- Run the check against **every** node. `suspend/2` asks no provider, so
+  suspending a typo'd selector succeeds quietly; this step is what catches it.
+
+### Failure and rollback
+
+`Encryptor.Vault.reinstate(MyApp.Vault, selector)` on every node, plus restoring
+the provider binding if step 2 was taken. `reinstate/2` is total and idempotent:
+it succeeds on a selector that was never suspended, and it evicts nothing,
+because nothing was served under the suspension.
+
+A partially applied step 1 leaves some nodes denying and some serving, which
+shows up as an intermittent `{:key_unavailable, _}`. **Complete it rather than
+reverting it.**
+
+What `reinstate/2` does **not** do is undo anything else. Reinstating a selector
+whose wrappings were shredded while it was suspended restores the gate, and the
+provider then answers `{:unknown_key, selector}`. There is no state in which it
+recovers key material, and a suspension is not a backup.
 
 ---
 
@@ -468,6 +580,129 @@ index, a search key - and those subkeys are recomputed on demand and never
 stored. They die with the master key. That is intended, and it means a shred
 reaches further than an inventory of encrypted columns would suggest.
 
+## The shred and the rotate, per key shape
+
+Everything above P4 is written in raw-material terms: a tenant master key is 32
+bytes, you hold its wrapping, and deleting the wrapping destroys the key. That
+is true of every **material-source** provider - `Encryptor.Provider.Static`,
+`Encryptor.Provider.Function`, `Encryptor.Provider.GcpKms`, an Ecto-backed
+wrapped-key table - and it is **not** true of a **keyring-backed** one.
+
+`Encryptor.Provider.Kms` is keyring-backed: the data key is generated inside
+AWS KMS and the wrapping key is never in your store, so there is no wrapping of
+it for you to delete. ADR-0008 decision 4 is the record that reconciles the two
+shapes, and it asks that its table be reproduced rather than paraphrased. It is
+reproduced here in full (`docs/adr/0008-aws-kms-keyring-backed.md:327-341`,
+read at `6f4b55d`); `Encryptor.Provider.Kms`'s moduledoc carries the same
+reconciliation from the provider's side.
+
+| | `%Key.Aes{}` (material source) | `%Key.Kms{}` (keyring-backed) |
+|---|---|---|
+| version identity | `name`, minted by the provider (ADR-0002 d4) | the KMS key ARN, assigned by AWS |
+| header provider id | the descriptor's `namespace` | `"aws-kms"`, written by the engine |
+| header provider info | `name` | the key ARN from the `GenerateDataKey` / `Encrypt` response |
+| who holds the wrapping key | the host's key store, as a wrapped blob (ADR-0003 d2) | AWS KMS; nothing is stored |
+| the data key is generated | by the engine, locally | inside KMS, by `GenerateDataKey` |
+| ADR-0003's two-level envelope | yes | **no** - decision 7 |
+| rotation (ADR-0005 R2, level 2) | mint a new `name`, prepend its descriptor, re-encrypt | point at a new KMS key, prepend its descriptor, re-encrypt |
+| rotation that is invisible here | none | AWS KMS automatic key rotation: new backing material under the *same* ARN. Not R2, not R1, not an operation in this package's vocabulary at all |
+| dropping the identity from `decryption_keys/2` | **is** the shred - the material exists nowhere else (ADR-0005 d3) | is **not** the shred - it hides the data from this vault while KMS can still decrypt it |
+| the shred (ADR-0005 P3 step 2) | `DELETE` the wrapping from the key store | `ScheduleKeyDeletion` on the tenant's KMS key |
+| irreversible | immediately, subject to backups of the store | after the KMS pending-deletion window; `CancelKeyDeletion` works inside it |
+| does the shred survive a backup | only if every copy of the store was found (ADR-0005's residual) | yes - the key material was never in the backup |
+| suspend (ADR-0005 Amendment A) | the vault-local deny gate, A3's first locus | the vault-local deny gate, **and** an IAM revoke on the key as A3's second locus |
+
+**The one row to read twice is the ninth.** Dropping a version's identity from
+`decryption_keys/2` **is** the shred on the Aes shape and is **not** the shred
+on the KMS shape - there it only hides the data from this vault, while KMS can
+still decrypt it for anyone holding `kms:Decrypt` on the key, including from a
+backup of your ciphertext. An operator who has internalised "delete the row and
+it is shredded" will, on this path, have shredded nothing. **On the KMS shape
+the shred is `ScheduleKeyDeletion` on the tenant's KMS key**, and P3 step 2
+reads that way rather than as a `DELETE`.
+
+**The pending-deletion window is not a reprieve to plan around.** It is what
+makes the KMS-path shred reversible for exactly as long as it lasts -
+`CancelKeyDeletion` works inside it - and irreversible the moment it elapses.
+P3's first precondition, a recorded human decision, is unchanged by its
+existence.
+
+The shred also gets **stronger** on this path, in one specific sense: the
+wrapping key was never in a backup of your store, so "a shred is only as good as
+the copies" stops being the binding constraint. It does not become full erasure.
+Attribution survives exactly as described above, and P3 step 4's row deletion
+stays as compliance-mandatory as it was.
+
+## The GCP operator runbook
+
+`Encryptor.Provider.GcpKms` is a **wrap-provider**: it is a material source by
+ADR-0002 decision 5's taxonomy - it decrypts a stored wrapped key and hands back
+bytes - so every procedure above applies to it unchanged, with the two additions
+below. It is not the keyring-backed shape of the table above.
+
+### The ring and the IAM bindings are provisioned out of band
+
+ADR-0007 decision 3: `Encryptor.Vault.provision/2` creates the tenant's
+`CryptoKey` and **this package never creates the `KeyRing` and never writes
+IAM**. Both are a one-time, per-environment act by the operator, in Terraform,
+the console, or `gcloud`, before any vault starts.
+
+- **Never `CreateKeyRing`.** A key ring cannot be deleted, so a package that
+  created one would permanently enlarge your GCP project from inside a library
+  call, on a path reachable with a typo'd tenant id.
+- **Never any IAM write.** The provider's service account needs
+  `cloudkms.cryptoKeyVersions.useToEncrypt` and `useToDecrypt` on the ring, plus
+  `cloudkms.cryptoKeys.create` if it mints. Granting itself those would be a
+  privilege-escalation surface with no upside; a deployment whose IAM is wrong
+  fails loudly at the first call, which is the correct failure.
+
+**[operator] Before the first deploy of an environment:** create the ring,
+grant the two use bindings (plus create, if the deployment mints tenants), and
+record the ring's fully qualified name in the change record. Nothing in this
+package will do it for you and nothing in it will tell you it is missing until
+the first call fails.
+
+### The ring is a destroy-time hazard in Terraform, not a create-time one
+
+This is the operational note ADR-0007 decision 3 assigns to this guide.
+`google_kms_key_ring` accepts a destroy and removes **only the state entry**.
+The ring itself survives - key rings cannot be deleted - so a later re-apply
+hits `ALREADY_EXISTS` on a resource that no `terraform destroy` can clear, and
+the environment is stuck until someone imports or renames.
+
+The two standard mitigations, and the choice between them is yours:
+
+- `lifecycle { prevent_destroy = true }` on the `google_kms_key_ring`, or
+- keep the ring out of the application's Terraform state entirely, managed by
+  the platform team beside the project itself.
+
+The same hazard does not apply to the per-tenant `CryptoKey`: those are created
+by `provision/2` at tenant mint, not by Terraform. What they share is
+permanence - a destroyed `CryptoKey` remains in the project forever, empty, and
+ADR-0007 decision 3 names that as the cost, paid visibly.
+
+### P3 gains step 2a: destroy the tenant's `CryptoKey` versions
+
+ADR-0007's offboarding walk restates ADR-0005 P3 with one step added, numbered
+2a so the rest keep their numbers. Preconditions are unchanged and still come
+first, in particular the recorded human decision.
+
+| P3 step | On this provider |
+|---|---|
+| 1, enumerate the wrappings | unchanged |
+| 2, delete every wrapping from the key store | unchanged, and still your `DELETE` |
+| **2a, `DestroyCryptoKeyVersion` on every version of the tenant's `CryptoKey`** | **new.** After the destroy-scheduled window elapses, the tenant's data is unreadable from any backup of the key store, because the key that would unwrap those wrappings no longer exists anywhere |
+| 3, drain the caches | unchanged; `max_age` still bounds it |
+| 4, delete the tenant's ciphertext rows | unchanged in mechanism, and still compliance-mandatory wherever tenant attribution is itself personal data - destroying the GCP key does not remove the `tenant_ref` from retained headers |
+
+P4 gains nothing: the tenant's `CryptoKey` is shared across master-key versions,
+so retiring version *n* is the wrapping delete and nothing else.
+
+Two things step 2a does not change. It is still not an `Encryptor.shred/2` - the
+store delete is your `DELETE` and the destroy is a GCP API call your runbook
+makes - and GCP's scheduled destruction window is a delay, not a reprieve, on
+exactly the reading the KMS-path window gets above.
+
 ## Blast radius: what an attacker holding each combination can read
 
 This is the trust boundary the design is shaped around.
@@ -517,6 +752,8 @@ before the step, without recourse to backups.
 | P3 | 2, delete all wrappings | one tenant's entire dataset, everywhere | **no** | Wrong tenant: that tenant's data is permanently unreadable. This is the largest destructive action in the package and the reason P3's first precondition is a recorded human decision. |
 | P3 | 3, drain caches | nothing | n/a | Skipped: the shred is incomplete for up to `max_age`, and the tenant's data remains readable on running nodes. |
 | P4 | 1, delete one wrapping | every row still written under that version | **no** | Run before verification: exactly the rows the pass missed become permanently unreadable, and they surface as `:decrypt_failed` indistinguishable from corruption. |
+| P5 | 1, suspend | nothing | yes, by `reinstate/2` | Wrong selector: that tenant's reads and writes fail loudly and immediately, everywhere the step was applied. No data is lost and no window opens. Reinstate. |
+| P5 | 2, revoke at the provider | nothing | yes, by restoring the binding | Wrong key: as above, durably, and it outlives a restart, so it is the half that needs the change record. |
 | any | shredding a tenant master key | that tenant's derived subkeys too | **no** | Subkeys are recomputed from the master key and never stored, so a blind index, a search key, or any future purpose-labelled key dies with it. Intended, and it means a shred is wider than "columns encrypted by this package". |
 | any | changing a vault's `:slow_hash` parameters | nothing directly | yes, by restoring the old parameters | Every index value written afterwards is hashed under the new parameters and stops matching values stored under the old ones, and **nothing in this package notices**: the output carries nothing about the parameters that produced it. It is an invalidating change in the same family as a `:derivation_salt` rotation, not a tuning knob to turn freely; the migration is `encryptor_ecto`'s two-column dance under a new index version (ADR-0003 amendment B decision 6). |
 
@@ -552,7 +789,10 @@ data one version is allowed to cover.
 
 ## Records
 
-ADR-0005 (rotation and crypto-shred) owns every procedure here; ADR-0003
-decision 10 owns the attacker table; ADR-0004 decision 10 owns the division of
-labour. Where this guide and a record disagree, the record wins and the
-disagreement is a bug in this guide.
+ADR-0005 (rotation and crypto-shred) owns every procedure here, and its
+Amendment A owns P5; ADR-0003 decision 10 owns the attacker table; ADR-0004
+decision 10 owns the division of labour; ADR-0007 decision 3 owns the GCP
+out-of-band split and the destroy-time hazard, and ADR-0007 decision 8 owns P3
+step 2a; ADR-0008 decision 4 owns the per-shape table, which is reproduced here
+rather than restated at that record's own request. Where this guide and a
+record disagree, the record wins and the disagreement is a bug in this guide.

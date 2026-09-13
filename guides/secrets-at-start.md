@@ -257,13 +257,20 @@ from config or from `use` options".
 
 ### "So is an environment variable"
 
-ADR-0002 decision 5 does list an environment variable among the *shapes* a
-key provider can have - alongside a database of wrapped keys and every
-external key manager other than AWS KMS - and that is a taxonomy of where
-bytes can come from, not a roadmap row. The roadmap ships no such adapter,
-and the same decision says why it does not need one: the environment is
-already reachable, through the vault's `init/1`, without a provider knowing
-it exists. A shape that is reachable for free is not an adapter.
+ADR-0002 decision 5 does list an environment variable among the *shapes* a key
+provider can have. Its words are that material-source adapters "produce the
+bytes of an `%Encryptor.Key.Aes{}` by some other means", that "every external
+key manager other than AWS KMS is necessarily this shape", and that "so is a
+database of wrapped keys, and so is an environment variable"
+(`docs/adr/0002-key-providers.md:208-211`, read at `6f4b55d`). That is a
+taxonomy of where bytes can come from. What the decision then ships is a
+five-row roadmap table, and no row of it is an environment adapter.
+
+Why it does not need one is **this guide's synthesis**, not the record's
+sentence: the environment is already reachable through the vault's `init/1`,
+without a provider knowing it exists, so a shape that is reachable for free is
+not an adapter. The record neither states that argument nor contradicts it - it
+simply lists the shape and does not schedule it.
 
 ### The apparent exception
 
