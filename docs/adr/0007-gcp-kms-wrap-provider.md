@@ -940,3 +940,102 @@ struct block when it was written.
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Amendment A (2026-09-13): the operation-cost bullet restated on one provider resolution per call
+
+Status: **proposed** (2026-09-13).
+
+This amendment only adds, and it removes no line. Decisions 1 to 9 above keep
+their text and their meaning, and so does decision 10's shape ruling - one
+`CryptoKey` per tenant - together with its per-version cost axis. What A1
+restates is one bullet inside decision 10, the operation-cost bullet at
+`:627-634`, which was argued from a claim another record has now withdrawn.
+This amendment's own decision is lettered `A1`, under the house convention this
+repo's other records use for lettered amendments; a reference from outside this
+section should be spelled "Amendment A's A1".
+
+Every code and document line cited below was read at enc `efd71c5`, the tip of
+`origin/main` when this amendment was written.
+
+### Why now
+
+Decision 10's cost bullet "Operation cost is per `Encrypt`/`Decrypt` call, and
+the provider makes almost none of them" argues from ADR-0002 decision 2 that
+"the materials cache collapses provider round trips to one per partition per
+`max_age`", and concludes that "a tenant with continuous traffic costs one
+`Decrypt` per cache lifetime, not one per encrypt" (`:627-632`). The worked
+example repeats the conclusion: "The next write inside `max_age` makes no GCP
+call at all" (`:815-816`).
+
+The premise is gone. ADR-0002's Amendment A, proposed the same day, withdraws
+that sentence and rules that the provider is resolved once per call, the
+materials cache sitting in front of the CMM rather than in front of the
+provider, so a cache hit saves the data-key generation and the keyring's EDK
+wrap and never the provider lookup (`docs/adr/0002-key-providers.md`, Amendment
+A's A1). ADR-0001's Amendment A had already reached the same fact from the
+engine's side and marked this record's bullet as the load-bearing casualty: its
+A5 posture table gives `Encryptor.Provider.GcpKms` the row "what it cannot save:
+**the GCP `Decrypt` unwrap, paid on every call**" and says in the same cell that
+this record's cost argument "rests on the round-trip claim A5 revises, and is
+contradicted by this row; it needs the amendment named below"
+(`docs/adr/0001-vault-layer.md:836`). This is that amendment. The measurement
+behind all three is
+`docs/measurements/260912-enc-anz-stated-bounds.md:107-123` - 500 encrypts on
+one warm partition, cache on, 500 provider closure calls.
+
+Nothing here disturbs this record's shape decision. A wrap-provider is a
+material-source adapter whose resolve path does a network round trip, and that
+is exactly why the cost lands where it does.
+
+### A1. Continuous traffic on a GCP-backed vault costs one `Decrypt` per encrypt, not one per cache lifetime
+
+**Read decision 10's operation-cost bullet (`:627-634`) as follows.** Operation
+cost is still per
+`Encrypt`/`Decrypt` call and still monthly-per-version on the other axis. But
+the provider makes one `Decrypt` per vault call that needs a descriptor, not
+almost none: a tenant with continuous traffic costs one `Decrypt` per encrypt,
+and a read of something old costs one `Decrypt` per live version. The engine's
+materials cache does not reduce that count, whatever `max_age` is set to.
+
+**The bullet's obligation is met differently than it claimed.** ADR-0002's
+roadmap line for GCP - "`encryption_key/2` does network I/O and must bound it" -
+is still the obligation this record satisfies, and the bound is still an
+explicit request timeout from `init/1` (`:632-634`). What the bound is not is
+the engine's materials cache. The cache bounds how often the engine generates
+and wraps a data key; it does not bound how often this provider calls GCP.
+
+**The one thing that could collapse those calls is a cache this provider owns,
+and ADR-0002 already says what such a cache must be.** Decision 2's last bullet
+there permits a provider cache and constrains it in the same breath: "A
+provider that caches anyway must bound it and document the bound"
+(`docs/adr/0002-key-providers.md:130-136`). So the shape of an answer exists.
+Choosing it does not belong to this amendment; see the open question below.
+
+**Re-anchor the worked example's sentence.** "The next write inside `max_age`
+makes no GCP call at all (decision 10)" (`:815-816`) is wrong on the same
+premise. Its cross-reference is sound - decision 10 (`:610-641`) is where the
+cost argument lives, and this amendment restates that bullet rather than
+displacing the decision - so what needs re-anchoring is the claim, not the
+citation. Read the sentence as: the next write calls `Decrypt` again, under the same AAD rebuilt
+from the same row, and what it saves against a cold vault is the store read
+only if the provider itself memoizes the row - which today it does not. The
+sentence stays where it is, because an amendment appends.
+
+**This amendment states the cost rule and counts no call sites.** How many
+`Decrypt` calls a given host makes is a property of its traffic and of the
+provider's implementation, and belongs to that implementation's tests and to
+the host's own measurement, not to this record.
+
+### Open questions this amendment adds
+
+1. **Should `Encryptor.Provider.GcpKms` bound a cache of its own?** This is the
+   question A1 raises and does not answer. ADR-0002 decision 2's bullet already
+   supplies the constraint any answer must meet - bounded, and documented - and
+   ADR-0001's A5 consequence 2 says a material-source adapter that wants its
+   round trips collapsed "caches them itself, under ADR-0002's rule"
+   (`docs/adr/0001-vault-layer.md:845-851`). What is undecided is everything
+   else: whether this provider should have one at all, what it would key on,
+   what it would hold and for how long, how it would interact with the shred in
+   decision 8 and with the version counters in decision 7, and what it would be
+   called. **That is public surface and this amendment does not name an option,
+   a default, or a policy for it.** It wants its own walk and its own record.

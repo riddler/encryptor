@@ -604,3 +604,91 @@ Recorded rather than guessed. Each names who should settle it.
    `:persistent_term`-held root key is copied nowhere but is also collected
    on no schedule. Whether this package should say anything beyond
    documenting the fact is a security-review question, not a design one.
+
+## Amendment A (2026-09-13): the provider is resolved once per call, and decision 2's round-trip sentence is withdrawn
+
+Status: **proposed** (2026-09-13).
+
+This amendment only adds. Decisions 1 to 7 above keep their text, and one
+sentence inside decision 2 is withdrawn by the decision below rather than
+rewritten, because an amendment appends and a status flip is the operator's.
+Its single decision is lettered `A1`, under the house convention this repo's
+other records use for lettered amendments; a reference from outside this
+section should be spelled "Amendment A's A1".
+
+Every code and document line cited below was read at enc `efd71c5`, the tip of
+`origin/main` when this amendment was written.
+
+### Why now
+
+Decision 2's last bullet says the engine's materials cache "already collapses
+provider round trips to one per partition per `max_age`" (`:130-136`, the
+sentence at `:131-132`). The measurement says otherwise: 500 encrypts on one
+warm partition with the cache on produced 500 provider closure calls
+(`docs/measurements/260912-enc-anz-stated-bounds.md:107-123`, the count at
+`:118`), and its Finding 1 names this record's sentence as the third of three
+claims contradicted by measurement (`:139-142`).
+
+The code had already taken the other reading and said so in place.
+`Encryptor.Vault.Encrypt` carries a "Flagged, not settled: the provider is
+consulted on every call" section that sets ADR-0001 decision 2 against this
+record's decision 2, follows the first, and refuses to resolve the tension
+because "an implementation bead does not amend an accepted record"
+(`lib/encryptor/vault/encrypt.ex:57-84`, read at enc `efd71c5`).
+
+ADR-0001's Amendment A then settled the structural fact from its own side. Its
+A5 opens with it - "the materials cache sits in front of the CMM, not in front
+of the provider" - and draws the consequence: "a cache hit saves exactly two
+things - the data-key generation and the keyring's EDK wrap. It saves nothing a
+provider does" (`docs/adr/0001-vault-layer.md:806-821`, the two sentences at
+`:808-809` and `:820-821`). A5 closes by noting that this record's sentence "is
+still unamended" (`:858-860`), and its "What this leaves open" item 2 hands the
+amendment to this record (`:879`, the item at `:884-895`). This is that
+amendment.
+
+### A1. The provider is resolved once per call, and the materials cache never saves the provider lookup
+
+**A provider is consulted on every vault call that needs a descriptor, warm
+partition or cold.** The vault resolves the selector through the provider
+before there is a CMM to consult, so the materials cache cannot sit between the
+two. What a cache hit saves is the data-key generation and the keyring's EDK
+wrap. It never saves the provider lookup. That is ADR-0001 decision 2's
+reading, it is what the code does, and it is now this record's reading too.
+
+**Decision 2's sentence "The engine's materials cache already collapses
+provider round trips to one per partition per `max_age` (ADR-0001 decisions 6
+and 7)" is withdrawn.** The text stays where it is, because an amendment
+appends rather than edits; read it as withdrawn from here on.
+
+**The rest of that bullet stands, and now carries its argument alone.** Its
+rule - "A provider may not add a second unbounded cache [...] A provider that
+caches anyway must bound it and document the bound" (`:130-136`) - was written
+as though the vault's cache had already collapsed the round trips, which made a
+provider cache a redundant second copy of the same idea. It is not redundant: a
+material-source provider whose resolve path does I/O pays that I/O on every
+call, and the only place that I/O can be collapsed is the provider itself,
+under this bullet's own bound. The rule does not move. What is gone is the
+reason a provider author might have believed the vault had already done the
+job. ADR-0001's A5 says the same thing from the other side and is explicit that
+it "does not loosen that" rule (its consequence 2, `:845-851`).
+
+**This record states a rule and does not enumerate call sites.** Which vault
+functions resolve a provider, and how many times each does so, is a property of
+the implementation and the business of its tests, not of this record.
+
+### What this leaves open
+
+1. **ADR-0007's operation-cost bullet is argued from the withdrawn sentence.**
+   It is restated by that record's own amendment, dated the same day and
+   proposed alongside this one (`docs/adr/0007-gcp-kms-wrap-provider.md:627-632`,
+   repeated at `:815-816`).
+2. **Two ADR-0003 sentences read the same way.** Neither is a decision of that
+   record, so they are re-anchored by a dated Note at its foot rather than
+   amended (`docs/adr/0003-per-tenant-envelope.md:160-163` and `:397-399`).
+3. **The document sites are a separate change.** A moduledoc in the GCP KMS
+   provider and three sentences in the getting-started guide still describe the
+   collapsed round trip. Correcting them follows this record rather than
+   belonging to it.
+4. **Whether `Encryptor.Provider.GcpKms` should bound a cache of its own** is
+   raised as an open question by the ADR-0007 amendment and is decided by
+   neither record today. It is public surface, and it wants its own walk.
