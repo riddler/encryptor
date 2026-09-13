@@ -2,6 +2,10 @@
 
 Status: accepted (2026-09-13)
 
+**Amendment A (2026-09-13) is proposed.** It is appended at the end of this
+record, it is additive, and it changes none of decisions 1 to 10 below; the
+three sentences it narrows are quoted with their amended wording in its A6.
+
 ## Context
 
 ADR-0002 open question 3 declined to decide this and said why: "Nothing here
@@ -632,6 +636,11 @@ Recorded rather than guessed. Each names who should settle it.
    costs an HMAC per event on a path the same record was careful about. Worth
    revisiting after a real incident says how badly it was wanted.
 
+   *Answered by Amendment A (2026-09-13; proposed): yes - opt-in and keyed.
+   The vault option `:telemetry_tenant_ref` is off by default, refused on a
+   `:single` vault, and carries ADR-0003 decision 5's `tenant_ref` in full and
+   never the partition id.*
+
 5. **Whether `size` should exist at all.** The argument for it is ADR-0004
    decision 12's - the ciphertext already discloses the length to anyone
    holding the row. The argument against is that a metric is held by people
@@ -657,3 +666,326 @@ Recorded rather than guessed. Each names who should settle it.
    no unbounded metadata. Whether anyone writes
    `opentelemetry_encryptor`, and whether it belongs beside the statifier
    bridge or on its own, is not this record's and not this repository's.
+
+## Amendment A (2026-09-13; proposed): the opt-in keyed tenant dimension
+
+Status: **proposed (2026-09-13)**. This amendment answers open question 4. It
+only adds: decisions 1 to 10 stand as written, and the three sentences it
+narrows are quoted with their amended wording in A6 rather than edited where
+they sit.
+
+### Why now
+
+Open question 4 asked "whether a host should be able to opt in to a per-tenant
+dimension", described the only arguable shape - "an opt-in at attach time
+carrying the *keyed* `tenant_ref` rather than the unkeyed partition id" - and
+declined it for two stated reasons: the reference is a permanent pseudonym the
+subkey holder can re-identify, so an opt-in is a disclosure decision rather
+than a verbosity decision, and computing it "costs an HMAC per event on a path
+the same record was careful about"
+(`docs/adr/0006-telemetry-and-observability.md:623-633`, read at `40957e6`).
+
+The answer is **yes, opt-in and keyed**, and both of the reasons for declining
+survive intact rather than being overruled:
+
+- The disclosure reason is answered by making the opt-in *explicit, off by
+  default, and documented as a disclosure choice*, not by denying that it is
+  one. A1 and A5 are that answer.
+- The cost reason is answered by the code rather than by accepting the cost.
+  On a `:tenant` vault the reference is **already derived once per operation**,
+  for ADR-0004 decision 4's context pair:
+  `Encryptor.Vault.Resolve.vault_supplied/2` computes
+  `%{Context.tenant_ref_key() => Reference.derive(config.reference_subkey,
+  selector)}` (`lib/encryptor/vault/resolve.ex:213-216`, read at `40957e6`),
+  from the reference subkey that ADR-0004 decision 4 froze onto the
+  configuration (`lib/encryptor/vault/config.ex:252` and `:677-687`, read at
+  `40957e6`). A3 therefore fixes the emit contract as *one derivation per
+  operation, threaded*, never one per event. The residual cost of the option
+  is a map write per event, not an HMAC per event.
+
+The ergonomic cost the record accepted is also unchanged for everyone who
+leaves the option off. The consequence section's sentence - "An operator
+cannot answer 'which tenant is failing?' from telemetry, by design"
+(`:382-390`, read at `40957e6`) - remains the default posture of this package.
+What this amendment removes is the need for a host that *has* made the
+disclosure decision to fork the record to act on it.
+
+### Decision
+
+**A1. The dimension is one vault option, `:telemetry_tenant_ref`, a boolean,
+default `false`, refused on a `:single` vault.** It joins
+`Encryptor.Vault.Config.defaults/0` beside `cache: false`
+(`lib/encryptor/vault/config.ex:274-283`, read at `40957e6`) and is frozen
+onto the configuration struct like every other option. A `:single` vault that
+declares it is refused at `Config.resolve/4` with
+`{:invalid_config, :telemetry_tenant_ref, :vault_is_single_profile}`, for
+`Encryptor.Envelope.tenant_ref/2`'s own reason: "a `:single` vault has no
+tenant to name" (`lib/encryptor/envelope.ex:441`, read at `40957e6`). The
+refusal is a start-time error and not a silent no-op, because a host that
+asked for the dimension and quietly did not get it would build a dashboard on
+a key that is never there. A non-boolean value is refused the same way, with
+`{:invalid_config, :telemetry_tenant_ref, :not_a_boolean}`, following the
+detail atom every other option already carries - `:cache`'s is
+`{:invalid_config, :cache, :not_false_or_keyword_list}`
+(`lib/encryptor/vault/config.ex:552`, read at `40957e6`).
+
+It is **vault configuration and not attach-time configuration**, which is the
+one particular where this amendment departs from open question 4's own
+sketch, and it departs deliberately. `:telemetry.execute/3` does not tell the
+emitting process who is attached or with what config, so an attach-time flag
+could only be honoured by computing the dimension unconditionally and letting
+handlers discard it - which pays the cost the open question refused, and puts
+the pseudonym into every handler's metadata including the ones that did not
+opt in. The option has to be visible where the event is built, and that is the
+frozen `Config`.
+
+Decision 1 is not disturbed. It refuses "a configuration key that turns
+emission off", and this is not one: with the option on or off, every event of
+decision 3 fires, with the same name and the same measurements. The option
+adds one metadata key. Decision 3's rule that "adding a name, a measurement,
+or a metadata key is additive" is exactly the rule this amendment is using,
+and decision 3's requirement that such an addition "takes an amendment here"
+is why this is a record and not a bead.
+
+**A2. What it carries is `tenant_ref` in full - 16 bytes of HMAC tag, encoded
+to 22 characters - and
+this amendment fixes that length by reusing ADR-0003 decision 5's rather than
+choosing a second one.** The value is exactly
+`Base.url_encode64(binary_part(HMAC-SHA256(ref_key, tenant_id), 0, 16),
+padding: false)` (`docs/adr/0003-per-tenant-envelope.md:228-246`, read at
+`40957e6`), where `ref_key` is the reference subkey
+`HKDF-Expand(root_key, info: "encryptor/v1/tenant-ref", 32)` of that same
+decision; in code it is `Encryptor.Envelope.tenant_ref/2`, whose own doctest
+asserts `byte_size(ref) == 22` (`lib/encryptor/envelope.ex:435-450`, read at
+`40957e6`). It is the same string, byte for byte, that ADR-0004 decision 4
+puts in the encryption context (`docs/adr/0004-encryption-context.md:227-234`,
+read at `40957e6`), and the same string ADR-0003 decision 5 puts in the key
+name as `"t/<tenant_ref>/v<n>"`.
+
+**The truncation is the one ADR-0003 decision 5 already performed, and there
+is no second truncation.** The obvious alternative - emitting a shorter prefix
+to make a metric dimension "less identifying" - is refused for three reasons,
+and the first is the decisive one:
+
+- It buys no disclosure property. Re-identification of this value is by the
+  reference subkey (which recomputes it from a candidate tenant id) or by
+  guess-and-confirm against a guessable tenant space. Both work on an 8- or
+  12-character prefix exactly as well as on the whole 22, because both go
+  forward from the identifier rather than backwards from the string. A prefix
+  is shorter, not more private.
+- It silently corrupts the metric it exists to serve. Two tenants sharing a
+  prefix become one dimension value, and the failure mode is an operator
+  attributing one tenant's `key_unavailable` spike to another during the
+  incident this option exists for.
+- It does not bound cardinality, which is the only honest reason to truncate a
+  metric dimension. Cardinality here is the host's tenant count under either
+  width; a prefix short enough to bound it would collide constantly. A3's
+  scope, not the string's width, is what bounds this dimension.
+
+What it is **never**, under this option or any other: the partition id, and
+the raw `:key` selector. Decision 6's two bullets on those stand unamended and
+unqualified. The partition id is refused because it is unkeyed and
+guess-confirmable (decision 6 and ADR-0004 open question 1's argument,
+`:239-273` and `docs/adr/0004-encryption-context.md:908-939`, read at
+`40957e6`); the selector is refused because ADR-0004's acceptance amendment 1
+exists precisely to keep it out of anything that leaves the process. This
+amendment widens neither.
+
+Decision 6's *second* bullet is a third matter, and A6 handles it: it refuses
+"the reference subkey, or any value derived from any of them", and
+`tenant_ref` is derived from the reference subkey. A6 states the amended
+reading rather than leaving a reader to infer it.
+
+**A3. It rides on the four span names, on both halves, and on nothing else;
+and it is derived once per operation, never once per event.** When the option
+is on, a `:tenant` vault's events carry `tenant_ref` as follows:
+
+| Event | Carries `tenant_ref` when the option is on | Why |
+|---|---|---|
+| `[:encryptor, :encrypt, :start]` / `[..., :stop]` | yes | the selector is the call's own argument |
+| `[:encryptor, :decrypt, :start]` / `[..., :stop]` | yes | as above |
+| `[:encryptor, :rekey, :start]` / `[..., :stop]` | yes | as above |
+| `[:encryptor, :provider, :start]` / `[..., :stop]` | yes | decision 8 nests it inside an operation span, so the value is already in hand and this is the span an operator actually pages on |
+| `[:encryptor, :vault, :started]` | no | a vault start has no tenant in scope; the vault is the whole of its identity |
+| `[:encryptor, :vault, :stopped]` | no | as above |
+| `[:encryptor, :vault, :start_refused]` | no | decision 3 fires it when "`Config.resolve/4` refused, before any process existed" - there is no frozen configuration to read the option from, let alone a selector |
+| `[:encryptor, :cache, :recycled]` | no | the recycler drops and restarts the cache child for every partition at once; there is no single tenant it is about |
+
+The derivation rule is part of this decision. The emitting code derives the
+reference **once per `encrypt/2`, `decrypt/2` or `rekey/2` call** and threads
+the same string through both halves of the operation span and through the
+nested provider span's halves. Where the implementation can reuse the value
+`Resolve.vault_supplied/2` already computed for the context
+(`lib/encryptor/vault/resolve.ex:213-216`, read at `40957e6`), it reuses it
+and derives nothing. A per-event derivation is a defect against this
+amendment, not a slow implementation of it.
+
+One path has the option on and no reference to emit, and it gets a rule here
+rather than an implementer's guess. `Encryptor.Vault.Resolve.selector/3`
+refuses a non-binary or empty `:key` on a `:tenant` vault with
+`{:invalid_selector, other}` before any reference is derived
+(`lib/encryptor/vault/resolve.ex:60-65`, read at `40957e6`). On that refusal
+the span halves still fire exactly as decision 3 and decision 9 say, and they
+**omit** `tenant_ref`; `reason_tag: :invalid_selector` on the stop half is the
+disambiguator a handler uses, so an absent key is never ambiguous in practice.
+It follows, and this decision states it rather than implying it, that the
+`:start` half is emitted **after** selector resolution: a start event that
+fired first could not carry the key the option promises, and decision 3's
+span pairing gives no other place to put it.
+
+On a `:single` vault the key is absent from every event, because A1 refuses
+the option there. When the option is off - the default - the key is **absent**
+from the metadata map, not present as `nil`: a handler distinguishes "this
+host did not opt in" from any value by `Map.has_key?/2`, and a `nil` in a
+`:telemetry_metrics` tag is a dimension value.
+
+**A4. The metadata allow-list gains exactly one key, conditionally.** Decision
+4's rule - "No term reaches metadata that is not named in the table below"
+(`:180-186`, read at `40957e6`) - stands; this amendment names the term. The
+row to read alongside decision 4's table (`:188-199`, read at `40957e6`) is:
+
+| Key | Type | On | Meaning |
+|---|---|---|---|
+| `tenant_ref` | `String.t()` | the four span names' halves, **only when `:telemetry_tenant_ref` is on** | ADR-0003 decision 5's keyed reference, in full; A2 |
+
+and the corresponding line in the `metadata` typespec of "The contract as
+typespecs" (`:430-441`, read at `40957e6`) is
+`optional(:tenant_ref) => String.t()`. The key is spelled `tenant_ref` and not
+`tenant` or `tenant_id`, deliberately: it is the same name ADR-0004 gives the
+same string in the context, and a handler author who sees `tenant_id` would
+reasonably believe it was one.
+
+No measurement is added. No event name is added. Nothing else in decision 4's
+two tables changes.
+
+**A5. The option's generated documentation says who can re-identify, in those
+words.** An opt-in is a disclosure decision, so the disclosure travels with
+the option rather than with this record. `:telemetry_tenant_ref`'s
+documentation on `Encryptor.Vault` and in `Encryptor.Telemetry`'s moduledoc
+states, at minimum:
+
+> With `telemetry_tenant_ref: true`, every encrypt, decrypt, rekey and
+> provider event carries `tenant_ref` - ADR-0003 decision 5's keyed reference
+> for the tenant the call routed to. It is a pseudonym and not an identifier:
+> it does not contain the tenant identifier and cannot be reversed into it.
+> Anyone holding the vault's reference subkey can re-identify it, by deriving
+> the reference for a candidate tenant and comparing, and so can anyone who
+> can enumerate or guess your tenant identifiers. Telemetry metadata is
+> forwarded verbatim by handlers you did not write to vendors whose retention
+> you did not choose. Turning this on is a decision about that, and it is off
+> by default.
+
+The second and third sentences are the load-bearing ones and neither may be
+dropped as boilerplate: the first half is why this is safe enough to offer at
+all, and the second half is why it is not on by default.
+
+**A6. What this amendment narrows, quoted.** Two sentences in the accepted
+record say "no per-tenant dimension" without qualification. They are correct
+for the default build and wrong as absolutes once this option exists, so this
+amendment records their amended wording here, and the implementation writes
+the amended wording:
+
+- Decision 6, fifth bullet, last sentence: "**No event carries a per-tenant
+  dimension of any kind**, keyed or unkeyed, which is the shortest correct
+  statement of this rule and the one to put in the moduledoc" (`:270-273`,
+  read at `40957e6`). Amended to: **no event carries the partition id or the
+  raw selector, under any configuration; no event carries a per-tenant
+  dimension of any kind unless the vault set `telemetry_tenant_ref: true`, and
+  the only dimension that option adds is ADR-0003 decision 5's keyed
+  reference.** The rest of that bullet - the whole argument against the
+  partition id - is untouched and remains the reason the option carries the
+  keyed reference instead.
+- The `Encryptor.Telemetry` moduledoc in "The contract as typespecs": "No
+  event carries a per-tenant dimension, keyed or unkeyed" (`:408`, read at
+  `40957e6`). Amended to: **no event carries a per-tenant dimension unless the
+  vault opted in with `telemetry_tenant_ref: true`, and then it is the keyed
+  `tenant_ref` and never the partition id.** The preceding sentence of that
+  moduledoc, which refuses plaintexts, keys, context values, selectors,
+  partition ids and `:engine` terms, is unchanged.
+- Decision 6, **second** bullet, under that decision's preamble "None of the
+  following reaches a measurement, a metadata value, or an event name, under
+  any configuration, in any build": "**A data key, a wrapping key, a root key,
+  a tenant master key, the reference subkey, or any value derived from any of
+  them.**" (`:239-241` and `:245-246`, read at `40957e6`). Read literally that
+  reaches `tenant_ref`, which is `HMAC-SHA256(reference_subkey, selector)`
+  truncated and encoded (`lib/encryptor/vault/reference.ex:47-54`, read at
+  `40957e6`), and this amendment will not rely on a reader inferring an
+  exception. Amended to: **the bullet refuses key material and anything from
+  which key material can be recovered; it does not reach ADR-0003 decision 5's
+  keyed reference, which is a one-way 128-bit tag that recovers neither the
+  subkey nor the selector, and which that decision already publishes in every
+  message header and ADR-0004 decision 4 already publishes in every
+  application-data encryption context.** The bullet's own mechanical form -
+  "no key descriptor and no `Config` ever appears as a metadata value, so
+  there is no field for material to ride in" - is unchanged and is untouched
+  by this option, which adds a `String.t()` and no struct.
+
+Decision 10's sequencing (`:321-341`, read at `40957e6`) puts the four span
+names in the "ships with the path it instruments" half, so this option ships
+with them and not before: there is no event for it to ride on until
+`encrypt/2` is written. A vault that declares the option before then is still
+refused-or-accepted per A1, and simply has nothing to add the key to.
+
+**Accepting this amendment flips four sites**, and they are listed here so
+the flip is mechanical: the pointer under the record's own `Status` line, this
+amendment's heading, its `Status` line, and the answer line under open
+question 4 - which says "proposed" today and becomes this record's resolution
+of that question on acceptance, in the form ADR-0004 uses for the same job
+(`docs/adr/0004-encryption-context.md:939`, read at `40957e6`). Until then the
+question is answered by a proposed amendment and the line says so, because a
+proposed record may not record itself as resolved.
+
+### Consequences
+
+**The disclosure posture of the package is unchanged for a host that does
+nothing.** Default off, refused on `:single`, absent key rather than `nil`.
+The only way to get a pseudonym into a metrics vendor from this package is to
+write one option and mean it.
+
+**A host that opts in gets exactly the incident capability decision 6's
+consequence said it was giving up**, and no more: a `key_unavailable` rate
+broken down by an opaque, stable, per-tenant value that correlates against the
+host's own store - which is where the mapping from reference to tenant already
+lives, because ADR-0003 decision 5 made the key store keyed by reference.
+
+**The cost is a map write, not an HMAC.** A3's threading rule is what makes
+that true, and it is the reason this amendment could answer open question 4
+without reopening decision 9's synchronous-emission argument. An
+implementation that derives per event has both regressed the hot path and
+broken this amendment.
+
+**`tenant_ref` in telemetry is now a third publication site for the same
+string**, after the message header (ADR-0003 decision 5) and the encryption
+context (ADR-0004 decision 4). That is deliberate and is the reason the value
+is the keyed one: all three sites publish the same pseudonym, so a compromise
+of one discloses nothing the other two did not, and the reference subkey
+remains the single thing that re-identifies any of them. It also means the
+reference subkey's "effective unrotatability", which ADR-0003 decision 6
+isolated onto the cheap half of the root, now has one more consumer to
+consider if it is ever revisited.
+
+**A `:telemetry_metrics` user gains a genuinely unbounded tag.** Cardinality
+is the host's tenant count, which is exactly what the host asked for, and it
+is the host's vendor bill. The option's documentation is where that belongs;
+this record does not cap it, because a cap would either drop tenants silently
+or collide them, which is A2's argument a second time.
+
+### Open questions
+
+A-1. **Whether the dimension should also be available per attach rather than
+per vault.** A1 refuses attach-time for a mechanical reason, not a
+philosophical one: the emitter cannot see handler config. A host with two
+handlers - an in-VM aggregator that wants the dimension and a vendor exporter
+that must not have it - is not served by a per-vault switch, and the honest
+answer today is that such a host filters in its own handler before forwarding.
+If that turns out to be common, the shape to look at is a second option that
+names which events carry it, not a second mechanism. Settle with the first
+host that reports the split.
+
+A-2. **Whether `[:encryptor, :cache, :recycled]` should carry a count of
+partitions dropped.** A3 refuses the tenant dimension there because a recycle
+is about all of them at once, which immediately raises the question of whether
+"how many" is a measurement worth having - it is a number, so decision 4's
+first half permits it. It is out of this amendment's scope because it is not a
+tenant dimension and does not need the option. Whoever writes the recycler's
+events should decide it.
