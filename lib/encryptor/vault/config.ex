@@ -748,11 +748,24 @@ defmodule Encryptor.Vault.Config do
 
   defp slow_hash_params(vault, declared) when is_list(declared) do
     if Keyword.keyword?(declared),
-      do: slow_hash_params(vault, Map.new(declared)),
+      do: complete_slow_hash(vault, Map.new(declared)),
       else: {:error, error(vault, {:invalid_config, :slow_hash, :shape})}
   end
 
-  defp slow_hash_params(vault, declared) when is_map(declared) do
+  # Amendment B names one declared shape, and it is keyword-shaped: decision
+  # 4's table is an option list, the Note's empty case is spelled
+  # `slow_hash: []`, and every other option this module takes is a keyword.
+  # A map declaration was accepted here until enc-l5t, on the reasoning that a
+  # host might read a frozen set off one vault and hand it to another, but
+  # that is a shape the record does not name, and an unnamed shape is refused
+  # before something comes to depend on it rather than after. The refusal
+  # reuses the `:shape` detail every other non-keyword value gets, so no error
+  # vocabulary is added; a host round-tripping a frozen set spells
+  # `Map.to_list/1` at the call site.
+  defp slow_hash_params(vault, _declared),
+    do: {:error, error(vault, {:invalid_config, :slow_hash, :shape})}
+
+  defp complete_slow_hash(vault, declared) do
     case Enum.reject(Map.keys(declared), &(&1 in @slow_hash_keys)) do
       [] ->
         completed = %{
@@ -767,9 +780,6 @@ defmodule Encryptor.Vault.Config do
         {:error, error(vault, {:invalid_config, :slow_hash, {:unknown_keys, Enum.sort(unknown)}})}
     end
   end
-
-  defp slow_hash_params(vault, _declared),
-    do: {:error, error(vault, {:invalid_config, :slow_hash, :shape})}
 
   # The bounds of amendment B decision 4's table. `:parallelism` is bounded as
   # a positive integer and no further: the lane count is an Argon2 hash input,

@@ -478,6 +478,20 @@ defmodule Encryptor.KdfTest do
       end
     end
 
+    # Decision 1 again, from the other side: the bounds of decision 4 are
+    # start-time bounds on the *declared* set, and the primitive re-checks
+    # none of them. A caller reaching it directly below the 32_768 KiB floor
+    # hashes at the size it was handed; the @doc says so, and this pins the
+    # claim so the doc cannot drift from the code.
+    #
+    # sabotage: added a floor comparison to slow_hash_params/1 - red, and the
+    # bound would then live in two places, which decision 1 exists to prevent.
+    test "does not re-check the record's memory floor, which is start-time only" do
+      below_floor = %{@params | memory_kib: 16_384}
+
+      assert byte_size(Kdf.slow_hash("value", @salt, below_floor)) == 32
+    end
+
     # sabotage: dropped the `Bitwise.bsl(1, exponent) == memory_kib` check and
     # returned the truncated exponent - red, because 65_537 KiB would then
     # silently hash at 65_536 and two hosts that disagree about the parameter
