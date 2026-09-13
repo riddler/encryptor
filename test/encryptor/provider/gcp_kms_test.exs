@@ -96,6 +96,14 @@ defmodule Encryptor.Provider.GcpKmsTest do
                GcpKms.init(GcpKmsCase.opts(goth: {Encryptor.NoSuchTokenServer, :name}))
     end
 
+    # mutation: let the `{module, name}` clause take a non-atom module - the
+    # term falls through `loaded/3`'s catch-all and the detail names
+    # `:http_client`, sending an operator to the option that was fine.
+    test "names :goth when the token server tuple's module is not a module" do
+      assert {:error, {:invalid_config, :provider, :goth}} =
+               GcpKms.init(GcpKmsCase.opts(goth: {"MyApp.Goth", :name}))
+    end
+
     test "accepts a bare Goth server name when goth is available" do
       assert {:ok, %{goth: MyApp.Goth}} = GcpKms.init(GcpKmsCase.opts(goth: MyApp.Goth))
     end
@@ -344,6 +352,21 @@ defmodule Encryptor.Provider.GcpKmsTest do
 
       assert {:error, {:invalid_key_descriptor, {:not_a_row, :nonsense}}} =
                GcpKms.encryption_key(not_a_row, @selector)
+    end
+
+    # mutation: widen the row's `bits` check back to the three AES widths -
+    # the provider then accepts a row it could never have written itself and
+    # hands on a width `Encryptor.Provider.provisioned/0` does not admit
+    # (ADR-0007 decision 6 fixes it at 256).
+    test "refuses a row whose declared bits are not the provisioned width" do
+      {_state, row} = GcpKmsCase.provisioned(@selector)
+
+      for bits <- [128, 192] do
+        state = GcpKmsCase.state(store: store([Map.put(row, :bits, bits)]))
+
+        assert {:error, {:invalid_key_descriptor, :invalid_row}} =
+                 GcpKms.encryption_key(state, @selector)
+      end
     end
 
     # mutation: trust the size the row claims - a descriptor whose material is

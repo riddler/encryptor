@@ -151,7 +151,7 @@ defmodule Encryptor.Provider.Conformance do
           unquote(__MODULE__).assert_stable(provider_case())
         end
 
-        test "builds a bare RawAes from one candidate and a Multi from more" do
+        test "builds the keyring its descriptor's shape maps to, and a Multi from more" do
           unquote(__MODULE__).assert_candidate_keyring(provider_case())
         end
 

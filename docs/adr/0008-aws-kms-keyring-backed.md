@@ -1059,3 +1059,18 @@ decision 4.
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
 
+## Note (2026-09-13): the `derive/2` bullet names the generated vault's arity
+
+Decision 7's first consequence bullet, "`derive/2` is unavailable on this path",
+names the arity a host calls on its own vault module - `MyApp.Vault.derive/2`
+(`lib/encryptor/vault.ex:280-283`, read at enc `b359bce`). The package function
+it delegates to is one arity wider, `Encryptor.Vault.derive/3`
+(`lib/encryptor/vault.ex:473-474`, read at enc `b359bce`), and the refusal
+itself is `Encryptor.Vault.Derive`'s catch-all
+(`lib/encryptor/vault/derive.ex:117-118`, read at enc `b359bce`). Read the
+bullet as naming the entry point a host calls rather than the package function
+behind it; both are unavailable on this path, and the bullet's decision is
+neither narrowed nor widened by saying which arity it names.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.

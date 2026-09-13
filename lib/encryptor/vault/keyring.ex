@@ -107,6 +107,16 @@ defmodule Encryptor.Vault.Keyring do
     end
   end
 
+  # A term neither clause above matched. A descriptor this module does not
+  # recognise at all is the case it was written for, and `shape/1` names as
+  # much of it as is safe to name. A *recognised* descriptor that is
+  # malformed - a `%Kms{}` whose `:mrk` is neither `true` nor `false` - also
+  # lands here, and reads as `{:not_a_descriptor, Encryptor.Key.Kms}`, which
+  # names the module it did recognise. That case is unreachable through
+  # `Encryptor.Provider.Kms`, which sets `:mrk` itself; naming it precisely
+  # would mean a detail term ADR-0008's failure table does not carry, and the
+  # detail vocabulary is extended by a record rather than by an
+  # implementation.
   def build(vault, operation, other) do
     {:error, invalid(vault, operation, {:not_a_descriptor, shape(other)})}
   end
@@ -118,8 +128,15 @@ defmodule Encryptor.Vault.Keyring do
   # longer one builds a Multi with `generator: nil` - permitted by the engine
   # whenever there is at least one child - which walks its children in order
   # and returns the first success. That walk is the whole rotation mechanism:
-  # a message written under an older name still decrypts, and a name removed
-  # from the list is a message nobody can read again.
+  # a message written under an older version identity still decrypts, and an
+  # identity removed from the list is a message this vault can no longer read.
+  #
+  # Whether it is a message *nobody* can read again depends on the shape, and
+  # the two answers are ADR-0008 decision 4's table, row nine. On the
+  # material-source path dropping the identity "**is** the shred - the
+  # material exists nowhere else"; on the keyring-backed path it "is **not**
+  # the shred - it hides the data from this vault while KMS can still decrypt
+  # it".
   #
   # An empty list is a provider defect rather than a rotation state. The
   # contract types the callback's success as a non-empty list, and a vault

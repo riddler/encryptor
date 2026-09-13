@@ -434,6 +434,13 @@ defmodule Encryptor.Provider.GcpKms do
   # Every field a row must carry to rebuild both the binding and the
   # descriptor. The detail names the field and never its value: a hand-edited
   # row can hold anything at all in any column.
+  #
+  # `bits` is matched against the one width this provider provisions rather
+  # than the three the engine's raw keyrings accept: ADR-0007 decision 6 fixes
+  # `Encryptor.Provider.provisioned/0` at `bits: 256`, so a row claiming
+  # another width is a row this provider never wrote, and accepting it would
+  # surface as a material-size failure one call later instead of as the
+  # refused row it is.
   @spec validate_row(term()) :: :ok | {:error, Provider.reason()}
   defp validate_row(%{
          tenant_ref: tenant_ref,
@@ -445,7 +452,7 @@ defmodule Encryptor.Provider.GcpKms do
          key_id: key_id
        })
        when is_binary(tenant_ref) and is_integer(version) and version > 0 and
-              is_binary(namespace) and is_binary(name) and bits in [128, 192, 256] and
+              is_binary(namespace) and is_binary(name) and bits == @bits and
               is_binary(wrapped) and is_binary(key_id),
        do: :ok
 
@@ -529,8 +536,12 @@ defmodule Encryptor.Provider.GcpKms do
   defp loaded(_other, _function, _arity),
     do: {:error, {:invalid_config, :provider, :http_client}}
 
+  # The module is guarded here rather than left to `loaded/3`, whose own
+  # catch-all names `:http_client`: a `{term, name}` pair whose first element
+  # is not a module is a bad `:goth`, and the detail an operator reads has to
+  # name the option they set.
   @spec token_server(term()) :: :ok | {:error, Encryptor.Error.reason()}
-  defp token_server({module, _name}), do: loaded(module, :fetch, 1)
+  defp token_server({module, _name}) when is_atom(module), do: loaded(module, :fetch, 1)
 
   defp token_server(name) when is_atom(name) do
     if Code.ensure_loaded?(Goth), do: :ok, else: {:error, {:missing_optional_dependency, :goth}}

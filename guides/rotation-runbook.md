@@ -459,7 +459,11 @@ this and none of them wants a shred.
 got wrong, and it is a decision rather than a side effect (Amendment A decision
 8). The suspended set lives in an ETS table owned by the vault's `Lifecycle`
 child, so it dies with the vault: a restarted vault serves the selector again,
-and a host running four nodes has four vaults and must suspend on each. Step 1
+and a host running four nodes has four vaults and must suspend on each. It also
+dies with less than the vault: the vault's supervisor is `:one_for_one`, so a
+`Lifecycle` child that crashes on its own is restarted with a new and empty
+table while the cache and the provider keep serving, and every selector the set
+held is served again with nothing else having stopped. Step 1
 therefore runs **on every node, and again after every deploy**, unless the
 provider locus of step 2 is used instead or as well.
 
