@@ -19,11 +19,23 @@ defmodule Encryptor.Provider.KmsTest do
   alias AwsEncryptionSdk.Keyring.Multi
   alias AwsEncryptionSdk.Keyring.RawAes
   alias Encryptor.AwsKms.Fake
+  alias Encryptor.AwsKms.Recording
+  alias Encryptor.AwsKmsVaults
+  alias Encryptor.Envelope
   alias Encryptor.Error
   alias Encryptor.Key.Aes
   alias Encryptor.Key.Kms
   alias Encryptor.Provider
+  alias Encryptor.Vault.Config
   alias Encryptor.Vault.Keyring
+  alias Encryptor.Vault.Resolve
+
+  @pan "4111111111111111"
+  @columns %{"table" => "payment_methods", "column" => "pan"}
+
+  # The engine's own reserved key, added below the vault under a signing
+  # suite: `AwsEncryptionSdk.Cmm.Behaviour.reserved_encryption_context_key/0`.
+  @engine_pair "aws-crypto-public-key"
 
   @impl true
   def provider_case do
@@ -298,6 +310,170 @@ defmodule Encryptor.Provider.KmsTest do
 
       assert %AwsKms{kms_client: ^client} = keyring
     end
+  end
+
+  describe "the encryption context this provider sends to the KMS API" do
+    # ADR-0004 amendment A decision A5's disclosed property, asserted rather
+    # than documented. A round trip cannot see it: the reader composes its
+    # claim the way the writer composed the message, so a key added to or
+    # dropped from the composition round-trips perfectly well and reaches
+    # CloudTrail either way. `Encryptor.AwsKms.Recording` is the seam that can
+    # see it, at the engine's client boundary.
+    #
+    # Each test therefore pins the key set by NAME as well as asserting the
+    # equality: the equality alone is insensitive to a change in
+    # `Resolve.context/5`, because the assertion's other side is composed by
+    # that same function. The literal list is what goes red.
+    #
+    # Two suites, two rules, and ADR-0004's 2026-09-13 Note on the signing
+    # suite is the contract for both. Under the default `0x0578` the engine
+    # generates an ECDSA verification keypair below the vault and inserts its
+    # reserved `aws-crypto-public-key` pair, so the API sees the composed map
+    # plus that pair; under `0x0478` it sees the composed map exactly.
+
+    test "is the composed context plus the engine's reserved pair, on GenerateDataKey" do
+      vault = start_vault(AwsKmsVaults.Recorded)
+
+      assert {:ok, _ciphertext} = vault.encrypt(@pan, key: "acme", encryption_context: @columns)
+
+      assert_received {:kms_context, :generate_data_key, sent}
+
+      assert is_binary(sent[@engine_pair])
+
+      assert Map.delete(sent, @engine_pair) ==
+               composed(vault, "acme", [encryption_context: @columns], :encrypt)
+
+      assert Enum.sort(Map.keys(sent)) == [
+               "app",
+               @engine_pair,
+               "column",
+               "purpose",
+               "table",
+               "tenant_ref"
+             ]
+
+      assert Map.take(sent, Map.keys(@columns)) == @columns
+
+      assert Map.take(sent, Map.keys(AwsKmsVaults.static_context())) ==
+               AwsKmsVaults.static_context()
+
+      # Values that vary per run are not pinned: `tenant_ref` is ADR-0003
+      # decision 5's keyed derivation, and pinning its bytes would pin a
+      # fixture subkey into an assertion.
+      assert is_binary(sent["tenant_ref"]) and sent["tenant_ref"] != "acme"
+    end
+
+    # The read side sends a context to KMS a second time, and it is the
+    # message header's rather than a freshly composed one - which under a
+    # signing suite is why the pair is there too.
+    test "is the same set on Decrypt" do
+      vault = start_vault(AwsKmsVaults.Recorded)
+      {:ok, ciphertext} = vault.encrypt(@pan, key: "acme", encryption_context: @columns)
+      assert_received {:kms_context, :generate_data_key, _written}
+
+      assert {:ok, @pan} = vault.decrypt(ciphertext, key: "acme", encryption_context: @columns)
+
+      assert_received {:kms_context, :decrypt, sent}
+
+      assert is_binary(sent[@engine_pair])
+
+      assert Map.delete(sent, @engine_pair) ==
+               composed(vault, "acme", [encryption_context: @columns], :decrypt)
+
+      assert Enum.sort(Map.keys(sent)) == [
+               "app",
+               @engine_pair,
+               "column",
+               "purpose",
+               "table",
+               "tenant_ref"
+             ]
+    end
+
+    # The unsigned half of the rule: no engine pair, and the equality is
+    # exact. Same provider, same static context, same per-call keys as the
+    # test above - only `:algorithm_suite_id` differs, so the pair is the
+    # only thing the two assertions disagree about.
+    test "is exactly the composed context under the unsigned suite" do
+      vault = start_vault(AwsKmsVaults.RecordedUnsigned)
+
+      assert {:ok, _ciphertext} = vault.encrypt(@pan, key: "acme", encryption_context: @columns)
+
+      assert_received {:kms_context, :generate_data_key, sent}
+
+      refute Map.has_key?(sent, @engine_pair)
+      assert sent == composed(vault, "acme", [encryption_context: @columns], :encrypt)
+
+      assert Enum.sort(Map.keys(sent)) == ["app", "column", "purpose", "table", "tenant_ref"]
+    end
+
+    # Amendment A's open question A-1, stated as the fact it rests on: the
+    # reserved `encryptor-*` pairs are composed by the same
+    # `Resolve.context/5` and reach KMS with everything else. Only
+    # `Encryptor.Envelope` can write them, so the envelope's root-vault path
+    # is where they are observable.
+    test "carries the reserved encryptor-* pairs when the envelope writes them" do
+      vault = start_vault(AwsKmsVaults.RecordedRoot)
+
+      assert {:ok, wrapped} =
+               Envelope.provision(vault, "acme", reference_subkey: :binary.copy(<<0x55>>, 32))
+
+      assert_received {:kms_context, :generate_data_key, sent}
+
+      binding = Envelope.binding(wrapped.tenant_ref, wrapped.version, wrapped.namespace)
+
+      assert is_binary(sent[@engine_pair])
+      assert Map.delete(sent, @engine_pair) == composed(vault, nil, [], :encrypt, binding)
+
+      assert Enum.sort(Map.keys(sent)) == [
+               "app",
+               @engine_pair,
+               "encryptor-key-namespace",
+               "encryptor-key-version",
+               "encryptor-purpose",
+               "encryptor-tenant-ref",
+               "purpose"
+             ]
+    end
+
+    # A5 names three verbs, and this package's paths reach two of them: at
+    # encrypt `Resolve.encryption_key/3` answers with one descriptor, and
+    # `Keyring.build_all/3` only ever composes a `Multi` with
+    # `generator: nil`, so no vault operation gives the engine an encrypt-side
+    # child keyring to call `Encrypt` from. The recorder covers the third verb
+    # at the client boundary, so the disclosure's coverage does not depend on
+    # which of the three a later candidate list happens to reach.
+    test "is recorded on Encrypt too, at the client boundary" do
+      client = Recording.new()
+      context = Map.put(@columns, "tenant_ref", "a-reference")
+
+      assert {:ok, %{ciphertext: ciphertext}} =
+               Recording.encrypt(client, Fake.acme(), @pan, context, [])
+
+      assert_received {:kms_context, :encrypt, ^context}
+
+      assert {:ok, %{plaintext: @pan}} =
+               Recording.decrypt(client, Fake.acme(), ciphertext, context, [])
+
+      assert_received {:kms_context, :decrypt, ^context}
+    end
+  end
+
+  defp start_vault(vault) do
+    start_supervised!(Supervisor.child_spec({vault, []}, restart: :temporary))
+    vault
+  end
+
+  # The context the vault composed for this operation, read back through the
+  # same function the vault used, so the assertion is an equality between the
+  # composition and what left the process - not between two hand-written maps.
+  defp composed(vault, selector, opts, operation, reserved \\ %{}) do
+    {:ok, config} = Config.fetch(vault)
+
+    {:ok, context} =
+      Resolve.context(config, Resolve.reference(config, selector), opts, operation, reserved)
+
+    context
   end
 
   defp keys do
