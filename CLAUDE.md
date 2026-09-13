@@ -123,18 +123,34 @@ layer that does:
   no AWS, HTTP, or XML libraries; only KMS-backed providers bring that stack
   in.
 
-**Nothing is implemented yet.** The repository holds the scaffold only, so
-almost every convention below is inherited rather than demonstrated.
+**The package is implemented.** `Encryptor.Vault` is the supervised surface -
+`encrypt`/`decrypt`/`rekey` and their bang forms, plus `derive/3`,
+`provision/2`, `suspend/2` and `reinstate/2`. `Encryptor.Envelope` holds the
+per-tenant wrap, unwrap, rewrap and tenant-reference derivation;
+`Encryptor.Kdf` holds the HKDF trees and the optional Argon2id slow hash;
+`Encryptor.Provider` holds the behaviour, its conformance suite and the
+`Static`, `Function` and `GcpKms` adapters; the vault's config, cache,
+rekey, suspension and lifecycle machinery lives under
+`lib/encryptor/vault/`. The user-facing guides are in `guides/`:
+getting-started, secrets-at-start, selector-boundaries and the rotation
+runbook. So the conventions below are demonstrated by code rather than
+inherited on faith - check a claim against the module before relying on it.
 
 ### Read before writing any code here
 
-The founding ADR beads (`enc-14p` the vault layer, `enc-6i0` the key-provider
-behaviour and adapter roadmap, `enc-2u6` the per-tenant two-level envelope,
-`enc-cvw` the encryption-context convention, `enc-53a` the rotation and
-crypto-shred runbook) decide the contracts this package is built out of, and
-`enc-1qm` is the operator gate that accepts them. Until an ADR is accepted,
-its contract is open: do not encode a guess about it in code, and stop and
-report if a bead needs an answer that no accepted ADR gives.
+`docs/adr/README.md` is the index of this repository's records, and its
+status column is authoritative; a record's own status line is where an
+amendment's separate status lives, because an amendment can be proposed
+under an accepted record. The accepted spine is ADR-0001 the vault layer,
+ADR-0002 the key-provider behaviour, ADR-0003 the per-tenant two-level
+envelope, ADR-0004 the encryption-context convention, and ADR-0005 the
+rotation and crypto-shred model. Until a record - or an amendment - is
+accepted, its contract is open: do not encode a guess about it in code, and
+stop and report if a bead needs an answer that no accepted record gives.
+
+Acceptance is the operator's reading, never an agent's. An agent may draft a
+record or an amendment, and may implement against an accepted one; it does
+not flip a status line.
 
 Cryptographic decisions are ADR decisions here, always. A key-derivation
 scheme, an encryption-context field, a ciphertext layout, or an algorithm
@@ -154,7 +170,7 @@ check mode (`format: [check: true]` in `.quality.exs`): drift fails the gate
 and nothing is rewritten, so run `mix format` yourself before committing.
 `.quality.exs` records why this gate is deliberately smaller than
 statifier-ex's, including the `coveralls.json` deviation that keeps the 90%
-floor meaningful while the package is still a moduledoc-only scaffold.
+floor meaningful for files excoveralls finds no relevant lines in.
 
 <!-- usage-rules-start -->
 ## ExQuality (`mix quality`)
