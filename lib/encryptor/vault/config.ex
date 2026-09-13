@@ -88,8 +88,13 @@ defmodule Encryptor.Vault.Config do
     * `:algorithm_suite_id` defaults to `0x0578` and accepts `0x0478`. See
       "Choosing an algorithm suite" below.
     * `:cache` is `false` or a keyword list. `:max_age` is required with no
-      default; `:max_messages` defaults to `100`, `:max_bytes` to 1 GiB, and
-      `:recycle_after` to `20 * max_age` (ADR-0001 decision 6).
+      default; `:max_messages` defaults to `10_000`, `:max_bytes` to 1 GiB,
+      and `:recycle_after` to `20 * max_age` (ADR-0001 decision 6, as amended
+      by amendment A). The three do not cooperate: `:max_messages` is the
+      bound that fires on an active partition, `:max_age` is the backstop on
+      an idle one and the bound a crypto-shred waits on, and `:max_bytes`
+      fires first only above a payload of `max_bytes / max_messages` - about
+      107 KB under these defaults.
     * `:context_profile` is `:single` or `:tenant`, and `:required_context` is
       a list of context keys (ADR-0004 decision 3).
     * On a `:tenant` vault `:reference_subkey` is required, and when the
@@ -170,7 +175,7 @@ defmodule Encryptor.Vault.Config do
   @default_algorithm_suite_id 0x0578
   @allowed_algorithm_suite_ids [0x0578, 0x0478]
 
-  @default_max_messages 100
+  @default_max_messages 10_000
   @default_max_bytes 1_073_741_824
   @recycle_after_multiplier 20
   @cache_bounds [:max_age, :max_messages, :max_bytes, :recycle_after]
