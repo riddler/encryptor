@@ -482,13 +482,13 @@ defmodule Encryptor.Kdf do
   `{:missing_optional_dependency, :argon2_elixir}`; this raise is the second
   line, for a caller that reaches the primitive directly.
 
-  ## What this function does not check
+  ## The memory floor is start-time only
 
-  Amendment B decision 4's **bounds** - `:memory_kib` of at least 32_768 KiB,
-  positive `:iterations` and `:parallelism` - are start-time bounds, enforced
-  once by `Encryptor.Vault.Config` on the declared set, and this function does
-  not re-check the floor. A caller that reaches the primitive directly with a
-  smaller power-of-two memory size hashes at that size:
+  Amendment B decision 4's **memory floor** - `:memory_kib` of at least
+  32_768 KiB - is a start-time bound, enforced once by
+  `Encryptor.Vault.Config` on the declared set, and this function does not
+  re-check it. A caller that reaches the primitive directly with a smaller
+  power-of-two memory size hashes at that size:
 
       iex> params = %{memory_kib: 16_384, iterations: 1, parallelism: 1}
       iex> byte_size(Encryptor.Kdf.slow_hash("value", :binary.copy(<<0x5A>>, 16), params))
@@ -496,12 +496,23 @@ defmodule Encryptor.Kdf do
 
   That is decision 1's division of labour rather than a gap: the parameter set
   this function takes is one whose values are *already validated*, so
-  re-deciding a cryptographic bound here would put it in two places, which is
-  the same reason a partial set is not completed here. What is checked is what
-  the call mechanically needs - the complete set of three keys, a salt of at
-  least 16 bytes, and a `:memory_kib` that is a power of two, because the
-  dependency takes memory as a log-2 exponent and the conversion is total only
-  over powers of two.
+  re-deciding the cost floor here would put it in two places, which is the
+  same reason a partial set is not completed here.
+
+  ## What is checked
+
+  What this function checks is what the call itself needs to be well-formed,
+  and it raises on each:
+
+    * the parameter set carries exactly the three keys `:memory_kib`,
+      `:iterations` and `:parallelism`, each an integer, with `:iterations`
+      and `:parallelism` **positive** - a pass or lane count of zero is not a
+      cost the dependency can be asked for;
+    * the salt is at least 16 bytes (decision 3);
+    * `:memory_kib` is a power of two, because the dependency takes memory as
+      a log-2 exponent and the conversion is total only over powers of two.
+
+  So the positive counts are checked in both places, and the floor in one.
   """
   @spec slow_hash(binary(), binary(), params()) :: binary()
   def slow_hash(input, salt, params) when is_binary(input) and is_binary(salt) do
