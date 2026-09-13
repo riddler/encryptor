@@ -31,10 +31,19 @@ defmodule Encryptor.Vault.Lifecycle do
   `GenServer.call` - the three the paragraphs above rule out. The table dying
   with this process is what makes a suspension node-local and volatile, which
   amendment A decides deliberately rather than tolerates.
+
+  ## Telemetry
+
+  `terminate/2` emits `[:encryptor, :vault, :stopped]` after the erase, which
+  is what makes the event mean "the frozen configuration is gone" rather than
+  "a stop was requested" (ADR-0006 decision 3). It is reached only because
+  `init/1` traps exits; a brutal kill takes the event with the erase it
+  reports.
   """
 
   use GenServer
 
+  alias Encryptor.Telemetry
   alias Encryptor.Vault
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Suspension
@@ -59,6 +68,8 @@ defmodule Encryptor.Vault.Lifecycle do
   @impl GenServer
   def terminate(_reason, %Config{vault: vault}) do
     Config.erase(vault)
+    Telemetry.vault_stopped(vault)
+
     :ok
   end
 end

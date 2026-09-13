@@ -53,17 +53,23 @@ defmodule Encryptor.Vault.CacheRecycler do
 
   use GenServer
 
+  alias Encryptor.Telemetry
+
   @cache_child_id :cache
 
   @typedoc """
   Start options.
 
+    * `:vault` - the vault module the cache belongs to. Carried only so that
+      `[:encryptor, :cache, :recycled]` can name it: nothing in the mechanism
+      reads it.
     * `:supervisor` - the vault supervisor holding the cache child.
     * `:interval` - milliseconds between recycles.
     * `:name` - optional registered name.
   """
   @type option ::
-          {:supervisor, Supervisor.supervisor()}
+          {:vault, module()}
+          | {:supervisor, Supervisor.supervisor()}
           | {:interval, pos_integer()}
           | {:name, GenServer.name()}
 
@@ -88,6 +94,7 @@ defmodule Encryptor.Vault.CacheRecycler do
   @impl GenServer
   def init(opts) do
     state = %{
+      vault: Keyword.fetch!(opts, :vault),
       supervisor: Keyword.fetch!(opts, :supervisor),
       interval: Keyword.fetch!(opts, :interval)
     }
@@ -97,7 +104,7 @@ defmodule Encryptor.Vault.CacheRecycler do
 
   @impl GenServer
   def handle_info(:recycle, state) do
-    recycle(state.supervisor)
+    recycle(state.vault, state.supervisor)
 
     {:noreply, schedule(state)}
   end
@@ -126,11 +133,25 @@ defmodule Encryptor.Vault.CacheRecycler do
   # next tick tries again; a suspension ignores the answer, because a vault
   # configured `cache: false` has no cache child and no table to drop and its
   # suspension still succeeds.
-  @spec recycle(Supervisor.supervisor()) :: term()
-  def recycle(supervisor) do
-    case Supervisor.terminate_child(supervisor, @cache_child_id) do
-      :ok -> Supervisor.restart_child(supervisor, @cache_child_id)
-      {:error, reason} -> {:error, reason}
-    end
+  #
+  # Both branches emit `[:encryptor, :cache, :recycled]` (ADR-0006 decision
+  # 10). The error one is the point of the event: until now a missed bound
+  # was dropped here and nothing anywhere said it happened, so an operator
+  # had no way to know the only recurring maintenance in the package had
+  # stopped running. The `vault` argument exists for that event and for
+  # nothing else - the mechanism reads only the supervisor.
+  @spec recycle(module(), Supervisor.supervisor()) :: term()
+  def recycle(vault, supervisor) do
+    started_at = System.monotonic_time()
+
+    result =
+      case Supervisor.terminate_child(supervisor, @cache_child_id) do
+        :ok -> Supervisor.restart_child(supervisor, @cache_child_id)
+        {:error, reason} -> {:error, reason}
+      end
+
+    Telemetry.cache_recycled(vault, System.monotonic_time() - started_at, result)
+
+    result
   end
 end

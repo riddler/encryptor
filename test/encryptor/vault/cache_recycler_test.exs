@@ -96,6 +96,7 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
 
       assert state.interval == 20 * 60 * 1_000
       assert state.supervisor == Vault.supervisor_name(LifecycleVaults.Cached)
+      assert state.vault == LifecycleVaults.Cached
     end
   end
 
@@ -119,7 +120,12 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
       before = cache_pid(LifecycleVaults.Cached)
 
       start_supervised!(
-        {CacheRecycler, [supervisor: Vault.supervisor_name(LifecycleVaults.Cached), interval: 25]}
+        {CacheRecycler,
+         [
+           vault: LifecycleVaults.Cached,
+           supervisor: Vault.supervisor_name(LifecycleVaults.Cached),
+           interval: 25
+         ]}
       )
 
       after_recycle = await_recycle(LifecycleVaults.Cached, before)
@@ -135,7 +141,12 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
       first = cache_pid(LifecycleVaults.Cached)
 
       start_supervised!(
-        {CacheRecycler, [supervisor: Vault.supervisor_name(LifecycleVaults.Cached), interval: 25]}
+        {CacheRecycler,
+         [
+           vault: LifecycleVaults.Cached,
+           supervisor: Vault.supervisor_name(LifecycleVaults.Cached),
+           interval: 25
+         ]}
       )
 
       second = await_recycle(LifecycleVaults.Cached, first)
@@ -151,7 +162,12 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
     # on scheduled maintenance and the whole vault comes down with it.
     test "recycling does not take the vault down" do
       start_supervised!(
-        {CacheRecycler, [supervisor: Vault.supervisor_name(LifecycleVaults.Cached), interval: 10]}
+        {CacheRecycler,
+         [
+           vault: LifecycleVaults.Cached,
+           supervisor: Vault.supervisor_name(LifecycleVaults.Cached),
+           interval: 10
+         ]}
       )
 
       first = await_recycle(LifecycleVaults.Cached, cache_pid(LifecycleVaults.Cached))
@@ -175,7 +191,11 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
       recycler =
         start_supervised!(
           {CacheRecycler,
-           [supervisor: Vault.supervisor_name(LifecycleVaults.Cacheless), interval: 10]}
+           [
+             vault: LifecycleVaults.Cacheless,
+             supervisor: Vault.supervisor_name(LifecycleVaults.Cacheless),
+             interval: 10
+           ]}
         )
 
       Process.sleep(60)
