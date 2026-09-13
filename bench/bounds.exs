@@ -15,7 +15,7 @@
 #   3. the 32-pair and 4 KiB context bounds         ADR-0004 open question 4
 #   4. the 32-byte tenant master key and 0x0478     ADR-0003 open question 7
 #   5. the Argon2id 64 MiB / 3-iteration parameters ADR-0003 amendment B4
-#      (proposed, not accepted - measured as an addendum)
+#      (accepted 2026-09-13 - measured as an addendum)
 #
 # This harness MEASURES. It does not retune. Nothing here writes a default,
 # and a number that contradicts a record is a finding for the operator, not
@@ -666,7 +666,9 @@ Report.row("unwrap/2 us", Report.round2(unwrap_us))
 
 # ---------------------------------------------------------------------------
 
-Report.section("5. Addendum: Argon2id 64 MiB / 3 iterations (ADR-0003 amd B4, proposed)")
+Report.section(
+  "5. Addendum: Argon2id 64 MiB / 3 iterations (ADR-0003 amd B4, accepted 2026-09-13)"
+)
 
 if Code.ensure_loaded?(Argon2.Base) do
   salt = :crypto.strong_rand_bytes(16)

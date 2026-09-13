@@ -414,6 +414,25 @@ defmodule Encryptor.KdfTest do
       assert Kdf.slow_hash("value", @salt, @params) == Kdf.slow_hash("value", @salt, @params)
     end
 
+    # Determinism in its absolute form: the two tests above only say the
+    # function agrees with itself, and the conversion test below says it
+    # agrees with the dependency. Neither notices if the dependency itself
+    # starts computing different bytes, and a blind index that changes value
+    # between two releases of a transitive dependency is a silent data loss -
+    # every stored index stops matching its plaintext. So one output is
+    # pinned as a literal: Argon2id, v=19, the record's minimum parameters,
+    # a fixed non-secret input and the fixed 16-byte test salt.
+    #
+    # The pin is over a test input, so there is no secret here to leak. The
+    # dependency sabotage that proves it discriminates is recorded in the
+    # pull request rather than as a parameter this test can vary: the bytes
+    # come out of the NIF, so making them move means recompiling the
+    # dependency for this env, which a test cannot do for itself.
+    test "matches a pinned Argon2id known-answer vector at the record's minimum" do
+      assert Kdf.slow_hash("value", @salt, @params) ==
+               Base.decode16!("6886E7AD47CF67646FC4989DDB5ADF1BA4365BE6658205D2C9BA282ADD517FDF")
+    end
+
     # sabotage: made slow_hash/3 ignore its salt argument and pass a constant
     # - red on the salt half.
     test "a different value, salt or parameter set is a different hash" do
@@ -490,6 +509,28 @@ defmodule Encryptor.KdfTest do
       below_floor = %{@params | memory_kib: 16_384}
 
       assert byte_size(Kdf.slow_hash("value", @salt, below_floor)) == 32
+    end
+
+    # `memory_exponent/1` reaches `:math.log2/1`, which is undefined at zero
+    # and below, so before this clause a complete parameter set carrying
+    # `memory_kib: 0` left the function as an `ArithmeticError` from deep
+    # inside the conversion rather than as the `ArgumentError` the @doc
+    # promises. A non-positive memory size is malformed in the same way a
+    # zero pass count is, and it is refused in the same place and with the
+    # same message.
+    #
+    # sabotage: dropped the `memory_kib > 0` half of the guard - red on both
+    # values, and each raises ArithmeticError out of `:math.log2/1` instead.
+    test "refuses a non-positive memory size as a malformed parameter set" do
+      for memory_kib <- [0, -32_768] do
+        error =
+          assert_raise ArgumentError, fn ->
+            Kdf.slow_hash("value", @salt, %{@params | memory_kib: memory_kib})
+          end
+
+        assert Exception.message(error) ==
+                 "a slow-hash parameter set must carry exactly :memory_kib, :iterations and :parallelism"
+      end
     end
 
     # sabotage: dropped the `Bitwise.bsl(1, exponent) == memory_kib` check and

@@ -505,12 +505,14 @@ defmodule Encryptor.Kdf do
   and it raises on each:
 
     * the parameter set carries exactly the three keys `:memory_kib`,
-      `:iterations` and `:parallelism`, each an integer, with `:iterations`
-      and `:parallelism` **positive** - a pass or lane count of zero is not a
-      cost the dependency can be asked for;
+      `:iterations` and `:parallelism`, each an integer and each
+      **positive** - a pass or lane count of zero is not a cost the
+      dependency can be asked for, and a memory size of zero or less has no
+      log-2 exponent to convert;
     * the salt is at least 16 bytes (decision 3);
-    * `:memory_kib` is a power of two, because the dependency takes memory as
-      a log-2 exponent and the conversion is total only over powers of two.
+    * `:memory_kib` is a **positive power of two**, because the dependency
+      takes memory as a log-2 exponent and the conversion is total only over
+      powers of two.
 
   So the positive counts are checked in both places, and the floor in one.
   """
@@ -543,12 +545,20 @@ defmodule Encryptor.Kdf do
   # Amendment B decision 1: complete or nothing. `map_size/1` is what makes
   # "exactly these three" enforceable - a set carrying a fourth key is a
   # caller spelling an option this record does not define.
+  #
+  # The three positivity tests are well-formedness, not the record's bounds:
+  # `:memory_kib` has to be positive before `memory_exponent/1` can take its
+  # log-2 at all, so zero and negatives are refused here along with the rest
+  # of a malformed set rather than reaching `:math.log2/1` and coming back
+  # out as an `ArithmeticError`. The 32_768 KiB floor is still start-time
+  # only, and this is not it.
   @spec slow_hash_params(params()) :: {pos_integer(), pos_integer(), pos_integer()}
   defp slow_hash_params(
          %{memory_kib: memory_kib, iterations: iterations, parallelism: parallelism} = params
        )
        when map_size(params) == 3 and is_integer(memory_kib) and is_integer(iterations) and
-              is_integer(parallelism) and iterations > 0 and parallelism > 0 do
+              is_integer(parallelism) and memory_kib > 0 and iterations > 0 and
+              parallelism > 0 do
     {memory_kib, iterations, parallelism}
   end
 
