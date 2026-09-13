@@ -113,8 +113,7 @@ defmodule Encryptor.Envelope do
   documentation; this paragraph is that enforcement.
 
   The root vault is also configured `cache: false` (decision 2) and
-  `context_profile: :single`. Provisioning is rare and unwraps are already
-  collapsed by the tenant vault's materials cache, so a second cache here
+  `context_profile: :single`. Provisioning is rare, so a second cache here
   would hold the root's own data keys with no measurable benefit and a real
   cost in what sits in memory.
 
