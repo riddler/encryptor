@@ -119,7 +119,7 @@ buys, and it is worth being explicit about what follows from it:
 | Verb | What it does | Reversible | What a caller sees | Who performs it | Record | Shipped today |
 |---|---|---|---|---|---|---|
 | **Rotate** | Mints a new version under the same selector; older versions keep decrypting until their wrappings are deleted | yes, by minting again | nothing - reads and writes continue | `Encryptor.Envelope.provision/3`, then a re-encrypt pass | ADR-0005 P1, P2 | yes |
-| **Suspend** | Denies every operation for the selector while leaving its wrappings untouched | **yes**, by `reinstate/2` | `{:key_unavailable, selector}` | `suspend/2` on `Encryptor.Vault` (**proposed**) | ADR-0005 Amendment A | **no - proposed** |
+| **Suspend** | Denies every operation for the selector while leaving its wrappings untouched | **yes**, by `reinstate/2` | `{:key_unavailable, selector}` | `Encryptor.Vault.suspend/2` | ADR-0005 Amendment A | yes |
 | **Shred** | Destroys every wrapping of the selector's master key | **no** | `{:unknown_key, selector}` | a `DELETE` against your key store, per runbook P3 | ADR-0005 P3, decision 9 | not as a function, by design |
 
 Three things about that table need saying rather than reading between.
@@ -129,14 +129,12 @@ and is unamended: a mechanism is a change to the membership of the set
 `decryption_keys/2` answers with, rotation adds a name to it, a shred removes
 one, and there is no third. Suspend changes that membership not at all.
 
-**Suspend is proposed, not shipped.** ADR-0005 Amendment A records it and is
-marked `Status: **proposed**`; `suspend/2` and `reinstate/2` do not exist on
-`Encryptor.Vault` yet. Treat the row above as the decided
-shape of a verb that is coming, not as a surface to call. Until it lands, the
-state between "readable" and "destroyed" has no package-level answer, which
-is exactly the gap the amendment was written to close.
+**Suspend is shipped.** ADR-0005 Amendment A records it (accepted
+2026-09-13), and `Encryptor.Vault.suspend/2` and `Encryptor.Vault.reinstate/2`
+exist. The state between "readable" and "destroyed" now has a package-level
+answer, which is exactly the gap the amendment was written to close.
 
-**Suspend is deliberately not a shred you can undo.** When it lands, the deny
+**Suspend is deliberately not a shred you can undo.** The deny
 gate sits at resolution, ahead of the cache, so a suspension takes effect on
 the very next call rather than after `max_age` drains - the opposite of P3
 step 3, which must wait for the caches. It is also node-local and volatile by
@@ -209,9 +207,8 @@ story is erasure has to chase one key.
    key lives in the KMS and its versions are destroyed, the wrappings in
    every backup become undecryptable because the wrapping key was never in
    the backup. ADR-0007 decision 8 records that for GCP KMS
-   (`DestroyCryptoKeyVersion`), and that record is **proposed**, not
-   accepted; it is also a runbook API call rather than anything this package
-   exposes.
+   (`DestroyCryptoKeyVersion`); it is a runbook API call rather than
+   anything this package exposes.
 3. **It is the termination mechanism, not the deletion story.** Erasure is
    what makes offboarding instantaneous and complete-enough to commit to. It
    does not replace row deletion, retention policy, or a backup expiry
@@ -230,7 +227,7 @@ runbook's preconditions for P3 are not ceremony:
   pass fails partway, complete it rather than reverting it.
 - After the wrappings are gone, a running node still decrypts from cached
   materials until the caches drain. The shred is not observable until then;
-  suspend, when it lands, is.
+  suspend is.
 
 ## Which verb
 
@@ -238,7 +235,7 @@ runbook's preconditions for P3 are not ceremony:
 |---|---|
 | To limit how much data one key version covers | Rotate |
 | To respond to a suspected key compromise | Rotate, then shred the old versions' wrappings once the re-encrypt pass is verified |
-| To make a boundary's data unreadable while a dispute, hold or unpaid invoice is resolved | Suspend (proposed), or a provider-level deny today |
+| To make a boundary's data unreadable while a dispute, hold or unpaid invoice is resolved | Suspend |
 | To offboard a boundary permanently | Shred, and delete its rows |
 | To stop a boundary's data being readable on one node, right now, before you have decided | Nothing in this package yet - stop the vault |
 
@@ -254,9 +251,9 @@ offboarding flow has a "provisional" state, do not implement it with P3.
   non-empty host-supplied string (accepted, with amendments).
 - **ADR-0005** - rotation and crypto-shred: the two mechanisms, the four
   procedures, the blast-radius tables (accepted). **Amendment A** - suspend
-  as the third verb (**proposed**).
+  as the third verb (accepted 2026-09-13).
 - **ADR-0007** decision 8 - KMS-backed destruction as ADR-0005's shred, and
-  what it still does not erase (**proposed**).
+  what it still does not erase (accepted 2026-09-13).
 
 Where this guide and a record disagree, the record wins and the disagreement
 is a bug in this guide.
