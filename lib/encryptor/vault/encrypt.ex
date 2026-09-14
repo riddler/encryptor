@@ -54,34 +54,34 @@ defmodule Encryptor.Vault.Encrypt do
   # required-context CMM over an empty list is an extra struct and an extra
   # dispatch for nothing.
   #
-  # ## Flagged, not settled: the provider is consulted on every call
+  # ## Flagged, not settled: the provider is consulted on every call (settled 2026-09-13)
   #
-  # Two accepted records describe provider resolution differently, and this
-  # module is the first code that has to take a position.
+  # Two accepted records once described provider resolution differently, and
+  # this module was the first code that had to take a position.
   #
-  #   * ADR-0001 decision 2: encrypt and decrypt "build the engine's keyring,
-  #     CMM, and `Client` structs per call". A keyring needs a descriptor, and
-  #     a descriptor comes from the provider, so read literally the provider
-  #     answers once per call.
-  #   * ADR-0002 decision 2: the materials cache "collapses provider round
-  #     trips to one per partition per `max_age`". Read literally, a warm
-  #     partition does not reach the provider at all.
+  # * ADR-0001 decision 2: encrypt and decrypt "build the engine's keyring,
+  # CMM, and `Client` structs per call". A keyring needs a descriptor, and
+  # a descriptor comes from the provider, so read literally the provider
+  # answers once per call.
+  # * ADR-0002 decision 2 said the materials cache "collapses provider round
+  # trips to one per partition per `max_age`". Read literally, a warm
+  # partition did not reach the provider at all.
   #
-  # The implementation follows the first, because `enc-50m` fixes the order in
-  # its own words - the vault "resolves the selector through the provider,
-  # validates and maps the descriptor to a keyring, composes the context,
-  # derives the partition id, builds the CMM stack and the client" - and the
-  # B3 graph doc says the beads win where they and the doc disagree. So the
-  # keyring is built before the caching CMM is consulted, and what a warm
-  # cache saves is the data key generation and the EDK wrap, not the
-  # provider lookup.
+  # The implementation followed the first, because the vault's own ordering
+  # rule fixes the order in its own words - the vault "resolves the selector
+  # through the provider, validates and maps the descriptor to a keyring,
+  # composes the context, derives the partition id, builds the CMM stack and
+  # the client". So the keyring is built before the caching CMM is consulted,
+  # and what a warm cache saves is the data key generation and the EDK wrap,
+  # not the provider lookup.
   #
-  # That is cheap for `Static` and for a `Function` provider closing over
-  # material already in memory, and it is not cheap for a store-backed
-  # provider, which is the case ADR-0002's sentence was written about. The
-  # tension is recorded here and in `enc-50m`'s notes rather than resolved:
-  # narrowing it is an amendment to one of the two records, and an
-  # implementation bead does not amend an accepted record.
+  # ADR-0002 Amendment A's A1 (2026-09-13) settled it on that same reading and
+  # withdrew decision 2's round-trip sentence: a provider is consulted on every
+  # vault call that needs a descriptor, warm partition or cold, and a cache hit
+  # "never saves the provider lookup". The cost the withdrawn sentence was
+  # written about is still real - a store-backed provider pays its I/O on every
+  # call - and the bullet it sat in still carries the answer: a provider that
+  # caches must bound the cache and document the bound.
   #
   # ## What is deliberately not an option
   #

@@ -127,10 +127,10 @@ Three properties follow, and all three are load-bearing:
   cache.** That last term is the one operators forget; see "Cache drainage"
   below.
 - **Widening the window costs a list walk and nothing else.** A long candidate
-  list costs one small decrypt per candidate on a cold cache, bounded by the
-  materials cache like every other resolution cost. Nothing about a long window
-  is unsafe. The argument for closing it is that data whose key still exists is
-  data that has not been shredded.
+  list costs one small decrypt per candidate on a cold cache; a warm materials
+  cache saves those decrypts but never the provider lookup before them. Nothing
+  about a long window is unsafe. The argument for closing it is that data whose
+  key still exists is data that has not been shredded.
 
 **Rotation adds a name; a shred removes one. There is no third mechanism, and
 pruning is manual.** A live set is whatever your store answers
