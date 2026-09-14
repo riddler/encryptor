@@ -1396,7 +1396,6 @@ where that guidance would land.
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
 
-
 ## Note (2026-09-13): the security section, and the reserved `encryptor-*` pairs in the KMS disclosure
 
 This is the section that ADR-0004 Amendment A's open question A-1 and this
