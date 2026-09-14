@@ -10,6 +10,18 @@ fragment in [`changelog.d/`](changelog.d/README.md); the fragments are assembled
 into a version section at release. See that README for the format and for when a
 change warrants an entry at all.
 
+## [0.4.1] - 2026-09-13
+
+### Fixed
+
+- `Encryptor.Kdf.slow_hash/3` refuses a zero or negative `:memory_kib` with
+  the documented `ArgumentError` instead of raising `ArithmeticError` out of
+  the log-2 conversion.
+- `Encryptor.Provider.GcpKms`'s start-time check now names `:goth` when the
+  `:goth` option is a `{module, name}` pair whose first element is not a
+  module. It previously reported `{:invalid_config, :provider, :http_client}`,
+  sending an operator to the option that was correct.
+
 ## [0.4.0] - 2026-09-13
 
 ### **Breaking**
