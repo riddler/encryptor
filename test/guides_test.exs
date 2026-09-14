@@ -16,7 +16,9 @@ defmodule Encryptor.GuidesTest do
   Two claims in `guides/rotation-runbook.md` are structural rather than
   executable - a section a record assigns to the guide, and a table a record
   asks the guide to reproduce rather than paraphrase - so they are asserted
-  against the files themselves in the last describe.
+  against the files themselves. The install pin `guides/getting-started.md`
+  and `README.md` must carry alike is asserted the same way, in the last
+  describe.
   """
 
   use ExUnit.Case, async: false
@@ -39,6 +41,8 @@ defmodule Encryptor.GuidesTest do
   @column_context %{"table" => "payment_methods", "column" => "number"}
 
   @runbook "guides/rotation-runbook.md"
+  @getting_started "guides/getting-started.md"
+  @readme "README.md"
   @keyring_record "docs/adr/0008-aws-kms-keyring-backed.md"
   @gcp_section "## The GCP operator runbook"
   @per_shape_header "| | `%Key.Aes{}` (material source) | `%Key.Kms{}` (keyring-backed) |"
@@ -80,6 +84,16 @@ defmodule Encryptor.GuidesTest do
     |> String.split("\n")
     |> Enum.drop_while(&(&1 != header))
     |> Enum.take_while(&String.starts_with?(&1, "|"))
+  end
+
+  # The version requirement a file's `def deps` snippet pins encryptor at: the
+  # string inside the first `{:encryptor, "..."}` tuple, or `nil` when the file
+  # carries no such tuple at all.
+  defp encryptor_pin(path) do
+    case Regex.run(~r/\{:encryptor,\s*"([^"]+)"\}/, File.read!(path)) do
+      [_whole, requirement] -> requirement
+      nil -> nil
+    end
   end
 
   describe "getting started, part 1: the single-key vault" do
@@ -520,6 +534,26 @@ defmodule Encryptor.GuidesTest do
 
       assert guide_table == record_table,
              "#{@runbook}'s copy of the per-shape table has drifted from #{@keyring_record}"
+    end
+  end
+
+  describe "the guide and the README pin encryptor identically" do
+    # sabotage: changed the guide's snippet alone back to `== 0.4.0`; red.
+    # (Proven once on a temporary edit, reverted before the commit - see the PR
+    # body.) Comparing the two strings rather than asserting one literal is what
+    # makes a release prep that moves one file and not the other fail.
+    test "the getting-started snippet carries the README's pin string" do
+      readme_pin = encryptor_pin(@readme)
+      guide_pin = encryptor_pin(@getting_started)
+
+      assert readme_pin, "#{@readme} no longer carries a `{:encryptor, \"...\"}` deps entry"
+
+      assert guide_pin,
+             "#{@getting_started} no longer carries a `{:encryptor, \"...\"}` deps entry"
+
+      assert guide_pin == readme_pin,
+             "#{@getting_started} pins encryptor at #{inspect(guide_pin)} while #{@readme} " <>
+               "pins it at #{inspect(readme_pin)}; the two install snippets move together"
     end
   end
 end
