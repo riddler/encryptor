@@ -1581,16 +1581,37 @@ as a miss does.
 
 **(c) "the one end-to-end path" is a singular that undercounts.** The sentence
 at `:1370-1371` - "the one end-to-end path that asserted on a context ran the
-unsigned suite" - is true of the suite and wrong about the count. At `4c8fbe9`
-every context-asserting path runs `0x0478`, and there is more than one:
-`test/encryptor/message_test.exs:43` and `:124` (both through the helpers at
-`:211-215` and `:217`, whose comment at `:223-227` names the choice of the
-unsigned committed suite and why), and `test/encryptor/envelope_test.exs`'s
-`context/1` helper (`:46-49`) feeding the assertions at `:99`, `:114`,
-`:149`, `:452`, `:530` and `:628`, every one of them against a vault that
-sets `algorithm_suite_id: 0x0478` (`test/support/envelope_vaults.ex:74`,
-`:100`, `:121`, `:147`; `test/support/encrypt_vaults.ex:201`). Read the
-sentence as
-*every end-to-end path that asserted on a context*. Its point stands for all
-of them: none had seen the engine's reserved pair, because none ran a signing
-suite.
+unsigned suite" - is true of the suite and wrong about the count. Several
+end-to-end paths assert on a message's encryption context at `4c8fbe9`.
+
+What kept every one of them from seeing the engine's reserved pair is a
+property of the fixtures rather than of the count, and that property is the
+durable claim: **every vault whose written context is asserted is configured
+`algorithm_suite_id: 0x0478`, and the one path that builds its messages
+without a vault chooses the same unsigned committed suite deliberately**
+(`test/encryptor/message_test.exs:217-235`, with the comment at `:223-227`
+saying why). A signing vault would break that property, and no fixture is
+one.
+
+Sites, as the set stood at `4c8fbe9` - cited to make the claim checkable, not
+as a list this record undertakes to keep exhaustive:
+
+- `test/encryptor/message_test.exs:43` and `:124`, through the helpers at
+  `:211-215` and `:217-235` (no vault; the suite is chosen in the helper).
+- `test/encryptor/envelope_test.exs`'s `context/1` helper (`:46-49`) feeding
+  `:99`, `:114`, `:149`, `:452`, `:530` and `:628`, against
+  `EnvelopeVaults.Root`, `Staged` and `Contextual`
+  (`test/support/envelope_vaults.ex:74`, `:100`, `:147`) and
+  `EncryptVaults.Merchant` (`test/support/encrypt_vaults.ex:201`).
+- `test/encryptor/vault/rekey_test.exs`'s own `context/1` (`:23-26`) feeding
+  `:88`, `:89`, `:102`, `:116`, `:188` and `:292-293`, against
+  `DecryptVaults.Retired` (`test/support/decrypt_vaults.ex:33`),
+  `EncryptVaults.Bound` (`test/support/encrypt_vaults.ex:186`) and
+  `EncryptVaults.Merchant` (`:201`).
+- `test/guides_test.exs:135-137` and `:236`, against `GuideVaults.Vault`
+  (`test/support/guide_vaults.ex:83`) and `GuideVaults.MerchantVault`
+  (`:302`).
+
+Read the sentence as *every end-to-end path that asserted on a context*. Its
+point stands for all of them: none had seen the engine's reserved pair,
+because none ran a signing suite.
