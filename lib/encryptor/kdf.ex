@@ -477,6 +477,14 @@ defmodule Encryptor.Kdf do
       iex> Encryptor.Kdf.slow_hash("value", :binary.copy(<<0x5A>>, 16), %{iterations: 3})
       ** (ArgumentError) a slow-hash parameter set must carry exactly :memory_kib, :iterations and :parallelism
 
+  A set that *is* complete but carries a zero or negative count is a different
+  fault, and it raises naming the key that is wrong rather than the
+  completeness constraint it already satisfies:
+
+      iex> params = %{memory_kib: 32_768, iterations: 0, parallelism: 1}
+      iex> Encryptor.Kdf.slow_hash("value", :binary.copy(<<0x5A>>, 16), params)
+      ** (ArgumentError) a slow-hash parameter :iterations must be positive, got: 0
+
   A build without the optional `:argon2_elixir` dependency raises too. A vault
   that declares `:slow_hash` is caught earlier, at start, with
   `{:missing_optional_dependency, :argon2_elixir}`; this raise is the second
@@ -505,10 +513,14 @@ defmodule Encryptor.Kdf do
   and it raises on each:
 
     * the parameter set carries exactly the three keys `:memory_kib`,
-      `:iterations` and `:parallelism`, each an integer and each
-      **positive** - a pass or lane count of zero is not a cost the
-      dependency can be asked for, and a memory size of zero or less has no
-      log-2 exponent to convert;
+      `:iterations` and `:parallelism`, each an integer - a set that is
+      partial, carries a fourth key, or carries a non-integer value raises
+      naming that constraint;
+    * each of the three is **positive** - a pass or lane count of zero is not
+      a cost the dependency can be asked for, and a memory size of zero or
+      less has no log-2 exponent to convert - and on an otherwise complete set
+      the raise names the key whose value is not, because the completeness
+      constraint that set already meets says nothing about what to change;
     * the salt is at least 16 bytes (decision 3);
     * `:memory_kib` is a **positive power of two**, because the dependency
       takes memory as a log-2 exponent and the conversion is total only over
@@ -548,10 +560,18 @@ defmodule Encryptor.Kdf do
   #
   # The three positivity tests are well-formedness, not the record's bounds:
   # `:memory_kib` has to be positive before `memory_exponent/1` can take its
-  # log-2 at all, so zero and negatives are refused here along with the rest
-  # of a malformed set rather than reaching `:math.log2/1` and coming back
-  # out as an `ArithmeticError`. The 32_768 KiB floor is still start-time
-  # only, and this is not it.
+  # log-2 at all, so zero and negatives are refused here rather than reaching
+  # `:math.log2/1` and coming back out as an `ArithmeticError`. The 32_768 KiB
+  # floor is still start-time only, and this is not it.
+  #
+  # They get their own clause, and their own message, because a complete set
+  # with a zero count is not the fault the fallback describes: naming "must
+  # carry exactly :memory_kib, :iterations and :parallelism" to a caller whose
+  # set carries exactly those three keys names a constraint that is already
+  # met and leaves the one that is not unsaid. The per-key wording matches the
+  # detail `Encryptor.Vault.Config` already returns for the same value at
+  # start (`{:iterations, :not_positive}`), so the two paths differ in the
+  # shape of the answer and not in which key they blame.
   @spec slow_hash_params(params()) :: {pos_integer(), pos_integer(), pos_integer()}
   defp slow_hash_params(
          %{memory_kib: memory_kib, iterations: iterations, parallelism: parallelism} = params
@@ -560,6 +580,20 @@ defmodule Encryptor.Kdf do
               is_integer(parallelism) and memory_kib > 0 and iterations > 0 and
               parallelism > 0 do
     {memory_kib, iterations, parallelism}
+  end
+
+  defp slow_hash_params(
+         %{memory_kib: memory_kib, iterations: iterations, parallelism: parallelism} = params
+       )
+       when map_size(params) == 3 and is_integer(memory_kib) and is_integer(iterations) and
+              is_integer(parallelism) do
+    {key, value} =
+      Enum.find(
+        [memory_kib: memory_kib, iterations: iterations, parallelism: parallelism],
+        fn {_key, value} -> value < 1 end
+      )
+
+    raise ArgumentError, "a slow-hash parameter #{inspect(key)} must be positive, got: #{value}"
   end
 
   defp slow_hash_params(_params) do

@@ -512,25 +512,49 @@ defmodule Encryptor.KdfTest do
     end
 
     # `memory_exponent/1` reaches `:math.log2/1`, which is undefined at zero
-    # and below, so before this clause a complete parameter set carrying
-    # `memory_kib: 0` left the function as an `ArithmeticError` from deep
-    # inside the conversion rather than as the `ArgumentError` the @doc
-    # promises. A non-positive memory size is malformed in the same way a
-    # zero pass count is, and it is refused in the same place and with the
-    # same message.
+    # and below, so before the positivity clauses a complete parameter set
+    # carrying `memory_kib: 0` left the function as an `ArithmeticError` from
+    # deep inside the conversion rather than as the `ArgumentError` the @doc
+    # promises. A non-positive memory size is malformed in the same way a zero
+    # pass or lane count is, and all three are refused in the same place.
     #
-    # sabotage: dropped the `memory_kib > 0` half of the guard - red on both
-    # values, and each raises ArithmeticError out of `:math.log2/1` instead.
-    test "refuses a non-positive memory size as a malformed parameter set" do
-      for memory_kib <- [0, -32_768] do
+    # What they are NOT is incomplete: the set carries exactly the three keys,
+    # so the completeness message would name a constraint the caller already
+    # meets and leave the one it breaks unsaid. Each raise names its own key,
+    # the way `Encryptor.Vault.Config` already does at start.
+    #
+    # sabotage: dropped the non-positive clause so the fallback catches these
+    # again - red here and in the @doc's doctest, both getting the
+    # completeness message back.
+    test "refuses a non-positive value in a complete set, naming that key" do
+      for key <- [:memory_kib, :iterations, :parallelism], value <- [0, -1] do
         error =
           assert_raise ArgumentError, fn ->
-            Kdf.slow_hash("value", @salt, %{@params | memory_kib: memory_kib})
+            Kdf.slow_hash("value", @salt, %{@params | key => value})
           end
 
         assert Exception.message(error) ==
-                 "a slow-hash parameter set must carry exactly :memory_kib, :iterations and :parallelism"
+                 "a slow-hash parameter #{inspect(key)} must be positive, got: #{value}"
       end
+    end
+
+    # The other side of the split: an INCOMPLETE set is still the completeness
+    # constraint's business, and it keeps that message. Pinned here as well as
+    # in the "not complete and exact" test above so the two messages cannot be
+    # collapsed back into one without a red.
+    #
+    # sabotage: moved the positivity check ahead of the completeness one,
+    # reading each key with `Map.get(params, key, 1)` - red, because a partial
+    # set naming a zero value is then blamed on that key rather than reported
+    # as incomplete.
+    test "keeps the completeness message for a partial set with a zero value" do
+      error =
+        assert_raise ArgumentError, fn ->
+          Kdf.slow_hash("value", @salt, %{memory_kib: 0, iterations: 1})
+        end
+
+      assert Exception.message(error) ==
+               "a slow-hash parameter set must carry exactly :memory_kib, :iterations and :parallelism"
     end
 
     # sabotage: dropped the `Bitwise.bsl(1, exponent) == memory_kib` check and
