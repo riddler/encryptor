@@ -1016,10 +1016,11 @@ makes no GCP call at all (decision 10)" (`:815-816`) is wrong on the same
 premise. Its cross-reference is sound - decision 10 (`:610-641`) is where the
 cost argument lives, and this amendment restates that bullet rather than
 displacing the decision - so what needs re-anchoring is the claim, not the
-citation. Read the sentence as: the next write calls `Decrypt` again, under the same AAD rebuilt
-from the same row, and what it saves against a cold vault is the store read
-only if the provider itself memoizes the row - which today it does not. The
-sentence stays where it is, because an amendment appends.
+citation. Read the sentence as: the next write calls `Decrypt` again, under
+the same AAD rebuilt from the same row, and what it saves against a cold
+vault is the store read only if the provider itself memoizes the row - which
+today it does not. The sentence stays where it is, because an amendment
+appends.
 
 **This amendment states the cost rule and counts no call sites.** How many
 `Decrypt` calls a given host makes is a property of its traffic and of the
