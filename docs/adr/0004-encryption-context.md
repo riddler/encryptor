@@ -1465,3 +1465,132 @@ table's and A-1's `lib/encryptor/vault/resolve.ex:198` (labelled read at
 `lib/encryptor/vault/resolve.ex:248` - the same anchor the previous Note recorded
 at `6acefff`, unmoved since. Every other cite in that table stands where that
 Note put it.
+
+## Note (2026-09-14): decision 7's cost arithmetic is the encryption cache id's, the Caching CMM has two encryption-side bypasses, and three clauses of the signing-suite Note are read more precisely
+
+The 2026-09-13 signing-suite Note above settled, in passing, which of the
+engine's two cache ids decision 7's arithmetic prices. It did not name the two
+places where the Caching CMM computes no cache id at all, and three of its
+supporting sentences are narrower or looser than the code they cite. This Note
+records the bypasses, records a deliberate decision to leave the encryption
+path as this record's only priced case, and reads those three sentences
+precisely.
+
+It decides nothing that changes a rule. Decisions 1 to 12, the two acceptance
+amendments at the top, A1 to A5, and every Note above stand exactly as
+written; decision 7's cost sentence is unchanged; nothing is removed. It
+carries the record's status rather than one of its own. Recorded for
+`enc-obf`, folding `enc-509` and `enc-ert`, campaign RF048.
+
+Everything below was read at `4c8fbe9` (= `v0.4.1`), with
+`aws_encryption_sdk` at the version `mix.lock` pins (`1.0.0`, `mix.lock:3`).
+
+### 1. What the Note above already settled, and is not restated here
+
+The decrypt-side half of `enc-509`'s question is already written, in the
+signing-suite Note's section 2 (`:1397-1413`, read at `4c8fbe9`): that the
+decryption cache id also hashes "the message's sorted encrypted data keys
+(`caching.ex:226-230`), which are unique per data key", that "the decrypt-side
+entry count is data-key shaped rather than context shaped", and that
+"Decision 7's own arithmetic - 200 tenants times 40 columns - is the
+encryption cache id's". Those three claims hold at `4c8fbe9`; this Note cites
+them rather than repeating them. The EDK serialization and sort they name are
+`compute_decryption_cache_id/4`'s first step
+(`aws_encryption_sdk` v1.0.0, `lib/aws_encryption_sdk/cmm/caching.ex:224-231`,
+the `sorted_edks` pipeline, with the serialized context appended at `:232`).
+
+What that Note did not name is section 2 below.
+
+### 2. The Caching CMM's two encryption-side bypasses
+
+`get_encryption_materials/2` is a three-branch `cond`
+(`caching.ex:158-179`). Two of its branches call the underlying CMM directly
+and never compute a cache id, never look an entry up, and never store one:
+
+- **An identity-KDF suite.** `identity_kdf?/1` (`caching.ex:252-254`, true for
+  `%AlgorithmSuite{kdf_type: :identity}`) short-circuits to
+  `call_underlying_cmm_encrypt/2` (`caching.ex:164-165`). The decryption side
+  carries the same bypass (`caching.ex:187-188`).
+- **A non-integer `:max_plaintext_length`.** When the request carries no
+  declared plaintext length the byte limit cannot be enforced, so the result
+  is not cached (`caching.ex:169-170`). There is no counterpart on the
+  decryption side.
+
+Only the third branch reaches `compute_encryption_cache_id/3`
+(`caching.ex:174`) and the lookup (`caching.ex:176`).
+
+**Neither bypass is reachable from a vault this package configures, at
+`1.0.0`.** `:algorithm_suite_id` accepts `0x0578` and `0x0478`
+(`@default_algorithm_suite_id` and `@allowed_algorithm_suite_ids`,
+`lib/encryptor/vault/config.ex:177-178`, read at `4c8fbe9`) and both suites
+are `kdf_type: :hkdf`
+(`aws_encryption_sdk` v1.0.0, `lib/aws_encryption_sdk/algorithm_suite.ex:144`
+and `:173`); and the client sets `:max_plaintext_length` to
+`byte_size(plaintext)` on every write
+(`lib/aws_encryption_sdk/client.ex:179`, passed through at `:343-348`), which
+is always an integer. So both bypasses are engine-general facts about the
+Caching CMM rather than paths a host of this package can take today.
+
+### 3. The encryption path stays this record's only priced case
+
+This is the decision `enc-509` asks for, and it is the second of the two
+options that bead offers: decision 7's cost sentence is **not** amended to
+name the bypasses or the decrypt-side id shape.
+
+The reasoning: decision 7's number is exact for the case it prices, and every
+term this Note adds moves the real count in the same direction. The two
+bypasses of section 2 remove entries rather than adding them, and are
+unreachable from a configured vault besides. The decrypt-side count is
+data-key shaped, which is a different quantity in a different cache and is
+already recorded above. A second number in decision 7 would price a bound no
+host can exceed by configuring this package, at the cost of making a
+correctness-adjacent rule read as a capacity table.
+
+What decision 7 forbids, and why, is unchanged: a context that varies per row
+is one cache entry per row on the encryption side, and that is the cost the
+rule exists to refuse.
+
+### 4. Three clauses of the signing-suite Note, read precisely
+
+Added here rather than edited there, so the Note above stays as it was
+reviewed. Each clause below names the sentence it reads, by anchor.
+
+**(a) "already per-message" is, strictly, per data key.** Section 2's sentence
+at `:1406-1407` - "A decryption cache entry is already per-message before its
+context is considered at all" - is exact for a cache-off writer and loose for
+a cache-on one. The decryption cache id hashes the *sorted EDK set*
+(`caching.ex:224-231`), not a message id, so every message written from one
+cached encryption entry shares one decryption entry. Read the sentence as
+*per data key*. The operative clause it supports - "data-key shaped rather
+than context shaped" (`:1407-1408`) - is exact as written, and nothing in
+section 2's conclusion depends on the looser reading.
+
+**(b) "on a cache miss only" is narrower than the code.** The lifetime
+sentence at `:1416-1417` - "the Caching CMM reaches that CMM on a cache miss
+only" - names one of three ways the underlying CMM is reached on the
+encryption side. `handle_encryption_cache_lookup/3` (`caching.ex:256-272`)
+refetches through `fetch_and_cache_encryption_materials/4` both on
+`{:error, :cache_miss}` (`:270-271`) and when a *present* entry fails
+`CacheEntry.can_serve?/4` (`:261`, else-branch at `:266-267`) because the
+message or byte limit would be exceeded; and the two bypasses of section 2
+reach it without a lookup at all. Read the sentence as *on anything other
+than a servable cache hit*. What it is offered for - that one encoded public
+key is reused across every message a cached entry serves - is unaffected: a
+refetch on a failed `can_serve?/4` replaces the entry and the new key, exactly
+as a miss does.
+
+**(c) "the one end-to-end path" is a singular that undercounts.** The sentence
+at `:1370-1371` - "the one end-to-end path that asserted on a context ran the
+unsigned suite" - is true of the suite and wrong about the count. At `4c8fbe9`
+every context-asserting path runs `0x0478`, and there is more than one:
+`test/encryptor/message_test.exs:43` and `:124` (both through the helpers at
+`:211-215` and `:217`, whose comment at `:223-227` names the choice of the
+unsigned committed suite and why), and `test/encryptor/envelope_test.exs`'s
+`context/1` helper (`:46-49`) feeding the assertions at `:99`, `:114`,
+`:149`, `:452`, `:530` and `:628`, every one of them against a vault that
+sets `algorithm_suite_id: 0x0478` (`test/support/envelope_vaults.ex:74`,
+`:100`, `:121`, `:147`; `test/support/encrypt_vaults.ex:201`). Read the
+sentence as
+*every end-to-end path that asserted on a context*. Its point stands for all
+of them: none had seen the engine's reserved pair, because none ran a signing
+suite.
