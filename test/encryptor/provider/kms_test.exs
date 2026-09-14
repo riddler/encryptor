@@ -407,6 +407,29 @@ defmodule Encryptor.Provider.KmsTest do
       assert Enum.sort(Map.keys(sent)) == ["app", "column", "purpose", "table", "tenant_ref"]
     end
 
+    # The unsigned rule's read half. The same two facts as the test above,
+    # asserted on the second call the vault makes to KMS: no engine pair in
+    # the header to send back, and the set is exactly the composed one.
+    #
+    # sabotage: added a key to the per-call map in `Resolve.context/5` - the
+    # equality above stays green (both sides compose through that same
+    # function) and the literal list goes red. That is the whole reason the
+    # list is written out rather than derived.
+    test "is the same exact set on Decrypt under the unsigned suite" do
+      vault = start_vault(AwsKmsVaults.RecordedUnsigned)
+      {:ok, ciphertext} = vault.encrypt(@pan, key: "acme", encryption_context: @columns)
+      assert_received {:kms_context, :generate_data_key, _written}
+
+      assert {:ok, @pan} = vault.decrypt(ciphertext, key: "acme", encryption_context: @columns)
+
+      assert_received {:kms_context, :decrypt, sent}
+
+      refute Map.has_key?(sent, @engine_pair)
+      assert sent == composed(vault, "acme", [encryption_context: @columns], :decrypt)
+
+      assert Enum.sort(Map.keys(sent)) == ["app", "column", "purpose", "table", "tenant_ref"]
+    end
+
     # Amendment A's open question A-1, stated as the fact it rests on: the
     # reserved `encryptor-*` pairs are composed by the same
     # `Resolve.context/5` and reach KMS with everything else. Only
@@ -442,7 +465,10 @@ defmodule Encryptor.Provider.KmsTest do
     # `generator: nil`, so no vault operation gives the engine an encrypt-side
     # child keyring to call `Encrypt` from. The recorder covers the third verb
     # at the client boundary, so the disclosure's coverage does not depend on
-    # which of the three a later candidate list happens to reach.
+    # which of the three a later candidate list happens to reach. The
+    # client-boundary pin is the contract for `Encrypt` until an encrypt-side
+    # `Multi` exists; if `Keyring.build_all/3` ever composes one with a
+    # generator, this test is re-pointed at the vault path that reaches it.
     test "is recorded on Encrypt too, at the client boundary" do
       client = Recording.new()
       context = Map.put(@columns, "tenant_ref", "a-reference")
