@@ -470,7 +470,7 @@ the restart there is a window in which the vault answers nothing at all: the
 point answers `{:vault_not_started, vault}` until the child is back and has
 frozen it again (`lib/encryptor/vault.ex:630-638`, through
 `Encryptor.Vault.Config.fetch/1` at `lib/encryptor/vault/config.ex:948-954`),
-and so do `suspend/3` and `lift/3`, whose table went down with it
+and so do `suspend/2` and `reinstate/2`, whose table went down with it
 (`lib/encryptor/vault/suspension.ex:141-150`). The window is a restart long
 rather than an outage, but a caller inside it sees a not-started error rather
 than a served selector. Step 1 therefore runs **on every node, and again

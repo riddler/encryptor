@@ -1503,8 +1503,8 @@ without the root key, so a header discloses that two ciphertexts belong to
 the same tenant without disclosing which tenant that is" - where every other
 quotation in that Note carries a line anchor beside the file name.
 
-**The quoted sentence is `docs/adr/0003-per-tenant-envelope.md:248-250`,
-anchor "Two properties matter", read at enc `971f1bf`.** The stability
+**The quoted sentence is `docs/adr/0003-per-tenant-envelope.md:247-250`,
+anchor "Two properties matter" at `:247`, read at enc `971f1bf`.** The stability
 property the same paragraph draws on in the next breath - "the reference is
 stable, so the same tenant always resolves to the same reference and the row
 can be found" - is at `:247-248` of that file, at the same anchor and the
