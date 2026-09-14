@@ -1493,3 +1493,32 @@ changelog fragment (`changelog.d/README.md:33`).
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-14): the security-section Note's ADR-0003 quotation carries its anchor
+
+One cite completed, which changes nothing. The 2026-09-13 security-section
+Note's "Not which tenant." paragraph (anchor "**Not which tenant.**",
+`:1473-1482`) quotes ADR-0003 decision 5 by decision name only - "unguessable
+without the root key, so a header discloses that two ciphertexts belong to
+the same tenant without disclosing which tenant that is" - where every other
+quotation in that Note carries a line anchor beside the file name.
+
+**The quoted sentence is `docs/adr/0003-per-tenant-envelope.md:248-250`,
+anchor "Two properties matter", read at enc `971f1bf`.** The stability
+property the same paragraph draws on in the next breath - "the reference is
+stable, so the same tenant always resolves to the same reference and the row
+can be found" - is at `:247-248` of that file, at the same anchor and the
+same SHA. Both are decision 5's, and the paragraph's reading of them is
+unchanged: a CloudTrail reader holding no root key is in the position a
+header reader is in.
+
+The rule this completes, for this record and any later one: **a quotation of
+another record carries the file, an anchor, and the SHA it was read at**, so
+a reader can re-locate it by anchor after the line numbers move. Auditing the
+record's quotations against that rule is a reviewer's sweep rather than a
+list kept here.
+
+Provenance: campaign RF048, bead `enc-4hx`, folding `enc-j9v` (2).
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.

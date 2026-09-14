@@ -296,13 +296,12 @@ parameters that produced it. Treat a `:slow_hash` change the way you treat a
 
 ## Telemetry
 
-- **Telemetry.** ADR-0006 is accepted (2026-09-13) and its event set is
-  implemented. `Encryptor.Telemetry.events/0` is the single definition site a
-  host attaches against, and every name it returns fires today - the vault
-  lifecycle points, the cache recycler's point, and the `:encrypt`,
-  `:decrypt`, `:rekey` and `:provider` span pairs. The vocabulary is closed:
-  adding a name takes an amendment, so a dashboard attached against
-  `events/0` is safe to build.
+ADR-0006 is accepted (2026-09-13) and its event set is implemented.
+`Encryptor.Telemetry.events/0` is the single definition site a host attaches
+against, and every name it returns fires today - the vault lifecycle points,
+the cache recycler's point, and the `:encrypt`, `:decrypt`, `:rekey` and
+`:provider` span pairs. The vocabulary is closed: adding a name takes an
+amendment, so a dashboard attached against `events/0` is safe to build.
 
 ## Documentation
 

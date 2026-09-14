@@ -1413,3 +1413,33 @@ and anything else as a finding.
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-14): the micro-sign Note's "only non-ASCII characters" sentence counts its own quotation out
+
+One reading, which changes no decision. The Note above, "the micro sign in
+the quoted capacity figures is adopted, not a paste artefact", says of the
+three measurement figures it quotes that "they are the only non-ASCII
+characters in this record" (anchor "They are the only non-ASCII characters
+in", `:1392-1393`, read at enc `971f1bf`). Landing that Note falsified the
+sentence about itself: quoting the three figures put three further U+00B5
+MICRO SIGN characters into the record, so the record carries six rather than
+three, at `:1329`, `:1334`, `:1335` and `:1391` (read at enc `971f1bf`).
+
+**Read the sentence as naming a character, not a count: the micro sign is
+the only non-ASCII character in this record, and every occurrence of it is a
+measured latency or a quotation of one.** That is the rule the Note goes on
+to state - "a figure quoted from a measurement keeps the measurement's unit
+spelling; prose this package writes for itself stays ASCII" - and a Note
+that quotes a conforming figure is itself conforming, which is why the count
+moved and the rule did not.
+
+The enumeration is delegated to the check the Note already prescribes rather
+than restated here: a reviewer or a test sweeping `docs/adr/` for non-ASCII
+characters reads a micro sign beside a latency as conforming and anything
+else as a finding, whatever the occurrence count is on the day it runs. A
+later Note that quotes a figure again is expected to move the count again.
+
+Provenance: campaign RF048, bead `enc-4hx`, folding `enc-83l` (a).
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
