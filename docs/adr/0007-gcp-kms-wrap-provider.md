@@ -1040,3 +1040,55 @@ the host's own measurement, not to this record.
    decision 8 and with the version counters in decision 7, and what it would be
    called. **That is public surface and this amendment does not name an option,
    a default, or a policy for it.** It wants its own walk and its own record.
+
+## Note (2026-09-14): the worked example's "on a cache miss" reads as one `Decrypt` per live version on every such read
+
+Two corrections, neither of which changes a decision. Amendment A above keeps
+every word it has and keeps its own status; this Note appends below it and
+edits nothing. Every cite below was re-read by anchor at enc `110e266`.
+Provenance: campaign RF048, bead `enc-9ro`, which folds in `enc-07g`.
+
+### 1. The worked example's cost sentence still carries the premise Amendment A withdrew
+
+The worked example says "**A read of something old.** `decryption_keys/2`
+returns every live version's descriptor, newest first, one `Decrypt` per
+version on a cache miss." (anchor "A read of something old", `:819-821`). The
+qualifier "on a cache miss" points at a cache in front of the provider.
+Amendment A's A1 rules that there is no such cache: "the provider makes one
+`Decrypt` per vault call that needs a descriptor, not almost none: a tenant
+with continuous traffic costs one `Decrypt` per encrypt, and a read of
+something old costs one `Decrypt` per live version. The engine's materials
+cache does not reduce that count, whatever `max_age` is set to." (anchor
+"### A1. Continuous traffic on a GCP-backed vault costs one `Decrypt` per
+encrypt, not one per cache lifetime", `:995-998`).
+
+**Read the worked example's sentence as: `decryption_keys/2` returns every
+live version's descriptor, newest first, and costs one `Decrypt` per live
+version on every such read.** The qualifier names a cache this record does not
+have, and the count it qualifies is the count A1 already states. The sentence
+stays where it is, because a Note appends. Nothing else in the worked example
+moves, and nothing is amended beyond the decision 10 operation-cost bullet
+(`:627-634`, inside decision 10 at `:610-641`) that A1 already restates.
+
+The same phrase appears in this repo's records about a **different** cache -
+the engine's own decrypt-side comparison, at
+`docs/adr/0004-encryption-context.md:345` and `:395` (read at enc `110e266`).
+Neither of those is touched by Amendment A or by this Note.
+
+### 2. Amendment A's "Why now" points at one table row, not one table cell
+
+"Why now" quotes ADR-0001's A5 posture table as giving
+`Encryptor.Provider.GcpKms` the row "what it cannot save: **the GCP `Decrypt`
+unwrap, paid on every call**" and as saying "in the same cell" that this
+record's cost argument "rests on the round-trip claim A5 revises, and is
+contradicted by this row" (anchor "in the same cell", `:978`). The two quoted
+strings sit in two different cells of one row: the first is the
+"What it cannot save" column and the second is the "Recommended posture"
+column of the `Encryptor.Provider.GcpKms` row
+(`docs/adr/0001-vault-layer.md:836`, its header row at `:831`, read at enc
+`110e266`).
+
+**Read "in the same cell" there as "in the same row".** Amendment A's own
+wording is left as written - a merged record's body is not rewritten by a Note
+- and the claim it makes is unchanged: both strings are ADR-0001's, about this
+provider, in one row of the A5 table.
