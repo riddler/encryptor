@@ -21,6 +21,12 @@ change warrants an entry at all.
   `:goth` option is a `{module, name}` pair whose first element is not a
   module. It previously reported `{:invalid_config, :provider, :http_client}`,
   sending an operator to the option that was correct.
+- `Encryptor.Provider.GcpKms` validates a stored key row against the one
+  width it provisions. A hand-edited row declaring `bits: 128` or `192` is
+  refused as `{:invalid_key_descriptor, :invalid_row}` at validation, where
+  it previously passed and surfaced as a material-size failure one call
+  later. [added 2026-09-14; the change shipped in 0.4.1, whose fragment
+  named only the `:goth` half above]
 
 ## [0.4.0] - 2026-09-13
 

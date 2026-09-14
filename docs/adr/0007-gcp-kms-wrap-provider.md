@@ -1092,3 +1092,34 @@ column of the `Encryptor.Provider.GcpKms` row
 wording is left as written - a merged record's body is not rewritten by a Note
 - and the claim it makes is unchanged: both strings are ADR-0001's, about this
 provider, in one row of the A5 table.
+
+## Note (2026-09-14): "it is still not an `Encryptor.shred/2`" names a function this package has never shipped
+
+One reading, which changes no decision. Decision 8's closing paragraph opens
+"Two things this does not change. It is still not an `Encryptor.shred/2`"
+(anchor "Two things this does not change", `:562-563`, read at enc
+`971f1bf`). The adverb "still" can be read as naming a function that exists
+somewhere in this package and is merely not reached on the GCP path.
+
+**Read it as: this package ships no `Encryptor.shred/2`, has never shipped
+one, and this record adds none.** ADR-0005 decision 10 is the record that
+declines one, and the argument the sentence says survives is that one: the
+store delete is the host's, so a function here would imply knowledge of the
+store's copies that this package does not have. Whether any `shred/2` exists
+is a question for the surface rather than for a record's prose, and the
+surface answers it: no such function is defined or generated, which a sweep
+of `lib/` confirms at any SHA.
+
+ADR-0005's own three mentions already read that way and are left exactly as
+written - "No shred function" (anchor "- No shred function.",
+`docs/adr/0005-rotation-and-crypto-shred.md:530-533`), "There is deliberately
+no `shred/2`, no `retire/2`, and no `rotate/2`" (`:675-676`), and "Decision
+10 declines `shred/2`" (`:989-991`), all read by anchor at enc `971f1bf`.
+The "still not an" phrasing is this record's `:562` and nowhere else; a
+residue note that also placed it at ADR-0005 `:531` was reading decision
+10's hypothetical, which is a different sentence and needs no reading.
+
+Provenance: campaign RF048, bead `enc-4hx`, folding `enc-2gq` (1).
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.

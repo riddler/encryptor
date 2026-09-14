@@ -1074,3 +1074,99 @@ neither narrowed nor widened by saying which arity it names.
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-14): decision 7's audit-log enumeration under a signing suite, open question 5's own status parenthetical, and the malformed-`%Kms{}` detail term
+
+Three items, none of which changes a decision. Decisions 1 to 12, the failure
+table and the open questions stand as written, no error term is added, and
+this Note carries the record's status rather than one of its own. Every cite
+was read by anchor at enc `971f1bf`, with `aws_encryption_sdk` at the version
+`mix.lock` pins (`1.0.0`, `mix.lock:3`). Provenance: campaign RF048, bead
+`enc-4hx`, folding `enc-15q`, `enc-83l` (b) and `enc-oxx`.
+
+### 1. Under a signing suite the KMS API also receives the engine's reserved pair
+
+Decision 7's second bullet says a KMS encryption context "is recorded
+unencrypted in CloudTrail, so every key ADR-0004's profile composes -
+`tenant_ref` included - is in the host's AWS audit log as well as in the
+message header" (anchor "It **travels further in the clear**", `:610-615`).
+That is true, and as an enumeration of what a reader will find in the audit
+log it is short by one engine-owned pair.
+
+**The rule: what the KMS API receives on this path is the composed context
+plus, under a signing algorithm suite, the engine's reserved
+`aws-crypto-public-key` pair.** This package's default suite is a signing
+one, so a vault that says nothing about the suite is a vault whose CloudTrail
+carries that pair.
+
+The evidence and the enumeration live in one place rather than two: ADR-0004's
+Note of 2026-09-13, "under a signing suite the KMS API receives the composed
+context plus the engine's reserved `aws-crypto-public-key` pair"
+(`docs/adr/0004-encryption-context.md:1331` to the end of that file, anchor at
+the heading, read at enc `971f1bf`), states the rule, names the engine call
+sites, and records that the pair carries a signature *verification* key which
+the message header already carries in the clear. Decision 7 is neither
+narrowed nor widened by this: the hazard it names is the hazard, nothing in
+the context is removed, and the profile is unchanged. A reader checking what
+reaches CloudTrail on this path reads that Note; a reviewer checking this
+bullet against the engine reads it there too.
+
+### 2. Open question 5's own "(2026-09-13, proposed)" parenthetical is this record's status, not ADR-0004's
+
+The Note above, "open question 5's status references after the flip, and the
+failure table's "raises"" (anchor at `:1012`), reads the two references that
+quote ADR-0004 Amendment A's heading and rules that both name that section
+unadorned. Open question 5's answer line opens with a third parenthetical
+that quotes nothing of ADR-0004's: "*Answered (2026-09-13, proposed)*"
+(`:940`).
+
+**Read it as written: it is the status of this record's answer, on this
+record, and no flip of ADR-0004 touches it.** It moves when this record's own
+`Status` line moves, which is the operator's reading and never a Note's. That
+is exactly the distinction the Note above turns on - a *quoted* status
+parenthetical belonging to another record goes stale when that record is
+accepted, an *own-status* parenthetical does not - and it is why that Note
+left this one alone rather than by oversight. The same reading applies to
+every "(date, proposed)" this record writes about itself.
+
+### 3. The malformed `%Kms{}` descriptor gets no new detail term until open question 4 is answered
+
+`Encryptor.Vault.Keyring.build/3`'s catch-all files a *recognised but
+malformed* descriptor - a `%Encryptor.Key.Kms{}` whose `:mrk` is neither
+`true` nor `false` - as `{:not_a_descriptor, Encryptor.Key.Kms}`, naming the
+module it recognised rather than the field that was wrong
+(`lib/encryptor/vault/keyring.ex:110-122`, anchor "# A term neither clause
+above matched.", read at enc `971f1bf`). The case is unreachable through
+`Encryptor.Provider.Kms`, which sets `:mrk` itself, and the module already
+carries a comment saying so.
+
+**The ruling: the detail vocabulary gains no term for it here, and the
+failure table gains no `:mrk` row** (the table is `:791-801`, anchor
+"| failure | what the caller sees | new? |"). `Encryptor.Error`'s reason
+set is extended by a record and never by an implementation, and the record
+that would extend it is the one whose open question 4 asks whether the field
+survives at all: "Is `:mrk` worth keeping as a descriptor field at all?"
+(`:923-929`) records that the field selects between two engine structs that
+are the same code path today, that keeping it is a published promise with
+nothing behind it if the engine settles that way, and that the answer waits
+for the next engine version. Naming a field in the error vocabulary is a
+second published promise about that field, and this record will not make one
+about a field it may remove. **Open question 4 is answered first; only if
+`:mrk` stays does a term follow.**
+
+If it stays, the spelling is not left open either - the table fixes it by its
+own shape rather than by a later choice. The `:client` and `:key_id` rows
+read `{:invalid_key_descriptor, {:invalid_key_field, <field>, <detail>}}`
+(`:794` and `:795` for `:client`, `:796` for `:key_id`), so the term is
+`{:invalid_key_field, :mrk, :not_a_boolean}`, reusing the detail atom this
+package already spells for an option that is not a boolean
+(`lib/encryptor/vault/config.ex:649`, anchor `telemetry_tenant_ref`, read at
+enc `971f1bf`) rather than coining a second spelling for the same fact.
+
+Until open question 4 is answered, no code changes, no row is added, and no
+test asserts a term that does not exist. A reviewer checking this reads
+`Encryptor.Error`'s reason set against the table and expects no `:mrk`
+anywhere in either.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.

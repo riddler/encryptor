@@ -463,9 +463,19 @@ and a host running four nodes has four vaults and must suspend on each. It also
 dies with less than the vault: the vault's supervisor is `:one_for_one`, so a
 `Lifecycle` child that crashes on its own is restarted with a new and empty
 table while the cache and the provider keep serving, and every selector the set
-held is served again with nothing else having stopped. Step 1
-therefore runs **on every node, and again after every deploy**, unless the
-provider locus of step 2 is used instead or as well.
+held is served again with nothing else having stopped. Between the crash and
+the restart there is a window in which the vault answers nothing at all: the
+`Lifecycle` child erases the frozen configuration on its way down
+(`lib/encryptor/vault/lifecycle.ex:69-74`, read at `971f1bf`), so every entry
+point answers `{:vault_not_started, vault}` until the child is back and has
+frozen it again (`lib/encryptor/vault.ex:630-638`, through
+`Encryptor.Vault.Config.fetch/1` at `lib/encryptor/vault/config.ex:948-954`),
+and so do `suspend/3` and `lift/3`, whose table went down with it
+(`lib/encryptor/vault/suspension.ex:141-150`). The window is a restart long
+rather than an outage, but a caller inside it sees a not-started error rather
+than a served selector. Step 1 therefore runs **on every node, and again
+after every deploy**, unless the provider locus of step 2 is used instead or
+as well.
 
 ### Preconditions
 
