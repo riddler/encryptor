@@ -11,16 +11,34 @@
 # Agents: prefer `--format json --report -` when you want to route on results.
 #
 # Deliberately smaller than statifier-ex's gate. That repo's custom stages -
-# the gate guard, the ADR guard and judge, the regression ratchet - all exist
-# to protect a conformance corpus and an accepted ADR set this package does
-# not have. "Corpus" there means a body of recorded fixture cases a ratchet
-# can hold a pass/fail baseline over; the provider conformance SUITE this
-# package does run - Encryptor.Provider.Conformance in
+# the gate guard, the ADR guard and judge, the regression ratchet - exist to
+# protect a conformance corpus this package does not have and a record set
+# whose decisions are checkable by pattern in a way this package's are not.
+# "Corpus" there means a body of recorded fixture cases a ratchet can hold a
+# pass/fail baseline over; the provider conformance SUITE this package does
+# run - Encryptor.Provider.Conformance in
 # lib/encryptor/provider/conformance.ex, which every provider test `use`s -
 # is a different thing: properties compiled into the ordinary test run, with
-# no recorded case list for a ratchet to count. Adopting any of them here is
-# a decision to record when there is something for it to protect, not a
-# default to inherit.
+# no recorded case list for a ratchet to count.
+#
+# The ADR set is no longer the missing half. docs/adr/ carries eight records,
+# 0001 through 0008, every one of them accepted at its top-level Status line
+# (two of the eight also carry a later amendment still at proposed). The ADR
+# guard and judge stay unadopted anyway, for reasons about the stages rather
+# than about having records to point them at. Both are statifier-ex-local
+# mix tasks - `mix adr.check` and `mix adr.judge`, defined in that repo's
+# lib/mix/tasks/ - and not something ex_quality ships, so adopting either
+# here means porting the task as well as wiring the stage. The guard matches
+# a branch diff against per-record rules written for that repo's
+# mechanically-checkable decisions (naming, effects, evaluation, identifier
+# format); the decisions recorded here - the vault boundary, provider
+# resolution, the encryption context, rotation and shred, telemetry, and the
+# two KMS rows - are call-shape and review questions rather than line
+# patterns a diff match can name. The judge scopes to a single record there
+# and shells out to the developer's own `claude` CLI, which makes it opt-in
+# and local-only by design. Adopting any of them here is a decision to
+# record when there is something for it to protect, not a default to
+# inherit.
 #
 # There is deliberately no .credo.exs either: credo's own defaults under
 # --strict are the gate until this package has a reason to deviate from one.
