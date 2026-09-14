@@ -18,6 +18,13 @@ defmodule Encryptor.MessageTest do
   @committed_suite_id 0x0478
   @uncommitted_suite_id 0x0178
 
+  # The engine's default suite, which is also this package's default
+  # (`@default_algorithm_suite_id`, `lib/encryptor/vault/config.ex:177`, read
+  # at `8b0f013`). It signs, and the engine's Default CMM puts its reserved
+  # verification-key pair into the context before any keyring wraps.
+  @signed_suite_id 0x0578
+  @engine_pair "aws-crypto-public-key"
+
   # The card-processing domain. The key names are shaped like ADR-0003
   # decision 5's derived names - a keyed reference, not a tenant slug - so a
   # reader of these tests sees the pseudonym the record actually puts in a
@@ -130,6 +137,33 @@ defmodule Encryptor.MessageTest do
     test "reports an empty context as empty" do
       assert {:ok, %Info{encryption_context: %{}}} = Message.describe(message(context: %{}))
     end
+
+    # The disclosed set on the suite a vault gets when it says nothing about
+    # one. `describe/1` returns the header's context verbatim, so a host
+    # reading a header written under the default signing suite sees the
+    # engine's reserved pair beside its own keys. The expected map is a
+    # literal rather than a transformation of the observed one, so a key added
+    # to or dropped from what the engine writes goes red here.
+    #
+    # sabotage: dropped the `@engine_pair` entry from the expected literal -
+    # this goes red on the map equality. Its presence is the whole claim.
+    test "surfaces the engine's reserved pair beside the host's keys under the default signing suite" do
+      {:ok, info} = Message.describe(signed_message())
+
+      public_key = info.encryption_context[@engine_pair]
+
+      assert is_binary(public_key)
+
+      assert info.encryption_context == %{
+               "tenant_ref" => "6Qk2_1xZaR8",
+               "table" => "payments",
+               "column" => "card_last_four",
+               "app" => "my_app",
+               @engine_pair => public_key
+             }
+
+      assert %Info{algorithm_suite_id: @signed_suite_id, committed?: true} = info
+    end
   end
 
   describe "describe/1 on bytes that are not a message" do
@@ -191,6 +225,14 @@ defmodule Encryptor.MessageTest do
   # A tenant vault's message: one raw-AES keyring, a committed suite, the
   # canonical per-column context.
   defp committed_message, do: message([])
+
+  # The same message under the engine's (and this package's) default suite.
+  # The only path in this file that opts into signing, deliberately: it is the
+  # one assertion here that is about the engine's signing scheme rather than
+  # about the caller's context.
+  defp signed_message do
+    message(algorithm_suite: AlgorithmSuite.aes_256_gcm_hkdf_sha512_commit_key_ecdsa_p384())
+  end
 
   defp uncommitted_message do
     message(

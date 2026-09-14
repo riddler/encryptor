@@ -1615,3 +1615,117 @@ as a list this record undertakes to keep exhaustive:
 Read the sentence as *every end-to-end path that asserted on a context*. Its
 point stands for all of them: none had seen the engine's reserved pair,
 because none ran a signing suite.
+
+## Note (2026-09-14): decision 12's enumeration is a strict subset of what `describe/1` returns under the default signing suite, by the engine's reserved `aws-crypto-public-key` pair
+
+The 2026-09-13 signing-suite Note above records that the KMS API and
+CloudTrail see the composed context plus one engine-owned pair under this
+package's default algorithm suite. The same pair is in the message header, and
+`describe/1` returns the header's context verbatim, so decision 12's
+enumeration of what that function discloses is a strict subset of what it
+actually returns, by that same pair. This Note records the fact one surface
+over from the Note above, in the same shape.
+
+It decides nothing. Decisions 1 to 12, the two acceptance amendments at the
+top, A1 to A5, and every Note above stand exactly as written; the default
+suite is unchanged; decision 12's three safety properties are unchanged;
+nothing is removed from what `describe/1` returns and nothing is added to it.
+It carries the record's status rather than one of its own. Recorded for
+`enc-7n7`, campaign RF048.
+
+Everything below was read at `8b0f013`, with `aws_encryption_sdk` at the
+version `mix.lock` pins (`1.0.0`, `mix.lock:3`).
+
+### 1. The rule
+
+- **`describe/1` returns the header's encryption context verbatim.**
+  `Encryptor.Message.describe/1` (`@spec` at `lib/encryptor/message.ex:93`,
+  clause head at `:94`, read at `8b0f013`) parses the header and hands it to
+  the private `info/1` (`:102-109`), whose first field is
+  `encryption_context: header.encryption_context` (`:104`) - no filter, no
+  rename, no removal. Whatever the engine wrote into the header is what a
+  caller reads back.
+- **The default suite writes the engine's reserved pair into that header.**
+  `:algorithm_suite_id` defaults to `0x0578` and accepts `0x0478`
+  (`@default_algorithm_suite_id` and `@allowed_algorithm_suite_ids`,
+  `lib/encryptor/vault/config.ex:177-178`, read at `8b0f013`), and `0x0578` is
+  a signing suite, so the engine's Default CMM inserts
+  `aws-crypto-public-key` before any keyring wraps - the mechanism the
+  2026-09-13 Note above states and cites (`:1348-1359`, read at `8b0f013`).
+  Both the API call and the message header carry it, which is A2's single
+  context object doing what A2 says it does.
+- **Therefore: under a signing suite a host reading a header through
+  `describe/1` sees the composed context plus exactly one further pair,
+  `aws-crypto-public-key`; under `0x0478` it sees exactly the composed
+  context.** Decision 12's enumeration - "the stored encryption context, the
+  algorithm suite id, whether the suite commits, and the
+  `{provider_id, key_name}` pair of each EDK" (`:483-485`) - is exact about
+  *which fields* are returned and is a strict subset about *what the first of
+  them contains*, by that one pair, on a vault that says nothing about the
+  suite.
+
+The enumeration is widened in accuracy, not in surface. No field is added to
+`Encryptor.Message.Info`, no option is added, and nothing strips the pair.
+
+### 2. Decision 12's three properties survive unchanged
+
+- **"It discloses nothing that the ciphertext did not already disclose"**
+  (`:489-492`) holds for the pair for exactly the reason it holds for
+  everything else the function returns: the pair is in the clear in the header
+  to anyone holding the bytes, and `describe/1` reads no further than the
+  header. The value is a signature *verification* key; the private half is
+  returned to the engine as signing material and never enters the context, as
+  the Note above records (`:1378-1379`).
+- **"Its return is unauthenticated"** (`:493-499`) is if anything more pointed
+  here: the pair arrives through the same unverified header as every other
+  field, so it is no more a fact than `tenant_ref` is, and a caller must not
+  treat it as a signature check.
+- **Decision 2's reserved-prefix refusal** (`:186-191`, as the Note above
+  cites it at `:1441`) is untouched. A host still cannot write an
+  `aws-crypto-` key; the engine writes this one below the vault. What
+  `describe/1` shows a host is therefore a key the same host would be refused
+  for supplying - which is the honest reading, not a contradiction.
+
+### 3. What pins it
+
+The enumeration belongs in a test rather than in this record. As of this
+Note's own commit, `test/encryptor/message_test.exs` carries one: a
+`describe/1` assertion over a message written under `0x0578`, whose expected
+context is a literal map naming the host's four keys and the engine's pair
+(read at this Note's own commit: the test at
+`test/encryptor/message_test.exs:150-166`, its fixture helper
+`signed_message/0` at `:233-235`, and the suite and key-name attributes at
+`:25-26`). The map is a literal rather than a transformation of the observed
+context, so a key added to or dropped from what the engine writes goes red
+there rather than ageing quietly here. Its sabotage removes the pair from that
+literal, as the 2026-09-14 fleet ruling on disclosure tests requires.
+
+The `0x0478` half of the rule is already pinned on the KMS surface by the test
+the Note above unblocked, and the unsigned assertions in this file are
+untouched: every pre-existing exact-context assertion still runs under
+`@committed_suite_id 0x0478`.
+
+### 4. One clause of the 2026-09-14 Note above now carries a deliberate exception
+
+Added here rather than edited there, so that Note stays as it was reviewed.
+
+Clause (c) of the Note above (`:1582-1594`) offers, as its durable claim, a
+property of the fixtures: "every vault whose written context is asserted is
+configured `algorithm_suite_id: 0x0478`, and the one path that builds its
+messages without a vault chooses the same unsigned committed suite
+deliberately" (`:1589-1592`). The first half is unchanged - no vault fixture
+is a signing one. The second half now has exactly one exception, and it is
+this Note's own test half: the vault-less path in
+`test/encryptor/message_test.exs` still chooses the unsigned suite for every
+assertion about the caller's context - its `encrypt/2` helper reaches that
+suite through a `Keyword.put_new/3`, under the comment clause (c) cites
+(`:217-235` and `:223-227` at `4c8fbe9`, unmoved at `8b0f013`; the helper and
+that comment are unedited, and are pushed down the file by this Note's own
+commit) - and one added assertion passes `:algorithm_suite` explicitly to opt
+into the signing suite, because the pair is what that assertion is about.
+
+Read clause (c) as: *the property held of every path at `4c8fbe9`, and holds
+of every path that asserts on the caller's context thereafter; the one signed
+path added since asserts on the engine's pair by design.* Clause (c)'s point -
+that no path had seen the pair, and why - stands as written for the set it was
+written about.
