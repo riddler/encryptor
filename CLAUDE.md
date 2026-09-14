@@ -221,7 +221,10 @@ convention below has no reason of its own, that inheritance is the reason.
   threading).
 - Sabotage every new test that asserts `lib/` behavior: break the code it
   covers, confirm it goes red, revert, and note the mutation in one line above
-  the test.
+  the test. A test that pins a disclosed set - keys sent to an external API,
+  events emitted, fields serialized, terms a public error can carry - asserts
+  a literal list written in the test, and its sabotage adds or removes one
+  member.
 - Never log, inspect, or put in an exception message: plaintext, a data key,
   or wrapping key material. A test fixture key is still key-shaped - keep it
   out of failure output too.
