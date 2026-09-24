@@ -1,7 +1,8 @@
 # Quality configuration for encryptor.
 #
 #   mix quality                 - full gate: format, compile, credo, dialyzer,
-#                                 deps audit, full test suite with coverage.
+#                                 deps audit, full test suite with coverage,
+#                                 docs build, doc links.
 #                                 Run before every commit.
 #
 #   mix quality --profile loop  - inner loop while implementing: skips dialyzer
@@ -70,6 +71,21 @@
   ],
   credo: [
     strict: true
+  ],
+  # The two documentation stages make this gate the pre-publish check for
+  # the package's docs, locally and in CI. The Docs stage builds the docs
+  # and fails on any ExDoc warning (a reference to a function that does not
+  # exist, a link that resolves nowhere), which `mix docs` otherwise prints
+  # and exits 0 on. The doc_links stage fails on the link rules ExDoc
+  # accepts silently: a README relative link the package files do not ship,
+  # a published relative link to a file that is not an extra, two extras
+  # sharing a basename, and a link ExDoc rewrites to a different extra.
+  # Both are `:auto`: on while `:ex_doc` is installed, which it is in :dev.
+  docs: [
+    enabled: :auto
+  ],
+  doc_links: [
+    enabled: :auto
   ],
   profiles: [
     loop: [
