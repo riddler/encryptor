@@ -10,6 +10,55 @@ fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/main/chan
 into a version section at release. See that README for the format and for when a
 change warrants an entry at all.
 
+## [0.5.0] - 2026-09-24
+
+### **Breaking**
+
+- **Breaking:** the key's owner is now called a *scope*, and the Elixir names
+  that said *tenant* are renamed with no deprecated aliases. The context
+  profile `:tenant` is now `:scoped`; `:tenant` is refused at start as
+  `{:invalid_config, :context_profile, :unknown}`, so change
+  `context_profile: :tenant` to `context_profile: :scoped` in every vault's
+  configuration. Nothing stored changes: every wire spelling, the
+  `"tenant_ref"` context key included, keeps its 0.4.1 bytes, so every
+  ciphertext and wrapped key 0.4.1 wrote decrypts and unwraps with no
+  migration.
+- **Breaking:** `Encryptor.Envelope.tenant_ref/2` is now
+  `Encryptor.Envelope.scope_ref/2`, and `Encryptor.Context.tenant_ref_key/0`
+  is now `Encryptor.Context.scope_ref_key/0`. Both return exactly what the old
+  names returned; rename the calls.
+- **Breaking:** the `:tenant_ref` field of `%Encryptor.Envelope.WrappedKey{}`
+  and the `tenant_ref` key of `Encryptor.Provider.provisioned()` are now
+  `:scope_ref`. Rename the field wherever a store builds a `WrappedKey` or a
+  provider returns a provisioned row, including the rows a
+  `Encryptor.Provider.GcpKms` `:store` function answers, which are otherwise
+  refused as `{:invalid_key_descriptor, :invalid_row}`. The value, and any
+  column a store keeps it in, is unchanged.
+- **Breaking:** the vault option `:telemetry_tenant_ref` is now
+  `:telemetry_scope_ref`, and the telemetry metadata key it adds, `:tenant_ref`,
+  is now `:scope_ref`. Rename the option and any handler or metric tag that
+  reads the key. The error terms follow: `{:invalid_config,
+  :telemetry_tenant_ref, _}` is now `{:invalid_config, :telemetry_scope_ref, _}`,
+  and `{:invalid_key_descriptor, {:invalid_wrapped_key_field, :tenant_ref}}` is
+  now `{:invalid_key_descriptor, {:invalid_wrapped_key_field, :scope_ref}}`.
+- **Breaking:** a `:scoped` vault refuses a caller-supplied `"scope_id"`
+  context key as `{:reserved_context_key, "scope_id"}`, beside `"tenant_id"`,
+  which stays refused. Send neither; `:key` names the scope.
+
+### Added
+
+- `Encryptor.Vault.Suspension.Store` is the behaviour a vault's suspended set is agreed through, and the new vault option `:suspension_store` takes a `{module, opts}` pair implementing it; the default, `Encryptor.Vault.Suspension.Store.Ets`, keeps today's per-node set that is lost on restart, so a vault that names no store behaves exactly as before.
+- Under a shared store the host implements, `Encryptor.Vault.suspend/2` and `Encryptor.Vault.reinstate/2` take effect on this node once the store accepts the write and on every other node sharing it within the new `:suspension_poll_interval` option (milliseconds, default `5_000`), across restarts; until a node first reads the store it denies every scope, and a failed read keeps the last set it read.
+- `suspend/2` and `reinstate/2` answer `{:suspension_store_unavailable, store}` when the store refuses, exits or raises, and change nothing locally; the error vocabulary and `Encryptor.Telemetry.reason_tag/1` gain the term.
+- The telemetry event `[:encryptor, :suspension, :changed]` fires on every `suspend/2` and `reinstate/2`, and under a shared store on every refresh that changed the view, failed, or recovered; its metadata is `vault`, `action`, `store`, `outcome` and, on failure, `reason_tag`, and it never carries the selector.
+
+### Fixed
+
+- `Encryptor.Kdf.slow_hash/3` names the offending key when a complete
+  parameter set carries a zero or negative `:memory_kib`, `:iterations` or
+  `:parallelism`, instead of reporting the completeness constraint the set
+  already satisfies.
+
 ## [0.4.1] - 2026-09-13
 
 ### Fixed
