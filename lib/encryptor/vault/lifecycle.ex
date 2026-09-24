@@ -32,8 +32,9 @@ defmodule Encryptor.Vault.Lifecycle do
   with this process is what makes a suspension node-local and volatile, which
   amendment A decides deliberately rather than tolerates. That holds under
   the default `:suspension_store`; under any other store the table is the
-  node's view of a set the store agrees, born denying every scope until the
-  store has been read (ADR-0010 decisions 3 and 7).
+  node's view of a set the store agrees, created under a name the gate does
+  not read and renamed into place once the store has been read, so the vault
+  denies every scope until then (ADR-0010 decisions 3 and 7).
 
   ## Telemetry
 
