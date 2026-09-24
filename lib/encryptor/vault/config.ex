@@ -120,6 +120,17 @@ defmodule Encryptor.Vault.Config do
       `{:invalid_config, :telemetry_scope_ref, :vault_is_single_profile}`. It
       is a disclosure decision rather than a verbosity one - see
       `Encryptor.Telemetry` (ADR-0006 amendment A decision 1).
+    * `:suspension_store` is a `{module, opts}` pair naming an
+      `Encryptor.Vault.Suspension.Store`, and defaults to
+      `{Encryptor.Vault.Suspension.Store.Ets, []}`. Anything else is refused
+      with `{:invalid_config, :suspension_store, :shape}`. The store's
+      `c:Encryptor.Vault.Suspension.Store.init/2` runs here, once, and a
+      refusal is `{:invalid_config, :suspension_store, :init}` with the
+      store's term in `:engine`; what it returns is frozen as
+      `:suspension_store_state`. `:suspension_poll_interval` is a positive
+      integer of milliseconds, defaults to `5_000`, and is refused otherwise
+      with `{:invalid_config, :suspension_poll_interval, value}`; it has no
+      effect under the default store (ADR-0010 decision 2).
     * `:static_encryption_context` is validated and bounded here, against the
       vocabulary and the bounds `Encryptor.Context` owns: at most
       `Encryptor.Context.max_pairs/0` pairs, at most
@@ -168,6 +179,7 @@ defmodule Encryptor.Vault.Config do
   alias Encryptor.Kdf
   alias Encryptor.Provider
   alias Encryptor.Vault.Reference
+  alias Encryptor.Vault.Suspension.Store
 
   @default_commitment_policy :require_encrypt_require_decrypt
   @allowed_commitment_policies [:require_encrypt_require_decrypt, :require_encrypt_allow_decrypt]
@@ -175,6 +187,9 @@ defmodule Encryptor.Vault.Config do
 
   @default_max_encrypted_data_keys 10
   @default_algorithm_suite_id 0x0578
+  @default_suspension_store {Store.Ets, []}
+  @default_suspension_poll_interval 5_000
+  @suspension_store_callbacks [init: 2, suspend: 2, reinstate: 2, list: 1]
   @allowed_algorithm_suite_ids [0x0578, 0x0478]
 
   @default_max_messages 10_000
@@ -246,7 +261,10 @@ defmodule Encryptor.Vault.Config do
           reference_subkey: binary() | nil,
           reference_check: String.t() | nil,
           derivation_salt: binary() | nil,
-          slow_hash: Kdf.params() | nil
+          slow_hash: Kdf.params() | nil,
+          suspension_store: {module(), keyword()},
+          suspension_store_state: Store.state(),
+          suspension_poll_interval: pos_integer()
         }
 
   defstruct [
@@ -266,7 +284,10 @@ defmodule Encryptor.Vault.Config do
     :reference_subkey,
     :reference_check,
     :derivation_salt,
-    :slow_hash
+    :slow_hash,
+    :suspension_store,
+    :suspension_store_state,
+    :suspension_poll_interval
   ]
 
   @doc """
@@ -293,7 +314,9 @@ defmodule Encryptor.Vault.Config do
       max_encrypted_data_keys: @default_max_encrypted_data_keys,
       static_encryption_context: %{},
       required_context: [],
-      telemetry_scope_ref: false
+      telemetry_scope_ref: false,
+      suspension_store: @default_suspension_store,
+      suspension_poll_interval: @default_suspension_poll_interval
     ]
   end
 
@@ -432,7 +455,10 @@ defmodule Encryptor.Vault.Config do
          {:ok, subkey} <- reference_subkey(vault, profile, opts),
          {:ok, check} <- reference_check(vault, profile, subkey, opts),
          {:ok, salt} <- derivation_salt(vault, opts),
-         {:ok, slow_hash} <- slow_hash(vault, opts) do
+         {:ok, slow_hash} <- slow_hash(vault, opts),
+         {:ok, store} <- suspension_store(vault, opts),
+         {:ok, store_state} <- suspension_store_state(vault, store),
+         {:ok, poll_interval} <- suspension_poll_interval(vault, opts) do
       {:ok,
        %__MODULE__{
          vault: vault,
@@ -451,7 +477,10 @@ defmodule Encryptor.Vault.Config do
          reference_subkey: subkey,
          reference_check: check,
          derivation_salt: salt,
-         slow_hash: slow_hash
+         slow_hash: slow_hash,
+         suspension_store: store,
+         suspension_store_state: store_state,
+         suspension_poll_interval: poll_interval
        }}
     end
   end
@@ -523,6 +552,59 @@ defmodule Encryptor.Vault.Config do
 
   defp own_reason?(reason) when is_tuple(reason), do: elem(reason, 0) in @provider_init_reasons
   defp own_reason?(_reason), do: false
+
+  # ADR-0010 decision 2: the store is a `{module, keyword}` pair naming a
+  # module that implements `Encryptor.Vault.Suspension.Store`. A module that
+  # does not export the four callbacks is refused with the same detail as a
+  # pair of the wrong shape, rather than failing at the first suspension.
+  defp suspension_store(vault, opts) do
+    case Keyword.fetch(opts, :suspension_store) do
+      {:ok, {module, store_opts} = store} when is_atom(module) and is_list(store_opts) ->
+        if Keyword.keyword?(store_opts) and store_module?(module),
+          do: {:ok, store},
+          else: {:error, error(vault, {:invalid_config, :suspension_store, :shape})}
+
+      _other ->
+        {:error, error(vault, {:invalid_config, :suspension_store, :shape})}
+    end
+  end
+
+  defp store_module?(module) do
+    Code.ensure_loaded?(module) and
+      Enum.all?(@suspension_store_callbacks, fn {name, arity} ->
+        function_exported?(module, name, arity)
+      end)
+  end
+
+  # ADR-0010 decision 2: `init/2` runs once, here, and its state is frozen
+  # with the rest of the configuration. A refusal is the store's own term,
+  # carried in `:engine` and never rendered, the path a provider's `init/1`
+  # refusal takes above.
+  defp suspension_store_state(vault, {module, store_opts}) do
+    case module.init(vault, store_opts) do
+      {:ok, state} ->
+        {:ok, state}
+
+      {:error, reason} ->
+        {:error, engine_error(vault, {:invalid_config, :suspension_store, :init}, reason)}
+
+      other ->
+        {:error,
+         engine_error(vault, {:invalid_config, :suspension_store, :init}, {:bad_return, other})}
+    end
+  end
+
+  # ADR-0010 decision 2: milliseconds, positive. Accepted and without effect
+  # under the default store, which runs no refresher (decision 4).
+  defp suspension_poll_interval(vault, opts) do
+    case Keyword.fetch!(opts, :suspension_poll_interval) do
+      interval when is_integer(interval) and interval > 0 ->
+        {:ok, interval}
+
+      other ->
+        {:error, error(vault, {:invalid_config, :suspension_poll_interval, other})}
+    end
+  end
 
   defp commitment_policy(vault, opts) do
     case Keyword.get(opts, :commitment_policy) do
@@ -1001,6 +1083,10 @@ defmodule Encryptor.Vault.Config do
         # its options, so it holds everything the options held and usually a
         # descriptor's key material besides.
         |> Map.put(:provider_state, redact(config.provider_state))
+        # ADR-0010 decision 2: a store's options and state hold no key
+        # material, and are redacted as the provider's are all the same.
+        |> Map.put(:suspension_store, redact_provider(config.suspension_store))
+        |> Map.put(:suspension_store_state, redact(config.suspension_store_state))
 
       concat(["#Encryptor.Vault.Config<", to_doc(fields, opts), ">"])
     end

@@ -42,6 +42,7 @@ defmodule Encryptor.Telemetry do
   | `[:encryptor, :vault, :stopped]` | point | Encryptor.Vault.Lifecycle erased the frozen configuration |
   | `[:encryptor, :vault, :start_refused]` | point | configuration resolution refused, before any process existed |
   | `[:encryptor, :cache, :recycled]` | point | the recycler dropped and restarted the cache child |
+  | `[:encryptor, :suspension, :changed]` | point | a vault's suspension state changed: see below |
   | `[:encryptor, :encrypt, :start]` / `[..., :stop]` | span | `encrypt/2` |
   | `[:encryptor, :decrypt, :start]` / `[..., :stop]` | span | `decrypt/2` |
   | `[:encryptor, :rekey, :start]` / `[..., :stop]` | span | `rekey/2` |
@@ -49,7 +50,7 @@ defmodule Encryptor.Telemetry do
 
   The eight span halves - four pairs - are specified by ADR-0006 and emitted
   by the paths they instrument (that record's decision 10), all of which are
-  written. `events/0` returns twelve names: the four point events above and
+  written. `events/0` returns thirteen names: the five point events above and
   those eight halves.
 
   ## Measurements
@@ -60,6 +61,7 @@ defmodule Encryptor.Telemetry do
   | `system_time` | `:native` | every span start and every point event |
   | `size` | bytes | `[:encryptor, :encrypt, :start]` and `[:encryptor, :decrypt, :stop]` |
   | `candidates` | count | `[:encryptor, :provider, :stop]` on a successful `decryption_keys/2` |
+  | `count` | count | `[:encryptor, :suspension, :changed]` when `outcome` is `:ok`: the scopes in the view after the action |
 
   ## Metadata
 
@@ -73,7 +75,7 @@ defmodule Encryptor.Telemetry do
   | `vault` | `module()` | every event |
   | `operation` | `t:Encryptor.Error.operation/0` | spans, `:start_refused` |
   | `span_ref` | `reference()` | span halves |
-  | `outcome` | `:ok \\| :error` | span stops, `:recycled` |
+  | `outcome` | `:ok \| :error` | span stops, `:recycled`, `:changed` |
   | `reason_tag` | `t:reason_tag/0` | when `outcome` is `:error` |
   | `provider` | `module()` | provider spans |
   | `callback` | `:encryption_key \\| :decryption_keys` | provider spans |
@@ -81,6 +83,24 @@ defmodule Encryptor.Telemetry do
   | `profile` | `:single \\| :scoped` | `[:encryptor, :vault, :started]` |
   | `reference_check` | `:verified \\| :unpinned` | `[:encryptor, :vault, :started]` |
   | `scope_ref` | `String.t()` | the four span names' halves, only when `:telemetry_scope_ref` is on |
+  | `action` | `:suspend \| :reinstate \| :refresh` | `[:encryptor, :suspension, :changed]` |
+  | `store` | `module()` | `[:encryptor, :suspension, :changed]`: the store module, never its state or options |
+
+  ## Suspension changes
+
+  `[:encryptor, :suspension, :changed]` fires on the process that changed a
+  vault's suspension state (ADR-0010 decision 8):
+
+    * after every `Encryptor.Vault.suspend/2` or `Encryptor.Vault.reinstate/2`
+      the vault performed, successful or not;
+    * under a shared `:suspension_store`, after a refresh that changed the
+      view's membership, after a refresh that failed, and after the first
+      refresh that succeeds following a failure.
+
+  A refresh that changed nothing emits nothing, so a healthy vault is silent
+  between operator actions. The selector is never in it, whatever
+  `:telemetry_scope_ref` says: an operator who needs to know which scope was
+  suspended reads the store.
 
   ## The opt-in scope dimension
 
@@ -112,7 +132,8 @@ defmodule Encryptor.Telemetry do
     [:encryptor, :vault, :started],
     [:encryptor, :vault, :stopped],
     [:encryptor, :vault, :start_refused],
-    [:encryptor, :cache, :recycled]
+    [:encryptor, :cache, :recycled],
+    [:encryptor, :suspension, :changed]
   ]
 
   @span_names [:encrypt, :decrypt, :rekey, :provider]
@@ -153,6 +174,7 @@ defmodule Encryptor.Telemetry do
           | :invalid_context_value
           | :invalid_selector
           | :not_provisionable
+          | :suspension_store_unavailable
 
   @typedoc "Every metadata key any event may carry, and nothing else."
   @type metadata :: %{
@@ -166,7 +188,9 @@ defmodule Encryptor.Telemetry do
           optional(:cache) => boolean(),
           optional(:profile) => Config.profile(),
           optional(:reference_check) => :verified | :unpinned,
-          optional(:scope_ref) => String.t()
+          optional(:scope_ref) => String.t(),
+          optional(:action) => :suspend | :reinstate | :refresh,
+          optional(:store) => module()
         }
 
   @doc """
@@ -179,7 +203,7 @@ defmodule Encryptor.Telemetry do
       true
 
       iex> length(Encryptor.Telemetry.events())
-      12
+      13
   """
   @spec events() :: [[atom(), ...], ...]
   def events, do: @events
@@ -213,6 +237,7 @@ defmodule Encryptor.Telemetry do
   def reason_tag({:invalid_context_value, _detail}), do: :invalid_context_value
   def reason_tag({:invalid_selector, _term}), do: :invalid_selector
   def reason_tag({:not_provisionable, _module}), do: :not_provisionable
+  def reason_tag({:suspension_store_unavailable, _module}), do: :suspension_store_unavailable
 
   @doc false
   # `[:encryptor, :vault, :started]`. The whole of what the frozen
@@ -279,6 +304,40 @@ defmodule Encryptor.Telemetry do
       end
 
     execute([:encryptor, :cache, :recycled], %{duration: duration}, metadata)
+  end
+
+  @doc false
+  # `[:encryptor, :suspension, :changed]` (ADR-0010 decision 8). The vault,
+  # what it did, and the store module - never the store's state or options,
+  # and never the selector, which is exactly the per-scope dimension ADR-0006
+  # decision 6 refuses. `count` is the size of the view after a successful
+  # action, which is bounded by the number of suspended scopes.
+  @spec suspension_changed(
+          module(),
+          :suspend | :reinstate | :refresh,
+          module(),
+          {:ok, non_neg_integer()} | :error
+        ) :: :ok
+  def suspension_changed(vault, action, store, {:ok, count}) do
+    execute(
+      [:encryptor, :suspension, :changed],
+      %{system_time: System.system_time(), count: count},
+      %{vault: vault, action: action, store: store, outcome: :ok}
+    )
+  end
+
+  def suspension_changed(vault, action, store, :error) do
+    execute(
+      [:encryptor, :suspension, :changed],
+      %{system_time: System.system_time()},
+      %{
+        vault: vault,
+        action: action,
+        store: store,
+        outcome: :error,
+        reason_tag: :suspension_store_unavailable
+      }
+    )
   end
 
   @typedoc false

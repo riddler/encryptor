@@ -28,10 +28,12 @@ defmodule Encryptor.TelemetryTest do
     :cache,
     :profile,
     :reference_check,
-    :scope_ref
+    :scope_ref,
+    :action,
+    :store
   ]
 
-  @allowed_measurement_keys [:duration, :system_time, :size, :candidates]
+  @allowed_measurement_keys [:duration, :system_time, :size, :candidates, :count]
 
   # Attaches one handler id per event name, which is what `events/0` is for:
   # `attach_many/4`'s detach is total, so a raising branch would take every
@@ -83,12 +85,18 @@ defmodule Encryptor.TelemetryTest do
     # sabotage: dropped [:encryptor, :cache, :recycled] from @vault_events -
     # red, because a host attaching against events/0 then silently never sees
     # the only recurring runtime event in the package.
-    test "events/0 is the closed list ADR-0006 decision 3 fixes" do
+    #
+    # ADR-0010 decision 8 adds [:encryptor, :suspension, :changed], as
+    # ADR-0006 decision 3 permits ("Adding a name ... is additive").
+    # sabotage: dropped [:encryptor, :suspension, :changed] from
+    # @vault_events - red.
+    test "events/0 is the closed list ADR-0006 decision 3 fixes, with ADR-0010's addition" do
       assert Telemetry.events() == [
                [:encryptor, :vault, :started],
                [:encryptor, :vault, :stopped],
                [:encryptor, :vault, :start_refused],
                [:encryptor, :cache, :recycled],
+               [:encryptor, :suspension, :changed],
                [:encryptor, :encrypt, :start],
                [:encryptor, :encrypt, :stop],
                [:encryptor, :decrypt, :start],
@@ -119,7 +127,8 @@ defmodule Encryptor.TelemetryTest do
         {{:missing_required_context_keys, ["table"]}, :missing_required_context_keys},
         {{:invalid_context_value, :too_large}, :invalid_context_value},
         {{:invalid_selector, 42}, :invalid_selector},
-        {{:not_provisionable, MyApp.Provider}, :not_provisionable}
+        {{:not_provisionable, MyApp.Provider}, :not_provisionable},
+        {{:suspension_store_unavailable, MyApp.Store}, :suspension_store_unavailable}
       ]
 
       Enum.each(reasons, fn {reason, tag} ->
@@ -128,7 +137,8 @@ defmodule Encryptor.TelemetryTest do
       end)
     end
 
-    # sabotage: deleted the {:not_provisionable, _} clause - red, because
+    # sabotage: deleted the {:suspension_store_unavailable, _} clause (and,
+    # before it, the {:not_provisionable, _} one) - red, because
     # reason_tag/1 is spec'd over the whole of Encryptor.Error.reason/0 and a
     # missing clause raises a FunctionClauseError inside an emit, which is
     # exactly the fallthrough decision 5's closing paragraph refuses.
@@ -148,7 +158,8 @@ defmodule Encryptor.TelemetryTest do
         {:missing_required_context_keys, []},
         {:invalid_context_value, :count},
         {:invalid_selector, nil},
-        {:not_provisionable, MyApp.Provider}
+        {:not_provisionable, MyApp.Provider},
+        {:suspension_store_unavailable, MyApp.Store}
       ]
 
       Enum.each(reasons, fn reason ->
@@ -167,7 +178,8 @@ defmodule Encryptor.TelemetryTest do
                  :missing_required_context_keys,
                  :invalid_context_value,
                  :invalid_selector,
-                 :not_provisionable
+                 :not_provisionable,
+                 :suspension_store_unavailable
                ]
       end)
     end
@@ -379,6 +391,9 @@ defmodule Encryptor.TelemetryTest do
       {:ok, _plaintext} = TelemetryVaults.Merchant.decrypt(ciphertext, key: "merchant_a")
       {:ok, _rotated} = TelemetryVaults.Merchant.rekey(ciphertext, key: "merchant_a")
       {:error, %Error{}} = TelemetryVaults.Merchant.encrypt("4111", key: :default)
+      # ADR-0010's event. sabotage: dropped its emission on a successful
+      # write - red, because the sweep then misses a name in events/0.
+      :ok = Vault.suspend(TelemetryVaults.Merchant, "merchant_z")
 
       events = drain()
 
@@ -409,6 +424,7 @@ defmodule Encryptor.TelemetryTest do
       start_vault(TelemetryVaults.Merchant)
       {:ok, ciphertext} = TelemetryVaults.Merchant.encrypt("4111", key: "merchant_a")
       {:ok, _plaintext} = TelemetryVaults.Merchant.decrypt(ciphertext, key: "merchant_a")
+      :ok = Vault.suspend(TelemetryVaults.Merchant, "merchant_z")
 
       {spans, points} =
         Enum.split_with(drain(), fn {[:encryptor, name, _half], _m, _md} ->
@@ -467,6 +483,11 @@ defmodule Encryptor.TelemetryTest do
       pid = start_vault(LifecycleVaults.Cached)
 
       CacheRecycler.recycle(LifecycleVaults.Cached, Vault.supervisor_name(LifecycleVaults.Cached))
+      # ADR-0010 decision 8: the suspension event is the one a well-meaning
+      # implementation would most want to label with its scope. sabotage:
+      # passed the selector as the event's :store - red.
+      :ok = Vault.suspend(LifecycleVaults.Cached, "scope-42")
+      :ok = Vault.reinstate(LifecycleVaults.Cached, "scope-42")
       {:error, %Error{}} = LifecycleVaults.Unconfigured.start_link([])
       Supervisor.stop(pid)
 
@@ -494,6 +515,7 @@ defmodule Encryptor.TelemetryTest do
       refute partition in values
       refute subkey in values
       refute check in values
+      refute "scope-42" in values
     end
   end
 end

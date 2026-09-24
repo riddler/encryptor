@@ -30,7 +30,10 @@ defmodule Encryptor.Vault.Lifecycle do
   rather than in the frozen configuration, in `:persistent_term`, or behind a
   `GenServer.call` - the three the paragraphs above rule out. The table dying
   with this process is what makes a suspension node-local and volatile, which
-  amendment A decides deliberately rather than tolerates.
+  amendment A decides deliberately rather than tolerates. That holds under
+  the default `:suspension_store`; under any other store the table is the
+  node's view of a set the store agrees, born denying every scope until the
+  store has been read (ADR-0010 decisions 3 and 7).
 
   ## Telemetry
 
@@ -61,7 +64,7 @@ defmodule Encryptor.Vault.Lifecycle do
     # configuration behind after the vault stopped.
     Process.flag(:trap_exit, true)
     Config.freeze(config)
-    Suspension.create(config.vault)
+    Suspension.create(config)
     {:ok, config}
   end
 

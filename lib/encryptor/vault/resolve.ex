@@ -116,8 +116,8 @@ defmodule Encryptor.Vault.Resolve do
   # suspension is not distinguishable from a provider that could not reach its
   # store - both are this term, by design, and A-2 is the open question.
   @spec allowed(Config.t(), Error.selector(), Error.operation()) :: :ok | {:error, Error.t()}
-  defp allowed(%Config{vault: vault} = config, selector, operation) do
-    if Suspension.suspended?(vault, selector),
+  defp allowed(%Config{} = config, selector, operation) do
+    if Suspension.suspended?(config, selector),
       do: {:error, error(config, operation, {:key_unavailable, selector})},
       else: :ok
   end

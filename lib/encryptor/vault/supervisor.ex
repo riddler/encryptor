@@ -13,15 +13,21 @@ defmodule Encryptor.Vault.Supervisor do
     1. `Encryptor.Vault.Lifecycle` - owns the frozen configuration's lifetime.
        It is **first** so that the configuration is published before anything
        that might read it starts.
-    2. The materials cache, when `:cache` is configured. Registered under
+    2. The suspension refresher, when - and only when - the vault's
+       `:suspension_store` is not the default
+       `Encryptor.Vault.Suspension.Store.Ets`. It reads the store once per
+       `:suspension_poll_interval` into the view `Lifecycle` owns, so it
+       starts after `Lifecycle` and is a child of its own: a refresher that
+       crashes does not take the view with it (ADR-0010 decision 5).
+    3. The materials cache, when `:cache` is configured. Registered under
        `Encryptor.Vault.cache_name/1`, so two vaults never share one.
-    3. `Encryptor.Vault.CacheRecycler`, when - and only when - there is a
+    4. `Encryptor.Vault.CacheRecycler`, when - and only when - there is a
        cache. It stops the cache child on the configured `:recycle_after`
        interval and starts it again, which is the only bound the engine
        permits on a cache that has no capacity limit, no sweeper, and no way
        for outside code to measure it (ADR-0001 decision 6). It is not a
        refinement of the cache and it may not be simplified away.
-    4. The key provider, when its module exports `child_spec/1`. Its child id
+    5. The key provider, when its module exports `child_spec/1`. Its child id
        is set to the provider module here, which is what lets
        `Encryptor.Vault.ensure_provider_started/2` ask this supervisor whether
        the provider is alive without knowing anything about how the provider
@@ -54,6 +60,8 @@ defmodule Encryptor.Vault.Supervisor do
   alias Encryptor.Vault.CacheRecycler
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Lifecycle
+  alias Encryptor.Vault.Suspension
+  alias Encryptor.Vault.Suspension.Refresher
 
   @doc """
   Resolves a vault's configuration, then starts its supervisor registered
@@ -113,7 +121,14 @@ defmodule Encryptor.Vault.Supervisor do
   end
 
   defp children(%Config{} = config) do
-    [{Lifecycle, config}] ++ cache_child(config) ++ provider_child(config)
+    [{Lifecycle, config}] ++
+      refresher_child(config) ++ cache_child(config) ++ provider_child(config)
+  end
+
+  # ADR-0010 decision 5: one refresher per vault, after `Lifecycle` so the
+  # view it writes exists, and only under a store other than the default.
+  defp refresher_child(%Config{} = config) do
+    if Suspension.shared?(config), do: [{Refresher, config}], else: []
   end
 
   defp cache_child(%Config{cache: false}), do: []
