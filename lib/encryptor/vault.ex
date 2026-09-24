@@ -525,11 +525,17 @@ defmodule Encryptor.Vault do
       It is not a backup either: reinstating a selector whose wrappings were
       shredded meanwhile restores the refusal and nothing else, and the
       provider then answers `{:unknown_key, selector}`.
-    * **It is node-local and volatile** (decision 8). The set lives in the
-      vault's supervision tree, so a restarted vault serves the selector
-      again, and a host running four nodes suspends on each. A suspension that
-      must survive a deploy belongs at the provider's own backing authority -
-      revoking a key manager's grant - in addition or instead.
+    * **Where it holds depends on the vault's `:suspension_store`**
+      (ADR-0010 decisions 4 and 6). Under the default
+      `Encryptor.Vault.Suspension.Store.Ets` it is node-local and volatile
+      (decision 8): the set lives in the vault's supervision tree, so a
+      restarted vault serves the selector again, and a host running four
+      nodes suspends on each. Under a shared store the host implements, it
+      holds on this node once the store accepted the write, on every other
+      node sharing the store within one `:suspension_poll_interval`, and
+      across restarts. A deny that must bind more than this vault belongs at
+      the provider's own backing authority - revoking a key manager's grant -
+      in addition or instead.
     * **It asks no provider**, so a suspension of a selector no provider knows
       succeeds quietly. The verification step of the runbook is what catches
       a typo.
@@ -542,6 +548,12 @@ defmodule Encryptor.Vault do
   partition-scoped eviction exists (decision 6). Every other selector on the
   vault takes one cold miss. A vault configured `cache: false` has no cache to
   drop and is unaffected.
+
+  A store that refuses the write, exits or raises changes nothing on this
+  node, and the call answers `{:suspension_store_unavailable, store}` with
+  the store's term in the error's `:engine` field (ADR-0010 decision 7). The
+  write is idempotent, so retrying it is always safe. Every call emits
+  `[:encryptor, :suspension, :changed]`, successful or not.
   """
   @spec suspend(module(), Error.selector()) :: :ok | {:error, Error.t()}
   def suspend(vault, selector) when is_atom(vault) do
@@ -561,6 +573,11 @@ defmodule Encryptor.Vault do
 
   What it does **not** do is undo anything else. There is no state in which it
   recovers key material.
+
+  It goes through the vault's `:suspension_store` exactly as `suspend/2`
+  does, with the same failure answer and the same event: immediate on this
+  node, and within one `:suspension_poll_interval` on every other node that
+  shares a store (ADR-0010 decision 6).
   """
   @spec reinstate(module(), Error.selector()) :: :ok | {:error, Error.t()}
   def reinstate(vault, selector) when is_atom(vault) do

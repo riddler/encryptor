@@ -26,9 +26,11 @@ defmodule Encryptor.Vault.SuspensionTest do
   alias Encryptor.GcpKmsVaults
   alias Encryptor.LifecycleVaults
   alias Encryptor.Vault
+  alias Encryptor.Vault.Config
   alias Encryptor.Vault.Partition
   alias Encryptor.Vault.Reference
   alias Encryptor.Vault.Suspension
+  alias Encryptor.Vault.Suspension.Store
 
   @pan "4111111111111111"
   @columns %{"table" => "payment_methods", "column" => "pan"}
@@ -323,14 +325,20 @@ defmodule Encryptor.Vault.SuspensionTest do
 
       start_vault(LifecycleVaults.Cached)
 
-      refute Suspension.suspended?(vault, :default)
+      {:ok, config} = Vault.config(vault)
+      refute Suspension.suspended?(config, :default)
     end
 
     # sabotage: raised from suspended?/2 when the table is missing - red. The
     # gate is on the hot path of every call, and a vault between a crash and
     # its restart must not report a restart as the caller's error.
     test "a vault with no suspended set denies nothing" do
-      refute Suspension.suspended?(LifecycleVaults.Unstarted, :default)
+      config = %Config{
+        vault: LifecycleVaults.Unstarted,
+        suspension_store: {Store.Ets, []}
+      }
+
+      refute Suspension.suspended?(config, :default)
     end
 
     # sabotage: removed both guards - the not-started check in `suspend/2` and

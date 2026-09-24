@@ -84,7 +84,10 @@ defmodule Encryptor.Error do
   amendment A adds none either, because a suspension reuses
   `{:key_unavailable, selector}` rather than earning a term of its own
   (amendment A decision 4). ADR-0007 decision 2 adds one, for a provider asked
-  to provision that has no `c:Encryptor.Provider.provision/2`.
+  to provision that has no `c:Encryptor.Provider.provision/2`. ADR-0010 adds
+  one, for a suspension store that could not answer a `suspend/2` or
+  `reinstate/2`; it carries the store module, and the store's own term rides
+  in `:engine`.
   """
   @type reason ::
           :decrypt_failed
@@ -102,6 +105,7 @@ defmodule Encryptor.Error do
           | {:invalid_context_value, String.t() | :count | :too_large}
           | {:invalid_selector, term()}
           | {:not_provisionable, module()}
+          | {:suspension_store_unavailable, module()}
 
   @type t :: %__MODULE__{
           reason: reason(),
@@ -214,6 +218,9 @@ defmodule Encryptor.Error do
 
   defp describe({:not_provisionable, module}),
     do: "provider #{inspect(module)} cannot provision key material"
+
+  defp describe({:suspension_store_unavailable, module}),
+    do: "suspension store #{inspect(module)} is unavailable"
 
   @spec where(t()) :: String.t()
   defp where(%__MODULE__{vault: nil, operation: nil}), do: ""
