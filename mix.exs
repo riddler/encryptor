@@ -67,7 +67,20 @@ defmodule Encryptor.MixProject do
       groups_for_extras: [
         Guides: ~r{^guides/}
       ],
-      skip_undefined_reference_warnings_on: ["CHANGELOG.md"]
+      skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
+      # Names the guides and README print as code on purpose but that have
+      # no page to link to, so ExDoc renders them as plain code rather than
+      # warning. `Encryptor.Envelope.tenant_ref/2` is the 0.4 name the
+      # upgrade notes tell a reader to rename (it is `scope_ref/2` now). The
+      # three suspension internals are `@moduledoc false` / `@doc false`, and
+      # the rotation runbook cites them as the code behind its table. Each
+      # term is exact: any other reference that resolves nowhere still warns.
+      skip_code_autolink_to: [
+        "Encryptor.Envelope.tenant_ref/2",
+        "Encryptor.Vault.Suspension.create/1",
+        "Encryptor.Vault.Suspension.suspended?/2",
+        "Encryptor.Vault.Suspension.Refresher"
+      ]
     ]
   end
 
