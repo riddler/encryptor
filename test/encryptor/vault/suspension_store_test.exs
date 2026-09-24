@@ -468,19 +468,38 @@ defmodule Encryptor.Vault.SuspensionStoreTest do
     end
   end
 
-  # Counts the :ets.member/2 calls the calling process makes inside `fun`.
+  # Counts the :ets.member/2 calls the calling process - and only it - makes
+  # inside `fun`. A call-count pattern would count every process's calls, and
+  # the vault's refresher and other test modules call :ets.member/2 too, so
+  # this traces this one process to a tracer of its own and counts the trace
+  # messages it receives.
   defp count_members(fun) do
     mfa = {:ets, :member, 2}
-    1 = :erlang.trace_pattern(mfa, true, [:call_count])
-    _ = :erlang.trace(self(), true, [:call])
+    tracer = spawn_link(&count_trace_messages/0)
+    _ = :erlang.trace_pattern(mfa, true, [:global])
+    _ = :erlang.trace(self(), true, [:call, {:tracer, tracer}])
 
-    try do
-      answer = fun.()
-      {:call_count, count} = :erlang.trace_info(mfa, :call_count)
-      {answer, count}
-    after
-      _ = :erlang.trace(self(), false, [:call])
-      :erlang.trace_pattern(mfa, false, [:call_count])
+    answer =
+      try do
+        fun.()
+      after
+        _ = :erlang.trace(self(), false, [:call])
+        :erlang.trace_pattern(mfa, false, [:global])
+      end
+
+    ref = :erlang.trace_delivered(self())
+    assert_receive {:trace_delivered, _pid, ^ref}, 1_000
+
+    send(tracer, {:count, self()})
+    assert_receive {:count, count}, 1_000
+
+    {answer, count}
+  end
+
+  defp count_trace_messages(count \\ 0) do
+    receive do
+      {:trace, _pid, :call, _mfa} -> count_trace_messages(count + 1)
+      {:count, from} -> send(from, {:count, count})
     end
   end
 
