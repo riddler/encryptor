@@ -20,13 +20,13 @@ claim nobody can review.
 ```elixir
 def deps do
   [
-    {:encryptor, "~> 0.4.0"}
+    {:encryptor, "~> 0.5.0"}
   ]
 end
 ```
 
-Pin the minor and read the changelog before upgrading: `~> 0.4.0` admits the
-0.4.x patch releases and nothing above them. Until 1.0.0, public APIs, storage
+Pin the minor and read the changelog before upgrading: `~> 0.5.0` admits the
+0.5.x patch releases and nothing above them. Until 1.0.0, public APIs, storage
 formats, and derivation constants may change between releases. The reserved
 `encryptor 0.1.0` on Hex predates the implementation and holds no code;
 depending on it gets you an empty package.
