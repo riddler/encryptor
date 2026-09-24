@@ -75,7 +75,20 @@ defmodule Encryptor.MixProject do
     [
       name: "encryptor",
       licenses: ["Apache-2.0"],
-      files: ~w(lib mix.exs README.md LICENSE CHANGELOG.md),
+      # The guides are here for the README, not for hexdocs: hex.pm renders
+      # the README from this tarball, so every file it links to relatively
+      # has to ship in it too, or the link answers 404 on the package page.
+      files: ~w(
+        lib
+        mix.exs
+        README.md
+        LICENSE
+        CHANGELOG.md
+        guides/getting-started.md
+        guides/secrets-at-start.md
+        guides/selector-boundaries.md
+        guides/rotation-runbook.md
+      ),
       links: %{
         "GitHub" => @source_url,
         "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
