@@ -11,6 +11,7 @@
 | [0007](0007-gcp-kms-wrap-provider.md) | GCP KMS is a wrap-provider, not a keyring, and it owns the tenant key's whole lifecycle | accepted (2026-09-13) |
 | [0008](0008-aws-kms-keyring-backed.md) | AWS KMS is the keyring-backed row, and the descriptor carries the client | accepted (2026-09-13) |
 | [0009](0009-scope-names-the-keys-owner.md) | Scope names the key's owner, and the v1 wire spellings stay constants behind it | proposed (2026-09-24) |
+| [0010](0010-suspension-through-a-store-behaviour.md) | A suspension is read from a store behaviour, the per-node ETS set is its default, and a shared store is the host's | proposed (2026-09-24) |
 
 New ADRs: next number, same three-section format (Context, Decision,
 Consequences), plus typespecs, at least one worked example, and any open
