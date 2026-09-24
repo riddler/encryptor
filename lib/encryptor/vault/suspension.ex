@@ -281,6 +281,16 @@ defmodule Encryptor.Vault.Suspension do
   # 7). The order - fill, then rename - is the invariant; no test can force
   # the interleaving it rules out.
   #
+  # The rename names the table by the tid this refresh filled, never by its
+  # name. A `Lifecycle` crash between the fill and the rename deletes that
+  # table, and the restarted `Lifecycle` creates a new, empty one under the
+  # unloaded name: renaming by name would put that empty table in front of
+  # the gate and serve every suspended scope until the next refresh. Renaming
+  # the stale tid raises instead, the refresher crashes and is restarted by
+  # the vault's supervisor, the new table stays under the unloaded name where
+  # the gate denies every scope, and the next refresh fills and renames it.
+  # No test can force that window either.
+  #
   # A view with no table - a `Lifecycle` restart in progress - is left to the
   # next refresh, which finds the recreated, unloaded view.
   defp apply_view(vault, selectors) do
@@ -297,7 +307,7 @@ defmodule Encryptor.Vault.Suspension do
         true = :ets.insert(tid, Enum.map(added, &{&1}))
         Enum.each(departed, &(true = :ets.delete(tid, &1)))
 
-        if state == :unloaded, do: :ets.rename(unloaded_table(vault), table(vault))
+        if state == :unloaded, do: :ets.rename(tid, table(vault))
 
         state == :unloaded or MapSet.size(added) > 0 or MapSet.size(departed) > 0
     end
