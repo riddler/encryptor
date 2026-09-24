@@ -161,7 +161,7 @@ defmodule Encryptor.GuidesTest do
 
     # sabotage: made a `:single` vault resolve any selector to `:default`;
     # red.
-    test "refuses a per-tenant selector" do
+    test "refuses a scope selector" do
       result = Vault.encrypt(@pan, key: @merchant, encryption_context: @column_context)
 
       assert {:invalid_selector, @merchant} = reason(result)
@@ -193,7 +193,7 @@ defmodule Encryptor.GuidesTest do
     end
   end
 
-  describe "getting started, part 2: the per-tenant vault" do
+  describe "getting started, part 2: the scoped vault" do
     setup do
       start_store()
       start_vault(RootVault)
@@ -225,7 +225,7 @@ defmodule Encryptor.GuidesTest do
                Envelope.unwrap(RootVault, wrapped)
     end
 
-    # sabotage: made a `:tenant` vault resolve every selector to one fixed
+    # sabotage: made a `:scoped` vault resolve every selector to one fixed
     # string; red.
     test "encrypts and decrypts under the merchant named by key:" do
       assert {:ok, ciphertext} =
@@ -238,9 +238,9 @@ defmodule Encryptor.GuidesTest do
                )
     end
 
-    # sabotage: dropped the vault-supplied `tenant_ref` pair in
+    # sabotage: dropped the vault-supplied `"tenant_ref"` pair in
     # `Resolve.vault_supplied/2`; red.
-    test "the vault supplies tenant_ref and the caller may not" do
+    test "the vault supplies the scope reference pair and the caller may not" do
       {:ok, ciphertext} =
         MerchantVault.encrypt(@pan, key: @merchant, encryption_context: @column_context)
 
@@ -258,9 +258,9 @@ defmodule Encryptor.GuidesTest do
       assert {:reserved_context_key, "tenant_ref"} = reason(result)
     end
 
-    # sabotage: made a `:tenant` vault default an absent `key:` to a tenant;
+    # sabotage: made a `:scoped` vault default an absent `key:` to a scope;
     # red.
-    test "a tenant vault refuses a call with no key:" do
+    test "a scoped vault refuses a call with no key:" do
       result = MerchantVault.encrypt(@pan, encryption_context: @column_context)
 
       assert {:invalid_selector, :default} = reason(result)
@@ -277,7 +277,7 @@ defmodule Encryptor.GuidesTest do
 
     # sabotage: keyed `Reference.derive/2` with a constant instead of the
     # subkey; red.
-    test "tenant_ref is a keyed derivation of the documented shape" do
+    test "the scope reference is a keyed derivation of the documented shape" do
       subkey = GuideVaults.reference_subkey()
       {:ok, ref} = Envelope.scope_ref(subkey, @merchant)
 
@@ -398,7 +398,7 @@ defmodule Encryptor.GuidesTest do
     end
   end
 
-  describe "the runbook, P2 and P4: tenant rotation and version retire" do
+  describe "the runbook, P2 and P4: scope key rotation and version retire" do
     setup do
       start_store()
       start_vault(RootVault)
@@ -468,11 +468,11 @@ defmodule Encryptor.GuidesTest do
 
     # sabotage: removed `:unknown_key` from `Resolve`'s provider vocabulary;
     # red.
-    test "P3 shreds the tenant, and the failure is specific rather than an oracle", %{v1: v1} do
+    test "P3 shreds the scope, and the failure is specific rather than an oracle", %{v1: v1} do
       {:ok, ciphertext} =
         MerchantVault.encrypt(@pan, key: @merchant, encryption_context: @column_context)
 
-      MerchantKeys.delete_tenant(v1.scope_ref)
+      MerchantKeys.delete_scope(v1.scope_ref)
       stop_supervised!(MerchantVault)
       start_vault(MerchantVault)
 
@@ -490,7 +490,7 @@ defmodule Encryptor.GuidesTest do
                )
     end
 
-    # sabotage: dropped the tenant-ref pair from `Envelope.binding/3`; red.
+    # sabotage: dropped the `"encryptor-tenant-ref"` pair from `Envelope.binding/3`; red.
     # (Removing `require_binding/4` alone is NOT red - the vault-side
     # comparison catches it too, which is the double defence being confirmed.)
     test "a wrapping copied into another merchant's row does not unwrap", %{v1: v1} do
@@ -515,7 +515,7 @@ defmodule Encryptor.GuidesTest do
       for subsection <- [
             "### The ring and the IAM bindings are provisioned out of band",
             "### The ring is a destroy-time hazard in Terraform, not a create-time one",
-            "### P3 gains step 2a: destroy the tenant's `CryptoKey` versions"
+            "### P3 gains step 2a: destroy the scope's `CryptoKey` versions"
           ] do
         assert String.contains?("## " <> section, subsection <> "\n"),
                "#{@gcp_section} is missing the subsection #{inspect(subsection)}"

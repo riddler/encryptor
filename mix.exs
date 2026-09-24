@@ -60,7 +60,7 @@ defmodule Encryptor.MixProject do
         "README.md",
         "guides/getting-started.md",
         "guides/secrets-at-start.md",
-        "guides/selector-boundaries.md",
+        "guides/choosing-the-scope.md",
         "guides/rotation-runbook.md",
         "CHANGELOG.md"
       ],
@@ -86,7 +86,7 @@ defmodule Encryptor.MixProject do
         CHANGELOG.md
         guides/getting-started.md
         guides/secrets-at-start.md
-        guides/selector-boundaries.md
+        guides/choosing-the-scope.md
         guides/rotation-runbook.md
       ),
       links: %{

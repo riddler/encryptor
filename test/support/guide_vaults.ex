@@ -27,7 +27,7 @@ defmodule Encryptor.GuideVaults do
 
   The worked domain is card processing, matching the rest of the suite: a
   payments application encrypting its own columns, and then the same
-  application serving merchants as tenants.
+  application serving merchants, one scope per merchant.
   """
 
   alias Encryptor.Envelope
@@ -65,7 +65,7 @@ defmodule Encryptor.GuideVaults do
     :ok
   end
 
-  @doc "The reference subkey the guides derive wherever a tenant reference is needed."
+  @doc "The reference subkey the guides derive wherever a scope reference is needed."
   @spec reference_subkey() :: binary()
   def reference_subkey do
     "MY_APP_REFERENCE_ROOT_KEY"
@@ -197,12 +197,12 @@ defmodule Encryptor.GuideVaults do
       Agent.update(__MODULE__, &Map.put(&1, {row.scope_ref, row.version}, rewrapped))
     end
 
-    @doc "Every version for one tenant reference, newest first."
+    @doc "Every version for one scope reference, newest first."
     @spec versions(String.t()) :: [WrappedKey.t()]
-    def versions(tenant_ref) do
+    def versions(scope_ref) do
       Agent.get(__MODULE__, fn rows ->
         rows
-        |> Enum.filter(fn {{ref, _version}, _row} -> ref == tenant_ref end)
+        |> Enum.filter(fn {{ref, _version}, _row} -> ref == scope_ref end)
         |> Enum.map(fn {_key, row} -> row end)
         |> Enum.sort_by(& &1.version, :desc)
       end)
@@ -210,15 +210,15 @@ defmodule Encryptor.GuideVaults do
 
     @doc "P4 step 1: the delete that closes the window."
     @spec delete_version(String.t(), pos_integer()) :: :ok
-    def delete_version(tenant_ref, version) do
-      Agent.update(__MODULE__, &Map.delete(&1, {tenant_ref, version}))
+    def delete_version(scope_ref, version) do
+      Agent.update(__MODULE__, &Map.delete(&1, {scope_ref, version}))
     end
 
-    @doc "P3 step 2: the delete that ends a tenant."
-    @spec delete_tenant(String.t()) :: :ok
-    def delete_tenant(tenant_ref) do
+    @doc "P3 step 2: the delete that ends a scope."
+    @spec delete_scope(String.t()) :: :ok
+    def delete_scope(scope_ref) do
       Agent.update(__MODULE__, fn rows ->
-        Enum.reject(rows, fn {{ref, _version}, _row} -> ref == tenant_ref end) |> Map.new()
+        Enum.reject(rows, fn {{ref, _version}, _row} -> ref == scope_ref end) |> Map.new()
       end)
     end
   end
@@ -227,7 +227,7 @@ defmodule Encryptor.GuideVaults do
     @moduledoc """
     The store-backed provider the guides hand to the merchant vault.
 
-    It derives the tenant reference from the selector with the same reference
+    It derives the scope reference from the selector with the same reference
     subkey the vault holds, reads the store, and unwraps. It never provisions:
     a selector with no live row is `{:unknown_key, selector}`, full stop.
     """
@@ -294,7 +294,7 @@ defmodule Encryptor.GuideVaults do
   end
 
   defmodule MerchantVault do
-    @moduledoc "Part 2 of the getting-started guide: the per-tenant vault."
+    @moduledoc "Part 2 of the getting-started guide: the scoped vault."
 
     use Encryptor.Vault,
       otp_app: :encryptor,
