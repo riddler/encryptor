@@ -145,12 +145,25 @@ under an accepted record. The accepted spine is ADR-0001 the vault layer,
 ADR-0002 the key-provider behaviour, ADR-0003 the per-tenant two-level
 envelope, ADR-0004 the encryption-context convention, and ADR-0005 the
 rotation and crypto-shred model. Until a record - or an amendment - is
-accepted, its contract is open: do not encode a guess about it in code, and
-stop and report if a bead needs an answer that no accepted record gives.
+accepted, its contract is closed to guesses: code may implement a PROPOSED
+record or amendment when a campaign's consent names it, citing the record
+section by anchor, and it stops and reports when a bead needs an answer that
+no record, proposed or accepted, gives. A cryptographic decision is never
+implemented at proposed.
 
-Acceptance is the operator's reading, never an agent's. An agent may draft a
-record or an amendment, and may implement against an accepted one; it does
-not flip a status line.
+A record or an amendment merges at proposed and stays proposed until the code
+that implements it has shipped in a published version of this package.
+Flipping it to accepted is the campaign conductor's act under the umbrella's
+flip standard: one flip PR for this repo per campaign or tail, every claim
+re-verified against main at the published version's SHA, merged under the
+campaign's consent with the gate green. The operator overturns a flip on the
+campaign's report line and is not otherwise asked. An agent flips a status
+line only inside that flip PR; a record whose code is on main but unpublished
+is not accepted yet; a record with a claim that fails verification stays
+proposed alone and is reported with the claim quoted. A record whose decision
+is cryptographic - a ciphertext shape, a key derivation, an algorithm or
+parameter choice - is flipped only by the operator's own reading; the
+conductor lists it under Not yet with the reason cryptographic.
 
 Cryptographic decisions are ADR decisions here, always. A key-derivation
 scheme, an encryption-context field, a ciphertext layout, or an algorithm
