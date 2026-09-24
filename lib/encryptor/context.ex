@@ -10,7 +10,7 @@ defmodule Encryptor.Context do
     * every pair is public to anyone holding a ciphertext, so putting a key in
       the context is a disclosure decision, and
     * no pair can be edited without breaking the tag, which is what binds a
-      message to the row, column and tenant it was written for.
+      message to the row, column and scope it was written for.
 
   This module owns the vocabulary and the composition. It does not enforce the
   required set - that is the vault's `:required_context` plus the
@@ -27,7 +27,7 @@ defmodule Encryptor.Context do
 
   | Key | Value | Supplied by |
   |---|---|---|
-  | `tenant_ref` | the keyed reference derived from the `:key` selector | the vault, never the caller |
+  | `tenant_ref` | the keyed scope reference derived from the `:key` selector | the vault, never the caller |
   | `table` | logical relation name, frozen at declaration | the caller |
   | `column` | logical field name, frozen at declaration | the caller |
   | `blob` | logical name for a payload with no table | the caller |
@@ -38,6 +38,11 @@ defmodule Encryptor.Context do
   its own keys freely, and it may neither redefine one of the six nor write
   under `aws-crypto-` (the engine's, and it may grow) or `encryptor-` (this
   package's). Adding a key to the table above is an ADR, not a call site.
+
+  `tenant_ref` keeps its v1 spelling under the Scope name: it is written into
+  every message's authenticated context, so a different spelling could not
+  open what an earlier build wrote (ADR-0009 decision 4, row 1).
+  `scope_ref_key/0` returns it.
 
   ## The four layers
 
@@ -64,11 +69,13 @@ defmodule Encryptor.Context do
       so a call site that spells out what configuration already says is
       redundant rather than broken.
 
-  On a `:tenant` vault the tenant pair is the vault's alone: `tenant_ref` and
-  `tenant_id` are both refused from a caller, because `:key` is the whole of
-  per-tenant routing and a tenant named twice is a tenant that can disagree
-  with itself. `tenant_ref` is refused on a `:single` vault too, where there is
-  no tenant to name at all.
+  On a `:scoped` vault the scope pair is the vault's alone: `tenant_ref`,
+  `scope_id` and `tenant_id` are all refused from a caller, because `:key` is
+  the whole of per-scope routing and a scope named twice is a scope that can
+  disagree with itself. `tenant_id` stays refused beside `scope_id` because a
+  host that followed earlier docs may still send it (ADR-0009 decision 3).
+  `tenant_ref` is refused on a `:single` vault too, where there is no scope
+  to name at all.
 
   ## The bounds
 
@@ -94,7 +101,7 @@ defmodule Encryptor.Context do
   call in any case, per row, forever.
 
   `table` and `column` are per-column, which is bounded by the schema. A host
-  with 200 tenants and 40 encrypted columns holds up to 8,000 cache entries;
+  with 200 scopes and 40 encrypted columns holds up to 8,000 cache entries;
   the same host with a row id in the context holds one per row.
 
   The vault cannot enforce this - it cannot tell a column name from a row id -
@@ -102,21 +109,26 @@ defmodule Encryptor.Context do
   backstop it has.
 
   Records: ADR-0004 decisions 1, 2, 7 and 9, with decision 4's refusal of a
-  caller-supplied tenant pair.
+  caller-supplied scope pair.
   """
 
   alias Encryptor.Error
   alias Encryptor.Vault.Config
 
-  @tenant_ref "tenant_ref"
-  @tenant_id "tenant_id"
+  # Pinned v1 wire constant: the context key the vault injects keeps its
+  # tenant spelling behind the Scope name (ADR-0009 decision 4, row 1).
+  @scope_ref "tenant_ref"
+  # Reserved caller keys on a `:scoped` vault. The tenant spelling stays
+  # reserved beside the Scope one, because a host that followed the docs of
+  # an earlier release may still send it (ADR-0009 decision 3).
+  @owner_ids ["scope_id", "tenant_id"]
   @table "table"
   @column "column"
   @blob "blob"
   @purpose "purpose"
   @app "app"
 
-  @canonical_keys [@tenant_ref, @table, @column, @blob, @purpose, @app]
+  @canonical_keys [@scope_ref, @table, @column, @blob, @purpose, @app]
   @reserved_prefixes ["aws-crypto-", "encryptor-"]
 
   @max_pairs 32
@@ -156,13 +168,17 @@ defmodule Encryptor.Context do
   def reserved_prefixes, do: @reserved_prefixes
 
   @doc """
-  The key the vault writes a tenant reference under.
+  The key the vault writes a scope reference under.
 
-      iex> Encryptor.Context.tenant_ref_key()
+  The key keeps its v1 wire spelling, `"tenant_ref"`: it is authenticated
+  in every message, so it is a constant rather than a name (ADR-0009
+  decision 4, row 1).
+
+      iex> Encryptor.Context.scope_ref_key()
       "tenant_ref"
   """
-  @spec tenant_ref_key() :: String.t()
-  def tenant_ref_key, do: @tenant_ref
+  @spec scope_ref_key() :: String.t()
+  def scope_ref_key, do: @scope_ref
 
   @doc """
   The most pairs a composed context may carry.
@@ -202,10 +218,10 @@ defmodule Encryptor.Context do
   Whether a key is refused from a caller or from static configuration on a
   vault of this profile.
 
-  Both reserved prefixes are refused on either profile. The tenant pair is
-  profile-sensitive: `tenant_ref` is the vault's on a `:tenant` vault and
-  meaningless on a `:single` one, so it is refused on both; `tenant_id` is
-  refused only where a tenant exists to be named twice.
+  Both reserved prefixes are refused on either profile. The scope pair is
+  profile-sensitive: `tenant_ref` is the vault's on a `:scoped` vault and
+  meaningless on a `:single` one, so it is refused on both; `scope_id` and
+  `tenant_id` are refused only where a scope exists to be named twice.
 
       iex> Encryptor.Context.reserved_key?("aws-crypto-public-key", :single)
       true
@@ -213,20 +229,26 @@ defmodule Encryptor.Context do
       iex> Encryptor.Context.reserved_key?("tenant_ref", :single)
       true
 
-      iex> Encryptor.Context.reserved_key?("tenant_id", :tenant)
+      iex> Encryptor.Context.reserved_key?("scope_id", :scoped)
       true
+
+      iex> Encryptor.Context.reserved_key?("tenant_id", :scoped)
+      true
+
+      iex> Encryptor.Context.reserved_key?("scope_id", :single)
+      false
 
       iex> Encryptor.Context.reserved_key?("tenant_id", :single)
       false
 
-      iex> Encryptor.Context.reserved_key?("table", :tenant)
+      iex> Encryptor.Context.reserved_key?("table", :scoped)
       false
   """
   @spec reserved_key?(String.t(), Config.profile()) :: boolean()
   def reserved_key?(key, profile) when is_binary(key) do
     Enum.any?(@reserved_prefixes, &String.starts_with?(key, &1)) or
-      key == @tenant_ref or
-      (profile == :tenant and key == @tenant_id)
+      key == @scope_ref or
+      (profile == :scoped and key in @owner_ids)
   end
 
   @doc """
@@ -268,7 +290,7 @@ defmodule Encryptor.Context do
   because both are the vault's own and neither is ever a caller's to pass:
 
     * `:supplied` - keys the vault derives from the call's own arguments, which
-      today is `tenant_ref` on a `:tenant` vault. Defaults to `%{}`.
+      today is `tenant_ref` on a `:scoped` vault. Defaults to `%{}`.
     * `:reserved` - `encryptor-*` pairs this package sets on its own messages,
       which is how `Encryptor.Envelope` marks a wrapped key. Defaults to `%{}`.
     * `:operation` - what to record on a failure. Defaults to `:encrypt`.
@@ -287,7 +309,7 @@ defmodule Encryptor.Context do
 
       iex> config = %Encryptor.Vault.Config{
       ...>   vault: MyApp.Vault,
-      ...>   context_profile: :tenant,
+      ...>   context_profile: :scoped,
       ...>   static_encryption_context: %{}
       ...> }
       iex> {:error, error} = Encryptor.Context.compose(config, %{"tenant_ref" => "mine"})

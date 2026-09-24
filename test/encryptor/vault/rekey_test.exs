@@ -107,7 +107,7 @@ defmodule Encryptor.Vault.RekeyTest do
     # of Encrypt.client/3's stack - red, because this engine mixes the required
     # subset of the context into the header AAD, so the decrypt half of a rekey
     # has to be spelled exactly as a read is.
-    test "round trips on a tenant vault, with the pair the vault supplied itself" do
+    test "round trips on a scoped vault, with the pair the vault supplied itself" do
       vault = start_vault(EncryptVaults.Merchant)
 
       old = vault.encrypt!(@pan, key: "merchant_a", encryption_context: @columns)
@@ -192,8 +192,8 @@ defmodule Encryptor.Vault.RekeyTest do
     # is the test that says why the step is not redundant when the reproduced
     # context is the stored one: what it compares is the context the *vault*
     # composed from the caller's selector, so removing it lets a rekey move a
-    # message between tenants wherever their key material overlaps.
-    test "a rekey cannot move a message between tenants" do
+    # message between scopes wherever their key material overlaps.
+    test "a rekey cannot move a message between scopes" do
       vault = start_vault(EncryptVaults.Merchant)
 
       old = vault.encrypt!(@pan, key: "merchant_a", encryption_context: @columns)
@@ -259,9 +259,9 @@ defmodule Encryptor.Vault.RekeyTest do
                {:unknown_key, "merchant_z"}
     end
 
-    # sabotage: gave Resolve.selector/3's :tenant clause a `:default` arm - red,
-    # because a tenant vault would then rotate under a selector no write could use.
-    test "a tenant vault refuses a rekey that names no tenant, before the provider" do
+    # sabotage: gave Resolve.selector/3's :scoped clause a `:default` arm - red,
+    # because a scoped vault would then rotate under a selector no write could use.
+    test "a scoped vault refuses a rekey that names no scope, before the provider" do
       vault = start_vault(EncryptVaults.Merchant)
 
       assert reason(vault.rekey("not a message")) == {:invalid_selector, :default}
@@ -279,8 +279,8 @@ defmodule Encryptor.Vault.RekeyTest do
 
   describe "the door" do
     # sabotage: made the generated rekey/2 pass `[]` instead of `opts` - red,
-    # because the selector arrives that way and a tenant rekey that dropped it
-    # would be refused as naming no tenant.
+    # because the selector arrives that way and a scope rekey that dropped it
+    # would be refused as naming no scope.
     test "the generated function carries the caller's options through unchanged" do
       vault = start_vault(EncryptVaults.Merchant)
 

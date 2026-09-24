@@ -14,10 +14,10 @@ defmodule Encryptor.VaultProvisionTest do
   alias Encryptor.GcpKmsVaults
   alias Encryptor.Vault.Reference
 
-  @selector "tenant-42"
+  @selector "scope-42"
 
   setup do
-    start_supervised!(Supervisor.child_spec({GcpKmsVaults.Tenant, []}, restart: :temporary))
+    start_supervised!(Supervisor.child_spec({GcpKmsVaults.Scope, []}, restart: :temporary))
 
     start_supervised!(
       Supervisor.child_spec({GcpKmsVaults.NotProvisionable, []}, restart: :temporary)
@@ -29,9 +29,9 @@ defmodule Encryptor.VaultProvisionTest do
   # mutation: call the provider directly with the host's own options - the
   # state the vault froze at start is the only state the callback may see.
   test "provisions through the vault's frozen provider state" do
-    assert {:ok, row} = GcpKmsVaults.Tenant.provision(@selector)
+    assert {:ok, row} = GcpKmsVaults.Scope.provision(@selector)
 
-    assert row.tenant_ref == Reference.derive(GcpKmsCase.subkey(), @selector)
+    assert row.scope_ref == Reference.derive(GcpKmsCase.subkey(), @selector)
     assert row.version == 1
     assert row.bits == 256
   end
@@ -47,11 +47,11 @@ defmodule Encryptor.VaultProvisionTest do
     assert Exception.message(error) =~ "cannot provision key material"
   end
 
-  # mutation: skip the selector check - a tenant vault would mint an
-  # undeletable GCP key for a selector that names no tenant.
+  # mutation: skip the selector check - a scoped vault would mint an
+  # undeletable GCP key for a selector that names no scope.
   test "types the selector against the vault's context profile" do
     assert {:error, %Error{reason: {:invalid_selector, :default}}} =
-             GcpKmsVaults.Tenant.provision(:default)
+             GcpKmsVaults.Scope.provision(:default)
 
     assert {:error, %Error{reason: {:invalid_selector, "anything"}}} =
              GcpKmsVaults.NotProvisionable.provision("anything")

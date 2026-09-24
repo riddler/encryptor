@@ -41,20 +41,24 @@ defmodule Encryptor.ContextTest do
     # red, because the engine only ever refuses "aws-crypto-public-key" itself
     # and this package refuses everything under the prefix.
     test "refuses a key under a reserved prefix on either profile" do
-      for profile <- [:single, :tenant] do
+      for profile <- [:single, :scoped] do
         assert Context.reserved_key?("aws-crypto-public-key", profile)
         assert Context.reserved_key?("aws-crypto-anything-later", profile)
         assert Context.reserved_key?("encryptor-wrapped-key", profile)
       end
     end
 
-    # sabotage: made the tenant_ref arm profile-sensitive - red on the
+    # sabotage: made the `"tenant_ref"` arm profile-sensitive - red on the
     # `:single` half, which is the half ADR-0004 decision 2's class column
-    # ("refused on :single") fixes.
-    test "refuses tenant_ref on either profile and tenant_id only where a tenant exists" do
-      assert Context.reserved_key?("tenant_ref", :tenant)
+    # ("refused on :single") fixes. Second sabotage: dropped `"scope_id"`
+    # from the owner ids - red on its `:scoped` line; dropped `"tenant_id"` -
+    # red on its line (ADR-0009 decision 3 keeps both).
+    test "refuses the reference key on either profile and the owner ids only where a scope exists" do
+      assert Context.reserved_key?("tenant_ref", :scoped)
       assert Context.reserved_key?("tenant_ref", :single)
-      assert Context.reserved_key?("tenant_id", :tenant)
+      assert Context.reserved_key?("scope_id", :scoped)
+      assert Context.reserved_key?("tenant_id", :scoped)
+      refute Context.reserved_key?("scope_id", :single)
       refute Context.reserved_key?("tenant_id", :single)
     end
 
@@ -83,9 +87,9 @@ defmodule Encryptor.ContextTest do
     end
 
     # sabotage: dropped the `:supplied` merge - red, because the vault's own
-    # tenant pair never reaches the message.
+    # scope pair never reaches the message.
     test "vault-supplied sits above the caller" do
-      config = config(:tenant, %{"app" => "my_app"})
+      config = config(:scoped, %{"app" => "my_app"})
 
       assert {:ok, composed} =
                Context.compose(config, %{"table" => "customers", "column" => "tax_id"},
@@ -143,9 +147,9 @@ defmodule Encryptor.ContextTest do
     end
 
     # sabotage: dropped the `above` half of refuse_reserved/4 - red, because a
-    # caller can then overwrite the tenant pair the vault derived from `:key`.
+    # caller can then overwrite the scope pair the vault derived from `:key`.
     test "a caller key colliding with a vault-supplied key" do
-      config = config(:tenant)
+      config = config(:scoped)
 
       assert {:reserved_context_key, "region"} =
                reason(
@@ -180,35 +184,41 @@ defmodule Encryptor.ContextTest do
                reason(Context.compose(config, %{"encryptor-anything" => "x"}))
     end
 
-    # sabotage: removed the tenant arms of reserved_key?/2 - red, and the
-    # failure it prevents is the silent one: a row encrypted under tenant A's
-    # key carrying tenant B's context decrypts for nobody and looks like
+    # sabotage: removed the scope arms of reserved_key?/2 - red, and the
+    # failure it prevents is the silent one: a row encrypted under scope A's
+    # key carrying scope B's context decrypts for nobody and looks like
     # corruption a year later.
-    test "a caller naming a tenant, which is `:key`'s job alone" do
-      tenant = config(:tenant)
+    test "a caller naming a scope, which is `:key`'s job alone" do
+      scope = config(:scoped)
 
       assert {:reserved_context_key, "tenant_ref"} =
-               reason(Context.compose(tenant, %{"tenant_ref" => "6Qk2_1xZ"}))
+               reason(Context.compose(scope, %{"tenant_ref" => "6Qk2_1xZ"}))
+
+      assert {:reserved_context_key, "scope_id"} =
+               reason(Context.compose(scope, %{"scope_id" => "acct_A"}))
 
       assert {:reserved_context_key, "tenant_id"} =
-               reason(Context.compose(tenant, %{"tenant_id" => "acct_A"}))
+               reason(Context.compose(scope, %{"tenant_id" => "acct_A"}))
 
       assert {:reserved_context_key, "tenant_ref"} =
                reason(Context.compose(config(:single), %{"tenant_ref" => "6Qk2_1xZ"}))
     end
 
-    # sabotage: same mutation - red, because a `:single` vault has no tenant to
+    # sabotage: same mutation - red, because a `:single` vault has no scope to
     # name twice and the vocabulary is open at the edges.
     test "a `tenant_id` key on a single-profile vault is an ordinary host key" do
       assert {:ok, %{"tenant_id" => "acct_A"}} =
                Context.compose(config(:single), %{"tenant_id" => "acct_A"})
+
+      assert {:ok, %{"scope_id" => "acct_A"}} =
+               Context.compose(config(:single), %{"scope_id" => "acct_A"})
     end
 
     # sabotage: dropped the second refuse_reserved/4 call - red, because a
     # static key is then merged under a vault-supplied one and silently lost,
     # which is the override ADR-0004 decision 1 refuses from either direction.
     test "a static key colliding with a vault-supplied key" do
-      config = config(:tenant, %{"region" => "from-config"})
+      config = config(:scoped, %{"region" => "from-config"})
 
       assert {:reserved_context_key, "region"} =
                reason(Context.compose(config, %{}, supplied: %{"region" => "from-vault"}))

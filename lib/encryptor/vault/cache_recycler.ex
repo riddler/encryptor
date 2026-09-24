@@ -21,11 +21,11 @@ defmodule Encryptor.Vault.CacheRecycler do
 
   ## Why anything needs dropping
 
-  Decision 7 partitions the cache per tenant. Without a bound, a per-tenant
-  partitioning scheme accumulates one entry per tenant per encryption context,
-  forever - including for tenants that were offboarded months ago. Expiry does
+  Decision 7 partitions the cache per scope. Without a bound, a per-scope
+  partitioning scheme accumulates one entry per scope per encryption context,
+  forever - including for scopes that were offboarded months ago. Expiry does
   not help: `LocalCache` only notices an entry has expired if something reads
-  it, and nothing ever reads a departed tenant's entry again.
+  it, and nothing ever reads a departed scope's entry again.
 
   ## The mechanism
 

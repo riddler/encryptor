@@ -1,7 +1,7 @@
 defmodule Encryptor.Vault.SpansTest do
   @moduledoc """
   ADR-0006's four span pairs, around the three entry points and the provider
-  round trip nested inside them, and its amendment A's opt-in tenant
+  round trip nested inside them, and its amendment A's opt-in scope
   dimension.
 
   The record's own worked example is the shape most of this file asserts: a
@@ -179,7 +179,7 @@ defmodule Encryptor.Vault.SpansTest do
       {_name, _m, metadata} = event(events, [:encryptor, :encrypt, :stop])
       assert metadata.outcome == :error
       assert metadata.reason_tag == :invalid_selector
-      refute Map.has_key?(metadata, :tenant_ref)
+      refute Map.has_key?(metadata, :scope_ref)
     end
 
     # sabotage: emitted the :stop half only when the operation succeeded -
@@ -262,7 +262,7 @@ defmodule Encryptor.Vault.SpansTest do
     end
 
     # sabotage: dropped the `candidates` measurement - red, because
-    # ADR-0002's consequence "Long-lived tenants accumulate candidates" says
+    # ADR-0002's consequence that a long-lived key owner accumulates candidates says
     # the list grows without bound and this is the only measurement that would
     # tell an operator it had.
     test "counts the candidate list a decryption_keys round trip answered with" do
@@ -332,11 +332,11 @@ defmodule Encryptor.Vault.SpansTest do
     end
   end
 
-  describe "amendment A: the opt-in tenant dimension" do
+  describe "amendment A: the opt-in scope dimension" do
     # sabotage: emitted a shorter prefix of the reference "to make the
     # dimension less identifying" - red, and it is the alternative amendment A
     # decision 2 refuses outright: a prefix buys no disclosure property, and
-    # two tenants sharing one silently become a single dimension value during
+    # two scopes sharing one silently become a single dimension value during
     # the incident this option exists for.
     test "an opted-in vault carries the keyed reference on all four span names" do
       start_vault(TelemetryVaults.Merchant)
@@ -354,7 +354,7 @@ defmodule Encryptor.Vault.SpansTest do
 
       Enum.each(events, fn {[:encryptor, name, _half], _m, metadata} ->
         assert name in @span_names
-        assert metadata.tenant_ref == expected
+        assert metadata.scope_ref == expected
       end)
 
       refute expected == Partition.id(TelemetryVaults.Merchant, @merchant)
@@ -374,8 +374,8 @@ defmodule Encryptor.Vault.SpansTest do
       assert events != []
 
       Enum.each(events, fn {name, _m, metadata} ->
-        refute Map.has_key?(metadata, :tenant_ref),
-               "#{inspect(name)} carried a tenant dimension the vault never opted in to"
+        refute Map.has_key?(metadata, :scope_ref),
+               "#{inspect(name)} carried a scope dimension the vault never opted in to"
       end)
     end
 
@@ -390,7 +390,7 @@ defmodule Encryptor.Vault.SpansTest do
       {:ok, config} = TelemetryVaults.Merchant.config()
 
       assert {:ok, context} = Resolve.context(config, "a-threaded-value", [], :encrypt)
-      assert context[Encryptor.Context.tenant_ref_key()] == "a-threaded-value"
+      assert context[Encryptor.Context.scope_ref_key()] == "a-threaded-value"
     end
 
     # sabotage: added a second `Reference.derive/2` call on the emit side -
@@ -425,12 +425,12 @@ defmodule Encryptor.Vault.SpansTest do
     end
 
     # sabotage: dropped the `true when profile == :single` refusal from
-    # Config - red, because a `:single` vault has no tenant to name, and a
+    # Config - red, because a `:single` vault has no scope to name, and a
     # host that asked for the dimension and quietly did not get it would build
     # a dashboard on a key that is never there (amendment A decision 1).
     test "a single-key vault refuses the option, and its spans carry nothing" do
       assert {:error, %Error{reason: reason}} = TelemetryVaults.AppOptedIn.start_link([])
-      assert reason == {:invalid_config, :telemetry_tenant_ref, :vault_is_single_profile}
+      assert reason == {:invalid_config, :telemetry_scope_ref, :vault_is_single_profile}
 
       start_vault(TelemetryVaults.App)
       capture()
@@ -438,7 +438,7 @@ defmodule Encryptor.Vault.SpansTest do
       {:ok, _ciphertext} = TelemetryVaults.App.encrypt(@plaintext)
 
       Enum.each(drain(), fn {_name, _m, metadata} ->
-        refute Map.has_key?(metadata, :tenant_ref)
+        refute Map.has_key?(metadata, :scope_ref)
       end)
     end
 
@@ -446,7 +446,7 @@ defmodule Encryptor.Vault.SpansTest do
     # substitution decision 6 says a well-meaning implementation is most
     # likely to make: ADR-0001 decision 7 truthfully says the partition id is
     # not secret, and it is an unkeyed SHA-256 of the selector, confirmable by
-    # anyone who can guess a tenant identifier.
+    # anyone who can guess a scope identifier.
     test "the value is the one the message's own context carries" do
       start_vault(TelemetryVaults.Merchant)
       capture()
@@ -456,7 +456,7 @@ defmodule Encryptor.Vault.SpansTest do
       {:ok, info} = Encryptor.Message.describe(ciphertext)
       {_name, _m, metadata} = event(drain(), [:encryptor, :encrypt, :start])
 
-      assert info.encryption_context[Encryptor.Context.tenant_ref_key()] == metadata.tenant_ref
+      assert info.encryption_context[Encryptor.Context.scope_ref_key()] == metadata.scope_ref
     end
   end
 
@@ -465,22 +465,32 @@ defmodule Encryptor.Vault.SpansTest do
     # it is the second site the amendment's A6 names: the record states the
     # amended wording and the implementation writes it, so a reader of either
     # gets the same rule.
+    #
+    # The record keeps its tenant wording; ADR-0009 decision 3 renames the
+    # option and the metadata key it names, so the moduledoc states the same
+    # sentence under the Scope names. The record half pins the record's own
+    # text; the moduledoc half pins that text with exactly those renames.
     test "the moduledoc states amendment A6's amended wording" do
       amended =
         "no event carries a per-tenant dimension unless the vault opted in with " <>
           "`telemetry_tenant_ref: true`, and then it is the keyed `tenant_ref` and " <>
           "never the partition id"
 
+      renamed =
+        "no event carries a per-scope dimension unless the vault opted in with " <>
+          "`telemetry_scope_ref: true`, and then it is the keyed `scope_ref` and " <>
+          "never the partition id"
+
       {:docs_v1, _a, _b, _c, %{"en" => moduledoc}, _d, _e} = Code.fetch_docs(Telemetry)
 
-      assert String.contains?(normalize(moduledoc), amended)
+      assert String.contains?(normalize(moduledoc), renamed)
 
       record = File.read!("docs/adr/0006-telemetry-and-observability.md")
       assert String.contains?(record |> String.replace("**", "") |> normalize(), amended)
 
       refute String.contains?(
                normalize(moduledoc),
-               "no event carries a per-tenant dimension, keyed or unkeyed"
+               "no event carries a per-scope dimension, keyed or unkeyed"
              )
     end
   end

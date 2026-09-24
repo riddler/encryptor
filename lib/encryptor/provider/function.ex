@@ -2,7 +2,7 @@ defmodule Encryptor.Provider.Function do
   @moduledoc """
   A provider built from a host-supplied pair of closures.
 
-  The escape hatch. It exists so the per-tenant case is reachable on day one,
+  The escape hatch. It exists so the per-scope case is reachable on day one,
   before a storage-backed adapter exists, and so a host that already has a key
   store can use this package without writing a behaviour implementation.
 

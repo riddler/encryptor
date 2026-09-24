@@ -207,11 +207,11 @@ defmodule Encryptor.GcpKmsCase do
       [
         project: "myapp-test",
         location: "us-east1",
-        key_ring: "tenant-keys",
+        key_ring: "scope-keys",
         reference_subkey: @subkey,
         http_client: FakeKms,
         goth: {FakeToken, :test_goth},
-        store: fn _tenant_ref -> {:ok, []} end
+        store: fn _scope_ref -> {:ok, []} end
       ],
       overrides
     )
@@ -224,7 +224,7 @@ defmodule Encryptor.GcpKmsCase do
     state
   end
 
-  # Provisions a tenant and hands back the state and the row, which is what
+  # Provisions a scope and hands back the state and the row, which is what
   # every resolution test needs before it can resolve anything.
   @doc false
   def provisioned(selector, overrides \\ []) do
@@ -267,17 +267,17 @@ defmodule Encryptor.GcpKmsVaults do
   @moduledoc """
   Vaults for the vault-level `provision/1` of ADR-0007 decision 2.
 
-  One tenant vault whose provider can provision, and one whose provider
+  One scoped vault whose provider can provision, and one whose provider
   cannot, because `{:not_provisionable, module}` is the answer that has to be
   a settled term rather than an `UndefinedFunctionError`.
   """
 
   alias Encryptor.GcpKmsCase
 
-  defmodule Tenant do
-    @moduledoc "A tenant vault behind the GCP KMS wrap-provider."
+  defmodule Scope do
+    @moduledoc "A scoped vault behind the GCP KMS wrap-provider."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant, cache: false
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped, cache: false
 
     @doc "Layer 5: the provider and the reference subkey, both key material."
     def init(config) do

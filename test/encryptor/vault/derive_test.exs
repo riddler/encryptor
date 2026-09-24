@@ -129,7 +129,7 @@ defmodule Encryptor.Vault.DeriveTest do
     end
   end
 
-  describe "derive/3 on a tenant vault" do
+  describe "derive/3 on a scoped vault" do
     # Sabotage: resolved every selector to the first merchant. Red.
     test "two merchants derive unrelated keys for one scope" do
       vault = start_vault(DeriveVaults.Merchant)

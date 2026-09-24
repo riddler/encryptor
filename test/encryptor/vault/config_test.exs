@@ -24,13 +24,13 @@ defmodule Encryptor.Vault.ConfigTest do
     )
   end
 
-  defp tenant(opts \\ []) do
+  defp scope(opts \\ []) do
     Config.resolve(
       TestVaults.NoInit,
       :encryptor,
       [],
       Keyword.merge(
-        [provider: @provider, context_profile: :tenant, reference_subkey: @subkey],
+        [provider: @provider, context_profile: :scoped, reference_subkey: @subkey],
         opts
       )
     )
@@ -381,14 +381,22 @@ defmodule Encryptor.Vault.ConfigTest do
                reason(single(context_profile: :multi))
 
       assert {:ok, %Config{context_profile: :single}} = single()
-      assert {:ok, %Config{context_profile: :tenant}} = tenant()
+      assert {:ok, %Config{context_profile: :scoped}} = scope()
     end
 
-    # sabotage: made required_keys/2 return the configured list on :tenant -
-    # red, because tenant_ref is then absent from the effective set.
+    # sabotage: added `:tenant` back to the accepted profiles in
+    # context_profile/2 - red, because the rename is a clean break with no
+    # deprecated alias (ADR-0009 decision 2, open question 1 answered).
+    test "the pre-rename `:tenant` spelling is an unknown profile" do
+      assert {:invalid_config, :context_profile, :unknown} =
+               reason(scope(context_profile: :tenant))
+    end
+
+    # sabotage: made required_keys/2 return the configured list on :scoped -
+    # red, because scope_ref is then absent from the effective set.
     test "the profile contributes its own required keys, ahead of the host's" do
       assert {:ok, %Config{required_keys: ["tenant_ref", "table", "column"]}} =
-               tenant(required_context: ["table", "column"])
+               scope(required_context: ["table", "column"])
 
       assert {:ok, %Config{required_keys: ["purpose"]}} = single(required_context: ["purpose"])
     end
@@ -397,7 +405,7 @@ defmodule Encryptor.Vault.ConfigTest do
     # duplicated entry.
     test "the effective required set carries no duplicates" do
       assert {:ok, %Config{required_keys: ["tenant_ref", "table"]}} =
-               tenant(required_context: ["tenant_ref", "table"])
+               scope(required_context: ["tenant_ref", "table"])
     end
   end
 
@@ -417,7 +425,7 @@ defmodule Encryptor.Vault.ConfigTest do
 
     # sabotage: removed the profile == :single branch of
     # required_context_keys/3 - red, because the vault then resolves.
-    test "may not require tenant_ref on a single-profile vault" do
+    test "may not require scope_ref on a single-profile vault" do
       assert {:invalid_config, :required_context, {:reserved_key, "tenant_ref"}} =
                reason(single(required_context: ["tenant_ref"]))
     end
@@ -448,12 +456,12 @@ defmodule Encryptor.Vault.ConfigTest do
 
     # sabotage: made reserved_context_key?/2 ignore the profile - red, because
     # the single-profile vault is then refused too.
-    test "refuses a tenant pair on a tenant vault, and allows it nowhere else to matter" do
+    test "refuses a scope pair on a scoped vault, and allows it nowhere else to matter" do
       assert {:reserved_context_key, "tenant_ref"} =
-               reason(tenant(static_encryption_context: %{"tenant_ref" => "x"}))
+               reason(scope(static_encryption_context: %{"tenant_ref" => "x"}))
 
       assert {:reserved_context_key, "tenant_id"} =
-               reason(tenant(static_encryption_context: %{"tenant_id" => "x"}))
+               reason(scope(static_encryption_context: %{"tenant_id" => "x"}))
 
       assert {:ok, _config} = single(static_encryption_context: %{"tenant_id" => "x"})
     end
@@ -491,21 +499,21 @@ defmodule Encryptor.Vault.ConfigTest do
   end
 
   describe "the reference subkey" do
-    # sabotage: made the :tenant clause of reference_subkey/3 return
+    # sabotage: made the :scoped clause of reference_subkey/3 return
     # {:ok, nil} when the key is absent - red on the missing-config assert.
-    test "is required on a tenant vault, at its derived width" do
+    test "is required on a scoped vault, at its derived width" do
       assert {:missing_config, [:reference_subkey]} =
                reason(
                  Config.resolve(TestVaults.NoInit, :encryptor, [],
                    provider: @provider,
-                   context_profile: :tenant
+                   context_profile: :scoped
                  )
                )
 
       assert {:invalid_config, :reference_subkey, :invalid_length} =
-               reason(tenant(reference_subkey: String.duplicate("s", 16)))
+               reason(scope(reference_subkey: String.duplicate("s", 16)))
 
-      assert {:ok, %Config{context_profile: :tenant}} = tenant()
+      assert {:ok, %Config{context_profile: :scoped}} = scope()
     end
 
     # sabotage: removed the :single clause's has_key? check - red, because the
@@ -519,15 +527,15 @@ defmodule Encryptor.Vault.ConfigTest do
     end
   end
 
-  describe "the opt-in tenant dimension" do
-    # sabotage: dropped `telemetry_tenant_ref: false` from defaults/0 - red,
+  describe "the opt-in scope dimension" do
+    # sabotage: dropped `telemetry_scope_ref: false` from defaults/0 - red,
     # because the option then arrives at the emit site as `nil` on every vault
     # that never named it, and ADR-0006 amendment A decision 1's "off by
     # default" is a default rather than an absence.
     test "defaults to false on both profiles" do
-      assert {:ok, %Config{telemetry_tenant_ref: false}} = single()
-      assert {:ok, %Config{telemetry_tenant_ref: false}} = tenant()
-      assert Keyword.fetch(Config.defaults(), :telemetry_tenant_ref) == {:ok, false}
+      assert {:ok, %Config{telemetry_scope_ref: false}} = single()
+      assert {:ok, %Config{telemetry_scope_ref: false}} = scope()
+      assert Keyword.fetch(Config.defaults(), :telemetry_scope_ref) == {:ok, false}
     end
 
     # sabotage: returned {:ok, true} for a `:single` vault instead of
@@ -535,34 +543,34 @@ defmodule Encryptor.Vault.ConfigTest do
     # did not get it builds a dashboard on a key that is never there
     # (amendment A decision 1).
     test "is refused as true on a single-profile vault, at start" do
-      assert {:invalid_config, :telemetry_tenant_ref, :vault_is_single_profile} =
-               reason(single(telemetry_tenant_ref: true))
+      assert {:invalid_config, :telemetry_scope_ref, :vault_is_single_profile} =
+               reason(single(telemetry_scope_ref: true))
     end
 
     # sabotage: deleted the `:single` clause's `true` guard so `false` was
     # refused too - red, because every `:single` vault ever written then fails
     # to start on the package's own default.
     test "false on a single-profile vault is the default, not a declaration" do
-      assert {:ok, %Config{telemetry_tenant_ref: false}} =
-               single(telemetry_tenant_ref: false)
+      assert {:ok, %Config{telemetry_scope_ref: false}} =
+               single(telemetry_scope_ref: false)
     end
 
     # sabotage: replaced the is_boolean guard with a truthiness test - red,
-    # because `telemetry_tenant_ref: "true"` then reaches the emit site and
+    # because `telemetry_scope_ref: "true"` then reaches the emit site and
     # every span carries a dimension the host never turned on.
     test "a non-boolean is refused on either profile" do
-      assert {:invalid_config, :telemetry_tenant_ref, :not_a_boolean} =
-               reason(tenant(telemetry_tenant_ref: "true"))
+      assert {:invalid_config, :telemetry_scope_ref, :not_a_boolean} =
+               reason(scope(telemetry_scope_ref: "true"))
 
-      assert {:invalid_config, :telemetry_tenant_ref, :not_a_boolean} =
-               reason(single(telemetry_tenant_ref: 1))
+      assert {:invalid_config, :telemetry_scope_ref, :not_a_boolean} =
+               reason(single(telemetry_scope_ref: 1))
     end
 
-    # sabotage: dropped :telemetry_tenant_ref from the struct built in
+    # sabotage: dropped :telemetry_scope_ref from the struct built in
     # build/3 - red, because the resolved value is then not frozen and the
     # emit site has nothing to read.
-    test "is frozen onto the configuration a tenant vault runs with" do
-      assert {:ok, %Config{telemetry_tenant_ref: true}} = tenant(telemetry_tenant_ref: true)
+    test "is frozen onto the configuration a scoped vault runs with" do
+      assert {:ok, %Config{telemetry_scope_ref: true}} = scope(telemetry_scope_ref: true)
     end
   end
 
@@ -572,7 +580,7 @@ defmodule Encryptor.Vault.ConfigTest do
     # missing-config failure amendment A defers to `derive/3` never happens.
     test "is optional on both profiles, and absent means nil" do
       assert {:ok, %Config{derivation_salt: nil}} = single()
-      assert {:ok, %Config{derivation_salt: nil}} = tenant()
+      assert {:ok, %Config{derivation_salt: nil}} = scope()
     end
 
     # sabotage: dropped the byte_size guard from derivation_salt/2 - red on
@@ -617,7 +625,7 @@ defmodule Encryptor.Vault.ConfigTest do
     # a guess" stops holding.
     test "are optional on both profiles, and absent means nil" do
       assert {:ok, %Config{slow_hash: nil}} = single()
-      assert {:ok, %Config{slow_hash: nil}} = tenant()
+      assert {:ok, %Config{slow_hash: nil}} = scope()
     end
 
     # sabotage: dropped the Map.get default arms from slow_hash_params/2 so a
@@ -755,19 +763,19 @@ defmodule Encryptor.Vault.ConfigTest do
     test "a pinned value the subkey reproduces starts; one it does not, refuses" do
       pinned = Config.known_answer(@subkey)
 
-      assert {:ok, %Config{reference_check: ^pinned}} = tenant(reference_check: pinned)
+      assert {:ok, %Config{reference_check: ^pinned}} = scope(reference_check: pinned)
 
       assert {:invalid_config, :reference_subkey, :known_answer_mismatch} =
-               reason(tenant(reference_check: Config.known_answer(String.duplicate("t", 32))))
+               reason(scope(reference_check: Config.known_answer(String.duplicate("t", 32))))
     end
 
     # sabotage: made the :error clause of reference_check/4 return the
     # missing-config error - red, because a first provisioning cannot start.
     test "is skipped only when no value has been pinned yet" do
-      assert {:ok, %Config{reference_check: nil}} = tenant()
+      assert {:ok, %Config{reference_check: nil}} = scope()
 
       assert {:invalid_config, :reference_check, :not_a_string} =
-               reason(tenant(reference_check: :pinned))
+               reason(scope(reference_check: :pinned))
     end
   end
 
@@ -817,7 +825,7 @@ defmodule Encryptor.Vault.ConfigTest do
     # sabotage: deleted the defimpl block - red, because the derived Inspect
     # then prints the subkey and the provider options.
     test "never renders the reference subkey or the provider options" do
-      {:ok, config} = tenant(provider: {TestVaults.Provider, key: "very-secret-material"})
+      {:ok, config} = scope(provider: {TestVaults.Provider, key: "very-secret-material"})
 
       rendered = inspect(config)
 

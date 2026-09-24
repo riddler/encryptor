@@ -29,7 +29,7 @@ defmodule Encryptor.Vault.Docs do
 
     ## Options
 
-      * `:key` - the selector handed to the key provider. A `:tenant` vault
+      * `:key` - the selector handed to the key provider. A `:scoped` vault
         takes a non-empty `String.t()` and refuses `:default`; a `:single`
         vault takes `:default`, which is also what an absent `:key` means,
         and refuses a string. Either refusal is
@@ -43,8 +43,9 @@ defmodule Encryptor.Vault.Docs do
         to read before choosing a key. Two rules are worth carrying here:
         **nothing that varies per row** may go in a context - a row id
         multiplies the materials cache by the size of the table - and on a
-        `:tenant` vault the tenant pair is the vault's, derived from `:key`,
-        so `"tenant_ref"` and `"tenant_id"` are refused from a caller.
+        `:scoped` vault the scope pair is the vault's, derived from `:key`,
+        so `"tenant_ref"`, `"scope_id"` and `"tenant_id"` are refused from
+        a caller.
 
     `:algorithm_suite`, `:commitment_policy`, `:frame_length` and
     `:max_encrypted_data_keys` are deliberately not options. All four are
@@ -88,9 +89,10 @@ defmodule Encryptor.Vault.Docs do
         carries that the claim omits is ignored too. What closes that gap is
         the vault's configured `:required_context`: omitting one of those is
         `{:missing_required_context_keys, keys}`, which is the one context
-        failure a caller can act on. On a `:tenant` vault the tenant pair is
-        the vault's, derived from `:key`, so `"tenant_ref"` and
-        `"tenant_id"` are refused from a caller here as they are at encrypt.
+        failure a caller can act on. On a `:scoped` vault the scope pair is
+        the vault's, derived from `:key`, so `"tenant_ref"`, `"scope_id"`
+        and `"tenant_id"` are refused from a caller here as they are at
+        encrypt.
     """
   end
 
@@ -139,9 +141,9 @@ defmodule Encryptor.Vault.Docs do
 
       * `:key` - the selector handed to the key provider, typed by the
         vault's profile exactly as `encrypt/2` and `decrypt/2` type it. On a
-        `:tenant` vault the pair the vault derives from it is compared
+        `:scoped` vault the pair the vault derives from it is compared
         against the message's own before anything is decrypted, so a rekey
-        cannot move a message between tenants.
+        cannot move a message between scopes.
 
     ## When a rekey changes nothing
 
@@ -175,9 +177,9 @@ defmodule Encryptor.Vault.Docs do
     ## Options
 
       * `:key` - the selector handed to the key provider, typed by the
-        vault's profile exactly as `encrypt/2` types it. A `:tenant` vault
+        vault's profile exactly as `encrypt/2` types it. A `:scoped` vault
         refuses `:default` here too: a derivation that fell back to a
-        default key would hand every tenant the same subkey.
+        default key would hand every scope the same subkey.
       * `:info` - the caller's own scope string within the purpose, used
         verbatim and opaque to this package. Defaults to `""`, which is a
         legitimate scope rather than a missing argument.
@@ -196,7 +198,7 @@ defmodule Encryptor.Vault.Docs do
     ## What this does not buy
 
     Capability separation. Deriving requires the key material, so a
-    component that can derive a tenant's index key holds that tenant's
+    component that can derive a scope's index key holds that scope's
     master key and can therefore also decrypt (ADR-0003 decision 7). The
     surface hides the material from the *caller*; it does not create a
     search-only capability.

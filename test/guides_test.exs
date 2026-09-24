@@ -206,7 +206,7 @@ defmodule Encryptor.GuidesTest do
     # red.
     test "onboarding returns a wrapping and never a bare key", %{wrapped: wrapped} do
       assert %WrappedKey{
-               tenant_ref: ref,
+               scope_ref: ref,
                version: 1,
                namespace: "acme-merchant",
                bits: 256,
@@ -245,7 +245,7 @@ defmodule Encryptor.GuidesTest do
         MerchantVault.encrypt(@pan, key: @merchant, encryption_context: @column_context)
 
       {:ok, info} = Message.describe(ciphertext)
-      {:ok, expected} = Envelope.tenant_ref(GuideVaults.reference_subkey(), @merchant)
+      {:ok, expected} = Envelope.scope_ref(GuideVaults.reference_subkey(), @merchant)
 
       assert info.encryption_context["tenant_ref"] == expected
 
@@ -279,7 +279,7 @@ defmodule Encryptor.GuidesTest do
     # subkey; red.
     test "tenant_ref is a keyed derivation of the documented shape" do
       subkey = GuideVaults.reference_subkey()
-      {:ok, ref} = Envelope.tenant_ref(subkey, @merchant)
+      {:ok, ref} = Envelope.scope_ref(subkey, @merchant)
 
       expected =
         Base.url_encode64(
@@ -316,7 +316,7 @@ defmodule Encryptor.GuidesTest do
 
       assert {:ok, %Config{reference_check: ^pinned}} =
                Config.resolve(PinnedVault, :encryptor, [],
-                 context_profile: :tenant,
+                 context_profile: :scoped,
                  provider: {Encryptor.Provider.Static, key: :binary.copy(<<1>>, 32)},
                  reference_subkey: subkey,
                  reference_check: pinned
@@ -325,7 +325,7 @@ defmodule Encryptor.GuidesTest do
       assert {:error,
               %Error{reason: {:invalid_config, :reference_subkey, :known_answer_mismatch}}} =
                Config.resolve(PinnedVault, :encryptor, [],
-                 context_profile: :tenant,
+                 context_profile: :scoped,
                  provider: {Encryptor.Provider.Static, key: :binary.copy(<<1>>, 32)},
                  reference_subkey: :binary.copy(<<0xAB>>, 32),
                  reference_check: pinned
@@ -367,7 +367,7 @@ defmodule Encryptor.GuidesTest do
       [original] = before
 
       # Only :wrapped moves; every identity field is carried across.
-      assert rewrapped.tenant_ref == original.tenant_ref
+      assert rewrapped.scope_ref == original.scope_ref
       assert rewrapped.version == original.version
       assert rewrapped.namespace == original.namespace
       assert rewrapped.name == original.name
@@ -444,7 +444,7 @@ defmodule Encryptor.GuidesTest do
       # New writes are under v2, and the header says so in the clear.
       {:ok, info} = Message.describe(new_ciphertext)
       assert [%{key_name: name}] = info.encrypted_data_keys
-      assert name == "t/" <> v1.tenant_ref <> "/v2"
+      assert name == "t/" <> v1.scope_ref <> "/v2"
     end
 
     # sabotage: changed the collapsed reason in `Error.decrypt_failed/3`; red.
@@ -456,7 +456,7 @@ defmodule Encryptor.GuidesTest do
 
       # P4 step 1, then step 2's drain - here by restart, the lever available
       # to a test.
-      MerchantKeys.delete_version(v1.tenant_ref, 1)
+      MerchantKeys.delete_version(v1.scope_ref, 1)
       stop_supervised!(MerchantVault)
       start_vault(MerchantVault)
 
@@ -472,7 +472,7 @@ defmodule Encryptor.GuidesTest do
       {:ok, ciphertext} =
         MerchantVault.encrypt(@pan, key: @merchant, encryption_context: @column_context)
 
-      MerchantKeys.delete_tenant(v1.tenant_ref)
+      MerchantKeys.delete_tenant(v1.scope_ref)
       stop_supervised!(MerchantVault)
       start_vault(MerchantVault)
 
@@ -495,7 +495,7 @@ defmodule Encryptor.GuidesTest do
     # comparison catches it too, which is the double defence being confirmed.)
     test "a wrapping copied into another merchant's row does not unwrap", %{v1: v1} do
       {:ok, _other} = GuideVaults.onboard("merchant-77", 1)
-      [other_row] = Enum.filter(MerchantKeys.all_live(), &(&1.tenant_ref != v1.tenant_ref))
+      [other_row] = Enum.filter(MerchantKeys.all_live(), &(&1.scope_ref != v1.scope_ref))
 
       forged = %WrappedKey{other_row | wrapped: v1.wrapped}
 

@@ -170,7 +170,7 @@ defmodule Bench.Vaults do
   # question has a number rather than a reading of two records.
   def start_tenant(counter, descriptors) do
     Application.put_env(:encryptor, Tenant,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478,
       reference_subkey:
         Encryptor.Envelope.root_subkey(:crypto.strong_rand_bytes(32), "tenant-ref"),
@@ -660,7 +660,7 @@ unwrap_us =
 
 Report.row("tenant master key, declared bits", sample.bits)
 Report.row("wrapped blob bytes", byte_size(sample.wrapped))
-Report.row("tenant_ref chars", String.length(sample.tenant_ref))
+Report.row("tenant_ref chars", String.length(sample.scope_ref))
 Report.row("provision/3 us", Report.round2(provision_us))
 Report.row("unwrap/2 us", Report.round2(unwrap_us))
 

@@ -48,12 +48,12 @@ defmodule Encryptor.Vault.Rekey do
   # Reproducing the context from the message would make a comparison of the two
   # trivially true, so this module does not compare the stored context against
   # itself. It compares the stored context against the one **the vault composes
-  # from the call's own arguments** - the static layer, plus `tenant_ref`
-  # derived from the `:key` selector on a `:tenant` vault - through the same
+  # from the call's own arguments** - the static layer, plus `"tenant_ref"`
+  # derived from the `:key` selector on a `:scoped` vault - through the same
   # `Encryptor.Vault.Decrypt.agree/4` a read goes through, reporting `:rekey`.
   #
   # That is what stops a rekey being a way around ADR-0004 decision 6. Without
-  # it, a caller naming tenant A could hand this function tenant B's ciphertext
+  # it, a caller naming scope A could hand this function scope B's ciphertext
   # and, wherever the two selectors resolve to overlapping key material, get
   # back a message re-encrypted under A's current key with B's binding still
   # inside it. The comparison is one call, and it is the same call the decrypt
@@ -106,15 +106,15 @@ defmodule Encryptor.Vault.Rekey do
   @spec call(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
   def call(vault, ciphertext, opts) when is_binary(ciphertext) and is_list(opts) do
     opened = Resolve.open(vault, opts, :rekey)
-    tenant_ref = Resolve.telemetry_reference(opened)
-    span = Telemetry.operation_start(vault, :rekey, tenant_ref)
+    scope_ref = Resolve.telemetry_reference(opened)
+    span = Telemetry.operation_start(vault, :rekey, scope_ref)
 
     result =
       with {:ok, config, selector, reference} <- opened do
-        rekey(config, selector, reference, ciphertext, opts, tenant_ref)
+        rekey(config, selector, reference, ciphertext, opts, scope_ref)
       end
 
-    Telemetry.operation_stop(vault, :rekey, span, tenant_ref, result)
+    Telemetry.operation_stop(vault, :rekey, span, scope_ref, result)
 
     result
   end
@@ -122,12 +122,12 @@ defmodule Encryptor.Vault.Rekey do
   # Two provider round trips, so two nested provider spans: a rekey reads
   # under every candidate and writes under the current one, and an operator
   # watching a `key_unavailable` rate wants both.
-  defp rekey(config, selector, reference, ciphertext, opts, tenant_ref) do
+  defp rekey(config, selector, reference, ciphertext, opts, scope_ref) do
     vault = config.vault
 
     with :ok <- refuse_context(config, opts),
          {:ok, candidates} <-
-           Telemetry.provider_span(config, :decryption_keys, :rekey, tenant_ref, fn ->
+           Telemetry.provider_span(config, :decryption_keys, :rekey, scope_ref, fn ->
              Resolve.decryption_keys(config, selector, :rekey)
            end),
          {:ok, readers} <- Keyring.build_all(vault, :rekey, candidates),
@@ -136,7 +136,7 @@ defmodule Encryptor.Vault.Rekey do
          :ok <- Decrypt.agree(config, ciphertext, composed, :rekey),
          {:ok, plaintext} <- open(config, readers, selector, ciphertext, stored),
          {:ok, descriptor} <-
-           Telemetry.provider_span(config, :encryption_key, :rekey, tenant_ref, fn ->
+           Telemetry.provider_span(config, :encryption_key, :rekey, scope_ref, fn ->
              Resolve.encryption_key(config, selector, :rekey)
            end),
          {:ok, writer} <- Keyring.build(vault, :rekey, descriptor) do

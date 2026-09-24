@@ -26,10 +26,10 @@ defmodule Encryptor.MessageTest do
   @engine_pair "aws-crypto-public-key"
 
   # The card-processing domain. The key names are shaped like ADR-0003
-  # decision 5's derived names - a keyed reference, not a tenant slug - so a
+  # decision 5's derived names - a keyed reference, not a scope slug - so a
   # reader of these tests sees the pseudonym the record actually puts in a
   # header.
-  @provider_id "acme-tenant"
+  @provider_id "acme-scope"
   @key_name "t/6Qk2_1xZaR8/v3"
   @context %{
     "tenant_ref" => "6Qk2_1xZaR8",
@@ -222,7 +222,7 @@ defmodule Encryptor.MessageTest do
     bytes
   end
 
-  # A tenant vault's message: one raw-AES keyring, a committed suite, the
+  # A scoped vault's message: one raw-AES keyring, a committed suite, the
   # canonical per-column context.
   defp committed_message, do: message([])
 

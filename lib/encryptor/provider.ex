@@ -79,7 +79,7 @@ defmodule Encryptor.Provider do
     * **A name travels in the clear.** It lands in the encrypted data key's
       provider info, inside a header that is authenticated but not encrypted.
       Anyone holding a ciphertext can read it, so a provider that puts a raw
-      tenant identifier there has published that identifier in every row.
+      scope identifier there has published that identifier in every row.
     * **Dropping a name is what shreds.** `c:decryption_keys/2` returns every
       name that may still appear in stored ciphertext, newest first, and the
       vault builds the candidate keyring from that list. Removing an entry
@@ -130,7 +130,7 @@ defmodule Encryptor.Provider do
       in configuration. The single-key vault, the root vault, and the test
       double.
     * `Encryptor.Provider.Function` - a host-supplied pair of closures. The
-      escape hatch, and the day-one path to per-tenant keys before a storage
+      escape hatch, and the day-one path to per-scope keys before a storage
       adapter exists.
 
   `Encryptor.Provider.Conformance` is the shared test suite both are held to,
@@ -176,7 +176,7 @@ defmodule Encryptor.Provider do
 
   @typedoc """
   A key selector, as the vault fixes it: a non-empty `String.t()` in a
-  `:tenant` vault, and the atom `:default` in a `:single` one.
+  `:scoped` vault, and the atom `:default` in a `:single` one.
   """
   @type selector :: Error.selector()
 
@@ -206,8 +206,8 @@ defmodule Encryptor.Provider do
   What `c:provision/2` returns: everything a store needs to reconstruct the
   descriptor later, and never the plaintext key.
 
-  Keyed by `tenant_ref`, never by the raw selector (ADR-0004 decision 4 as
-  amended, which is what keeps a raw tenant identifier out of the
+  Keyed by `scope_ref`, never by the raw selector (ADR-0004 decision 4 as
+  amended, which is what keeps a raw scope identifier out of the
   wrapped-key store). It is a map rather than an
   `%Encryptor.Envelope.WrappedKey{}` because that struct carries the
   assumption that `wrapped` is an engine message produced by a root vault,
@@ -219,7 +219,7 @@ defmodule Encryptor.Provider do
   Records: ADR-0007 decision 6.
   """
   @type provisioned :: %{
-          tenant_ref: String.t(),
+          scope_ref: String.t(),
           version: pos_integer(),
           namespace: String.t(),
           name: String.t(),

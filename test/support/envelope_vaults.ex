@@ -49,7 +49,7 @@ defmodule Encryptor.EnvelopeVaults do
   @spec reference_root_key() :: binary()
   def reference_root_key, do: @reference_root
 
-  @doc "The `\"encryptor/v1/tenant-ref\"` expansion every `tenant_ref` derives under."
+  @doc "The `\"encryptor/v1/scope-ref\"` expansion every `scope_ref` derives under."
   @spec reference_subkey() :: binary()
   def reference_subkey, do: Envelope.root_subkey(@reference_root, "tenant-ref")
 
@@ -90,7 +90,7 @@ defmodule Encryptor.EnvelopeVaults do
     P1 step 2: both generations live, newest first.
 
     Writes go under generation 2 and reads resolve either, so a rewrap pass
-    can run for as long as it takes without a window in which some tenant
+    can run for as long as it takes without a window in which some scope
     cannot resolve.
     """
 
@@ -161,16 +161,16 @@ defmodule Encryptor.EnvelopeVaults do
 
   defmodule MistypedRoot do
     @moduledoc """
-    A root vault a host has configured as a tenant vault by mistake.
+    A root vault a host has configured as a scoped vault by mistake.
 
     There is no shape of `provision/3` in which a root vault reaches key
-    material through a tenant selector, so the refusal is the vault's own
+    material through a scope selector, so the refusal is the vault's own
     selector-profile check, one layer above the envelope.
     """
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478,
       cache: false
 
@@ -183,9 +183,9 @@ defmodule Encryptor.EnvelopeVaults do
     end
   end
 
-  defmodule Tenant do
+  defmodule Scope do
     @moduledoc """
-    A tenant vault built from whatever descriptor a test hands it.
+    A scoped vault built from whatever descriptor a test hands it.
 
     The provider is a closure over the process dictionary rather than a store,
     because this package defines no storage (ADR-0003 decision 9). What it
@@ -215,7 +215,7 @@ defmodule Encryptor.EnvelopeVaults do
   end
 
   @doc """
-  Stashes the descriptor `Tenant`'s provider closes over.
+  Stashes the descriptor `Scope`'s provider closes over.
 
   A test unwraps a wrapping and puts the result here before starting the
   vault, so the vault is genuinely built from a key that came out of an

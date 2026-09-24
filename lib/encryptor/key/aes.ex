@@ -43,7 +43,7 @@ defmodule Encryptor.Key.Aes do
     * **A name travels in the clear.** It lands in the encrypted data key's
       provider info, inside a header that is authenticated but not encrypted.
       Anyone holding a ciphertext can read it. A provider that puts a raw
-      tenant identifier there has published that identifier in every row, so
+      scope identifier there has published that identifier in every row, so
       a derived reference is the recommendation for the same reason the cache
       partition id is derived rather than used directly.
     * **Every name that may still appear in stored ciphertext stays in

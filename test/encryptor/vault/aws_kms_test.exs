@@ -1,6 +1,6 @@
 defmodule Encryptor.Vault.AwsKmsTest do
   @moduledoc """
-  ADR-0008 end to end: a vault whose tenant keys are AWS KMS keys.
+  ADR-0008 end to end: a vault whose scope keys are AWS KMS keys.
 
   The point of these tests is that nothing above the descriptor changed. The
   same `encrypt/2` and `decrypt/2` calls, the same encryption context, the
@@ -27,8 +27,8 @@ defmodule Encryptor.Vault.AwsKmsTest do
   end
 
   describe "the keyring-backed round trip" do
-    test "encrypts and decrypts a tenant's data through KMS" do
-      vault = start_vault(AwsKmsVaults.Tenant)
+    test "encrypts and decrypts a scope's data through KMS" do
+      vault = start_vault(AwsKmsVaults.Scope)
 
       assert {:ok, ciphertext} = vault.encrypt(@pan, key: "acme", encryption_context: @columns)
       refute ciphertext =~ @pan
@@ -40,7 +40,7 @@ defmodule Encryptor.Vault.AwsKmsTest do
     # header records "aws-kms" and the key ARN, written by the engine, and
     # this package writes no header field at all on this path (decision 3).
     test "the header carries the engine's provider id and the key ARN" do
-      vault = start_vault(AwsKmsVaults.Tenant)
+      vault = start_vault(AwsKmsVaults.Scope)
 
       {:ok, ciphertext} = vault.encrypt(@pan, key: "acme", encryption_context: @columns)
 
@@ -48,8 +48,8 @@ defmodule Encryptor.Vault.AwsKmsTest do
       assert ciphertext =~ Fake.acme()
     end
 
-    test "one tenant's vault cannot read another tenant's message" do
-      vault = start_vault(AwsKmsVaults.Tenant)
+    test "one scope's vault cannot read another scope's message" do
+      vault = start_vault(AwsKmsVaults.Scope)
 
       {:ok, ciphertext} = vault.encrypt(@pan, key: "acme", encryption_context: @columns)
 
@@ -58,7 +58,7 @@ defmodule Encryptor.Vault.AwsKmsTest do
     end
 
     test "a selector the provider does not hold is a settled unknown key" do
-      vault = start_vault(AwsKmsVaults.Tenant)
+      vault = start_vault(AwsKmsVaults.Scope)
 
       assert {:error, %Error{reason: {:unknown_key, "nobody"}}} =
                vault.encrypt(@pan, key: "nobody", encryption_context: @columns)
@@ -74,13 +74,13 @@ defmodule Encryptor.Vault.AwsKmsTest do
       old = start_vault(AwsKmsVaults.Previous)
       {:ok, ciphertext} = old.encrypt(@pan, key: "acme", encryption_context: @columns)
 
-      current = start_vault(AwsKmsVaults.Tenant)
+      current = start_vault(AwsKmsVaults.Scope)
 
       assert {:ok, @pan} = current.decrypt(ciphertext, key: "acme", encryption_context: @columns)
     end
 
     test "new writes go under the head of the list" do
-      vault = start_vault(AwsKmsVaults.Tenant)
+      vault = start_vault(AwsKmsVaults.Scope)
 
       {:ok, ciphertext} = vault.encrypt(@pan, key: "acme", encryption_context: @columns)
 
@@ -120,7 +120,7 @@ defmodule Encryptor.Vault.AwsKmsTest do
     # would mean asking a key manager to export a key, which is the property a
     # key manager exists to refuse.
     test "derive/3 refuses a keyring-backed descriptor" do
-      vault = start_vault(AwsKmsVaults.Tenant)
+      vault = start_vault(AwsKmsVaults.Scope)
 
       assert {:error, %Error{reason: {:invalid_key_descriptor, :not_derivable}}} =
                Vault.derive(vault, "blind-index", key: "acme", info: "orders.email")
@@ -129,7 +129,7 @@ defmodule Encryptor.Vault.AwsKmsTest do
     # ADR-0008 decision 7: `provisioned()` is shaped around a wrapped master
     # key and this path has no wrapping.
     test "provision/2 answers that this provider is not provisionable" do
-      vault = start_vault(AwsKmsVaults.Tenant)
+      vault = start_vault(AwsKmsVaults.Scope)
 
       assert {:error, %Error{reason: {:not_provisionable, Encryptor.Provider.Kms}}} =
                Vault.provision(vault, "acme")

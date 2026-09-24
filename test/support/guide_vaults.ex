@@ -183,7 +183,7 @@ defmodule Encryptor.GuideVaults do
     @doc "Inserts a freshly provisioned wrapping, keyed by reference and version."
     @spec insert(WrappedKey.t()) :: {:ok, WrappedKey.t()}
     def insert(%WrappedKey{} = wrapped) do
-      Agent.update(__MODULE__, &Map.put(&1, {wrapped.tenant_ref, wrapped.version}, wrapped))
+      Agent.update(__MODULE__, &Map.put(&1, {wrapped.scope_ref, wrapped.version}, wrapped))
       {:ok, wrapped}
     end
 
@@ -194,7 +194,7 @@ defmodule Encryptor.GuideVaults do
     @doc "P1 step 3's single-row write."
     @spec update_wrapping(WrappedKey.t(), WrappedKey.t()) :: :ok
     def update_wrapping(%WrappedKey{} = row, %WrappedKey{} = rewrapped) do
-      Agent.update(__MODULE__, &Map.put(&1, {row.tenant_ref, row.version}, rewrapped))
+      Agent.update(__MODULE__, &Map.put(&1, {row.scope_ref, row.version}, rewrapped))
     end
 
     @doc "Every version for one tenant reference, newest first."
@@ -277,7 +277,7 @@ defmodule Encryptor.GuideVaults do
     end
 
     defp rows(state, selector) do
-      with {:ok, ref} <- Envelope.tenant_ref(state.reference_subkey, selector) do
+      with {:ok, ref} <- Envelope.scope_ref(state.reference_subkey, selector) do
         case MerchantKeys.versions(ref) do
           [] -> {:error, {:unknown_key, selector}}
           rows -> {:ok, rows}
@@ -298,7 +298,7 @@ defmodule Encryptor.GuideVaults do
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478,
       required_context: ["table", "column"],
       cache: false

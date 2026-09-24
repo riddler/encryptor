@@ -1,12 +1,12 @@
 defmodule Encryptor.Provider.GcpKms do
   @moduledoc """
-  A wrap-provider: the tenant master key is wrapped and unwrapped by a GCP
+  A wrap-provider: the scope master key is wrapped and unwrapped by a GCP
   Cloud KMS `CryptoKey`, and the vault is handed ordinary AES material.
 
   ADR-0007 decision 1. This is a *material source* in ADR-0002 decision 5's
   sense, exactly as that record classified GCP KMS: it introduces no
   descriptor, no keyring and no engine change. Where ADR-0003 decision 2 wraps
-  the tenant master key with a root `Encryptor` vault into an engine message,
+  the scope master key with a root `Encryptor` vault into an engine message,
   this provider wraps it with a GCP `CryptoKey` into a GCP KMS ciphertext.
 
   | | ADR-0003 root-vault envelope | this provider |
@@ -19,27 +19,27 @@ defmodule Encryptor.Provider.GcpKms do
 
   The last row is the point: two hosts running the two shapes write
   byte-compatible application data and differ only in one small blob per
-  tenant per version.
+  scope per version.
 
   **The wrapping root moves and nothing else does.** The reference subkey of
-  ADR-0003 decision 6 stays local and stays configured on the tenant vault
-  (ADR-0004 decision 4 as amended), because `tenant_ref` travels in the clear
+  ADR-0003 decision 6 stays local and stays configured on the scoped vault
+  (ADR-0004 decision 4 as amended), because `scope_ref` travels in the clear
   in every message header and must not depend on a remote service that could
   be unreachable on the read path.
 
   ## Configuration
 
-      config :my_app, MyApp.TenantVault,
+      config :my_app, MyApp.ScopedVault,
         provider:
           {Encryptor.Provider.GcpKms,
            project: "myapp-prod",
            location: "us-east1",
-           key_ring: "encryptor-tenant-keys",
+           key_ring: "encryptor-scope-keys",
            reference_subkey: {:system, "ENCRYPTOR_REFERENCE_SUBKEY"},
            http_client: MyApp.KmsHttp,
            goth: MyApp.Goth,
-           store: &MyApp.TenantKeys.live/1},
-        store: MyApp.TenantKeys,
+           store: &MyApp.ScopeKeys.live/1},
+        store: MyApp.ScopeKeys,
         max_age: :timer.minutes(5)
 
     * `:project`, `:location`, `:key_ring` - required. The ring exists
@@ -49,7 +49,7 @@ defmodule Encryptor.Provider.GcpKms do
     * `:http_client` - required. The host's module, described below.
     * `:goth` - required. A running `Goth` server's name, or `{module, name}`
       for any token server exporting `fetch/1` with Goth's return shape.
-    * `:store` - required. A one-argument function taking a `tenant_ref` and
+    * `:store` - required. A one-argument function taking a `scope_ref` and
       answering `{:ok, rows}` newest first, where a row is what
       `c:Encryptor.Provider.provision/2` returned. This package owns no
       storage (ADR-0003 decision 9), so the read is the host's.
@@ -83,8 +83,8 @@ defmodule Encryptor.Provider.GcpKms do
 
   ADR-0007 decision 4. The id is an unkeyed, collision-free derivation of the
   selector and never the selector itself - a GCP resource name is visible in
-  IAM policies, audit logs and every client error, and a raw tenant identifier
-  there discloses the host's tenant list:
+  IAM policies, audit logs and every client error, and a raw scope identifier
+  there discloses the host's scope list:
 
       key_id = prefix <> Base.encode32(
         :crypto.hash(:sha256, [namespace, 0, selector]),
@@ -94,16 +94,16 @@ defmodule Encryptor.Provider.GcpKms do
   The full digest, never truncated, because an undeletable resource that
   collides is unrecoverable. Base32 lower-case because the GCP id charset
   excludes `=` and base32 survives copy-paste and case-folding search. It is
-  deliberately *not* ADR-0003 decision 5's keyed `tenant_ref`: a keyed id
-  would rename every tenant's key on a root rotation, and GCP keys cannot be
+  deliberately *not* ADR-0003 decision 5's keyed `scope_ref`: a keyed id
+  would rename every scope's key on a root rotation, and GCP keys cannot be
   renamed or deleted.
 
   ## Provisioning
 
   `c:Encryptor.Provider.provision/2`, reached through the vault as
-  `MyApp.TenantVault.provision(tenant.id)`, creates the tenant's `CryptoKey`,
+  `MyApp.ScopedVault.provision(scope.id)`, creates the scope's `CryptoKey`,
   generates 32 bytes, wraps them, and returns everything a store needs -
-  keyed by `tenant_ref`, with the raw selector nowhere in it, and without the
+  keyed by `scope_ref`, with the raw selector nowhere in it, and without the
   plaintext.
 
   **It is not safe to call concurrently for one selector, and this package
@@ -111,14 +111,14 @@ defmodule Encryptor.Provider.GcpKms do
   both mint fresh material at the same version; whichever row loses the store
   write leaves anything encrypted under the winner unreadable. This is the
   race ADR-0003 open question 1 owns. Single-flight is the host's onboarding
-  transaction, or a unique index on `(tenant_ref, version)` in the store.
+  transaction, or a unique index on `(scope_ref, version)` in the store.
 
   **Resolution never provisions.** `c:Encryptor.Provider.encryption_key/2` and
   `c:Encryptor.Provider.decryption_keys/2` never call `provision/2`, never
   call `CreateCryptoKey`, and answer a selector with no rows with
   `{:unknown_key, selector}` (ADR-0003 decision 8). There is no path from a
   read to a create, which matters more here than it did before: a typo'd
-  tenant identifier that reaches `provision/2` mints a GCP `CryptoKey` that
+  scope identifier that reaches `provision/2` mints a GCP `CryptoKey` that
   will exist for the life of the project.
 
   ## What it never does
@@ -147,11 +147,11 @@ defmodule Encryptor.Provider.GcpKms do
   ADR-0007 decision 7. Conflating them is the failure this table exists to
   prevent:
 
-  | | tenant master key version | GCP `CryptoKeyVersion` |
+  | | scope master key version | GCP `CryptoKeyVersion` |
   |---|---|---|
   | what it is | ADR-0003's `version`, one per minting of 32 fresh bytes | GCP's version of the wrapping key |
   | where it lives | the host's store, and the AAD | GCP |
-  | rotating it | ADR-0005 R2, level 2: re-encrypt every ciphertext for the tenant | ADR-0005 R1, level 1: re-encrypt one blob per tenant per live version |
+  | rotating it | ADR-0005 R2, level 2: re-encrypt every ciphertext for the scope | ADR-0005 R1, level 1: re-encrypt one blob per scope per live version |
   | cost | a walk over user tables | a walk over the key store |
   | who walks | `encryptor_ecto` / the host | the key store's package |
   | destroying it | deletes one wrapping (ADR-0005 P4) | `DestroyCryptoKeyVersion` |
@@ -159,12 +159,12 @@ defmodule Encryptor.Provider.GcpKms do
   They rotate on their own schedules and neither implies the other. An
   operator who reads "rotate the key" and rotates the GCP `CryptoKeyVersion`
   has done a level-1 rotation that touches no application data; one who mints
-  a new tenant master key version has committed to a level-2 re-encrypt.
+  a new scope master key version has committed to a level-2 re-encrypt.
 
   ## The shred, and why it is not a function here
 
-  ADR-0007 decision 8. Destroying every `CryptoKeyVersion` of a tenant's
-  `CryptoKey` renders every wrapping of that tenant's master key
+  ADR-0007 decision 8. Destroying every `CryptoKeyVersion` of a scope's
+  `CryptoKey` renders every wrapping of that scope's master key
   undecryptable **including every backup copy of the store**, because the
   wrapping key is not in the backup. That is ADR-0005 P3 step 2a, and it runs
   as the operator's own call against `projects/<project>/locations/<location>/
@@ -179,8 +179,8 @@ defmodule Encryptor.Provider.GcpKms do
   destroy is still a call the host's runbook makes. ADR-0007 open question 5
   leaves whether it should ever offer one open.
 
-  Two things the destroy does not do. **It is not full erasure**: the tenant's
-  permanent pseudonym, the `tenant_ref`, sits in every message header and
+  Two things the destroy does not do. **It is not full erasure**: the scope's
+  permanent pseudonym, the `scope_ref`, sits in every message header and
   every retained backup, so P3 step 4's row deletion stays as
   compliance-mandatory as ADR-0005 made it. And **the scheduled destruction
   window is a delay, not a reprieve to design around**: a version is
@@ -211,6 +211,9 @@ defmodule Encryptor.Provider.GcpKms do
   # than a second call to this one.
   @mint_version 1
 
+  # A second spelling of `Encryptor.Envelope`'s default namespace. The tenant
+  # spelling is a pinned v1 wire constant: it is bound into every wrapping's
+  # AAD and carried by every descriptor (ADR-0009 decision 4, row 5).
   @default_namespace "encryptor-tenant"
   @default_prefix "t-"
   @default_timeout 5_000
@@ -270,10 +273,10 @@ defmodule Encryptor.Provider.GcpKms do
   end
 
   @doc """
-  The tenant's current master key, unwrapped through GCP `Decrypt`.
+  The scope's current master key, unwrapped through GCP `Decrypt`.
 
   The store's newest row, decrypted under the binding rebuilt from that row's
-  own `tenant_ref`, `version` and `namespace`. A row moved between tenants or
+  own `scope_ref`, `version` and `namespace`. A row moved between scopes or
   versions fails closed here rather than unwrapping silently, which is the
   property ADR-0003 decision 4 bought with the encryption context and
   ADR-0007 decision 5 carries into GCP's byte-string AAD.
@@ -288,7 +291,7 @@ defmodule Encryptor.Provider.GcpKms do
   end
 
   @doc """
-  Every live master key for the tenant, newest first.
+  Every live master key for the scope, newest first.
 
   One `Decrypt` per row, on every call. The vault's materials cache sits in
   front of the CMM rather than in front of the provider, so it does not reduce
@@ -305,13 +308,13 @@ defmodule Encryptor.Provider.GcpKms do
   end
 
   @doc """
-  Creates this tenant's `CryptoKey`, then mints and wraps its master key.
+  Creates this scope's `CryptoKey`, then mints and wraps its master key.
 
   ADR-0007 decisions 3 and 6, in order: `CreateCryptoKey` with the derived id,
   `ENCRYPT_DECRYPT` and no rotation schedule; 32 bytes from the CSPRNG;
   `Encrypt` under the four-field AAD; the row. `ALREADY_EXISTS` on the create
   is success for that step - the id is a pure function of the selector, so an
-  existing key is always *this* tenant's - which is what makes a provision
+  existing key is always *this* scope's - which is what makes a provision
   that half-succeeded retryable.
 
   The plaintext's whole lifetime is one function body. It is never returned,
@@ -340,18 +343,18 @@ defmodule Encryptor.Provider.GcpKms do
   # The plaintext exists here and nowhere else.
   @spec mint(state(), String.t(), String.t(), Provider.selector()) ::
           {:ok, Provider.provisioned()} | {:error, Provider.reason()}
-  defp mint(state, tenant_ref, key_id, selector) do
+  defp mint(state, scope_ref, key_id, selector) do
     material = :crypto.strong_rand_bytes(@material_bytes)
-    aad = aad(tenant_ref, @mint_version, state.namespace)
+    aad = aad(scope_ref, @mint_version, state.namespace)
 
     case Api.encrypt(state, key_id, material, aad) do
       {:ok, wrapped} ->
         {:ok,
          %{
-           tenant_ref: tenant_ref,
+           scope_ref: scope_ref,
            version: @mint_version,
            namespace: state.namespace,
-           name: Envelope.key_name(tenant_ref, @mint_version),
+           name: Envelope.key_name(scope_ref, @mint_version),
            bits: @bits,
            wrapped: wrapped,
            key_id: key_id
@@ -363,7 +366,7 @@ defmodule Encryptor.Provider.GcpKms do
   end
 
   @doc """
-  The GCP resource name of a tenant's `CryptoKey`, for an operator's runbook.
+  The GCP resource name of a scope's `CryptoKey`, for an operator's runbook.
 
   Pure, and it calls nothing: ADR-0007 decision 8 leaves
   `DestroyCryptoKeyVersion` to the host's runbook, so what this package owes
@@ -386,7 +389,7 @@ defmodule Encryptor.Provider.GcpKms do
     state.key_id_prefix <> Base.encode32(digest, case: :lower, padding: false)
   end
 
-  # ADR-0004 decision 3 narrowed the selector to a `String.t()` on a `:tenant`
+  # ADR-0004 decision 3 narrowed the selector to a `String.t()` on a `:scoped`
   # vault, so the encoding is the identity on every selector this provider can
   # see. It is spelled out anyway: the value must be byte-stable for the life
   # of a resource that cannot be deleted, and "the string" is not a byte
@@ -395,8 +398,8 @@ defmodule Encryptor.Provider.GcpKms do
   defp encoded(selector) when is_binary(selector), do: selector
 
   @spec aad(String.t(), pos_integer(), String.t()) :: binary()
-  defp aad(tenant_ref, version, namespace) do
-    tenant_ref
+  defp aad(scope_ref, version, namespace) do
+    scope_ref
     |> Envelope.binding(version, namespace)
     |> Aad.encode()
   end
@@ -404,9 +407,9 @@ defmodule Encryptor.Provider.GcpKms do
   @spec rows(state(), Provider.selector()) ::
           {:ok, [Provider.provisioned(), ...]} | {:error, Provider.reason()}
   defp rows(state, selector) when is_binary(selector) and selector != "" do
-    tenant_ref = Reference.derive(state.reference_subkey, selector)
+    scope_ref = Reference.derive(state.reference_subkey, selector)
 
-    case state.store.(tenant_ref) do
+    case state.store.(scope_ref) do
       {:ok, [_first | _rest] = rows} -> validate_rows(rows, selector)
       {:ok, []} -> {:error, {:unknown_key, selector}}
       {:error, reason} -> {:error, translate(reason, selector)}
@@ -443,7 +446,7 @@ defmodule Encryptor.Provider.GcpKms do
   # refused row it is.
   @spec validate_row(term()) :: :ok | {:error, Provider.reason()}
   defp validate_row(%{
-         tenant_ref: tenant_ref,
+         scope_ref: scope_ref,
          version: version,
          namespace: namespace,
          name: name,
@@ -451,7 +454,7 @@ defmodule Encryptor.Provider.GcpKms do
          wrapped: wrapped,
          key_id: key_id
        })
-       when is_binary(tenant_ref) and is_integer(version) and version > 0 and
+       when is_binary(scope_ref) and is_integer(version) and version > 0 and
               is_binary(namespace) and is_binary(name) and bits == @bits and
               is_binary(wrapped) and is_binary(key_id),
        do: :ok
@@ -477,7 +480,7 @@ defmodule Encryptor.Provider.GcpKms do
   @spec unwrap(state(), Provider.provisioned(), Provider.selector()) ::
           {:ok, Aes.t()} | {:error, Provider.reason()}
   defp unwrap(state, row, selector) do
-    aad = aad(row.tenant_ref, row.version, row.namespace)
+    aad = aad(row.scope_ref, row.version, row.namespace)
 
     case Api.decrypt(state, row.key_id, row.wrapped, aad) do
       {:ok, material} when byte_size(material) * 8 == row.bits ->

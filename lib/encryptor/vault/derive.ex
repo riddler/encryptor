@@ -24,9 +24,9 @@ defmodule Encryptor.Vault.Derive do
   #
   #   1. `Encryptor.Vault.ready/2` - running vault, live provider.
   #   2. The selector profile check, before the provider is consulted. A
-  #      `:tenant` vault refuses `:default` here exactly as it does at encrypt
+  #      `:scoped` vault refuses `:default` here exactly as it does at encrypt
   #      (ADR-0004 decision 3); a derivation that fell back to a default key on
-  #      a per-tenant vault would hand every tenant the same subkey.
+  #      a per-scope vault would hand every scope the same subkey.
   #   3. The salt, from configuration. Checked after the selector so that a
   #      caller passing a nonsense selector to an unsalted vault is told about
   #      the selector, which is the argument they control.
