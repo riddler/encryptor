@@ -45,7 +45,7 @@ defmodule Encryptor.Vault.Suspension do
   #
   # A5 puts the gate in front of resolution, so nothing can be read through
   # the vault under a suspension whatever the cache holds. Dropping the table
-  # anyway keeps a suspended tenant's data keys from sitting resident for the
+  # anyway keeps a suspended scope's data keys from sitting resident for the
   # length of the suspension, and A6 fixes the mechanism: the partition id is
   # a cache-key *input* and not an index, nothing maps a partition to the
   # entries derived from it, so the only eviction this package has is the

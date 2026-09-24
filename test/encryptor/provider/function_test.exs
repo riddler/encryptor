@@ -187,7 +187,7 @@ end
 
 defmodule Encryptor.Provider.FunctionConformanceTest do
   @moduledoc """
-  A per-tenant vault on the day-one path: two live versions per merchant, and
+  A per-scoped vault on the day-one path: two live versions per merchant, and
   a merchant the store does not serve.
   """
 

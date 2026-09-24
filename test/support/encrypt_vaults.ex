@@ -38,7 +38,7 @@ defmodule Encryptor.EncryptVaults do
   def merchant_key("merchant_a"), do: @merchant_a
   def merchant_key("merchant_b"), do: @merchant_b
 
-  @doc "The reference subkey the tenant vaults derive `tenant_ref` under."
+  @doc "The reference subkey the scoped vaults derive `scope_ref` under."
   @spec reference_subkey() :: binary()
   def reference_subkey, do: @reference_subkey
 
@@ -193,11 +193,11 @@ defmodule Encryptor.EncryptVaults do
   end
 
   defmodule Merchant do
-    @moduledoc "A per-merchant vault: a tenant profile, a cache, and a required column pair."
+    @moduledoc "A per-merchant vault: a scope profile, a cache, and a required column pair."
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478,
       required_context: ["table", "column"],
       cache: [max_age: 60]
@@ -217,7 +217,7 @@ defmodule Encryptor.EncryptVaults do
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478
 
     @doc "Layer 5: the provider and the reference subkey, both key material."

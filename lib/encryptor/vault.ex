@@ -101,21 +101,21 @@ defmodule Encryptor.Vault do
   Metadata is an allow-list and carries no plaintext, no key, no context
   value, no selector and no partition id.
 
-  `:telemetry_tenant_ref` is the one configuration option here that is a
+  `:telemetry_scope_ref` is the one configuration option here that is a
   disclosure decision rather than a verbosity one. It is a boolean, it
   defaults to `false`, and a `:single` vault that sets it to `true` is refused
-  at start - a `:single` vault has no tenant to name.
+  at start - a `:single` vault has no scope to name.
 
-  > With `telemetry_tenant_ref: true`, every encrypt, decrypt, rekey and
-  > provider event carries `tenant_ref` - ADR-0003 decision 5's keyed
-  > reference for the tenant the call routed to. It is a pseudonym and not an
-  > identifier: it does not contain the tenant identifier and cannot be
-  > reversed into it. Anyone holding the vault's reference subkey can
-  > re-identify it, by deriving the reference for a candidate tenant and
-  > comparing, and so can anyone who can enumerate or guess your tenant
-  > identifiers. Telemetry metadata is forwarded verbatim by handlers you did
-  > not write to vendors whose retention you did not choose. Turning this on
-  > is a decision about that, and it is off by default.
+  With `telemetry_scope_ref: true`, every encrypt, decrypt, rekey and
+  provider event carries `scope_ref` - ADR-0003 decision 5's keyed
+  reference for the scope the call routed to. It is a pseudonym and not an
+  identifier: it does not contain the scope identifier and cannot be
+  reversed into it. Anyone holding the vault's reference subkey can
+  re-identify it, by deriving the reference for a candidate scope and
+  comparing, and so can anyone who can enumerate or guess your scope
+  identifiers. Telemetry metadata is forwarded verbatim by handlers you did
+  not write to vendors whose retention you did not choose. Turning this on
+  is a decision about that, and it is off by default.
 
   ## What the vault stores about a message: nothing
 
@@ -479,7 +479,7 @@ defmodule Encryptor.Vault do
   Creates a selector's key material through a vault's provider.
 
   ADR-0007 decision 2. The selector is typed against the vault's context
-  profile exactly as it is on the encrypt path - a `:tenant` vault refuses
+  profile exactly as it is on the encrypt path - a `:scoped` vault refuses
   `:default` and a `:single` vault refuses a string - and the provider is then
   asked for the callback the record makes optional.
 
@@ -489,7 +489,7 @@ defmodule Encryptor.Vault do
       `{:not_provisionable, module}`, not an `UndefinedFunctionError`.
     * the plaintext key is never in the result. What comes back is
       `t:Encryptor.Provider.provisioned/0`: what a store needs to rebuild the
-      descriptor, keyed by `tenant_ref` and never by the raw selector.
+      descriptor, keyed by `scope_ref` and never by the raw selector.
     * provisioning is explicit. Nothing on the read path calls it, so there
       is no route from a decrypt to a key creation (ADR-0003 decision 8).
 
@@ -512,7 +512,7 @@ defmodule Encryptor.Vault do
   `encrypt/2`, `decrypt/2`, `rekey/2` and `derive/2` with
   `{:key_unavailable, selector}`, while the wrappings it resolves to are left
   untouched in the key store. The data is unreadable and intact, which is the
-  state this package had no verb for: the choice was between leaving a tenant
+  state this package had no verb for: the choice was between leaving a scope
   readable and running the crypto-shred, and a shred cannot be undone.
 
   Four properties are worth knowing before an operator relies on it.

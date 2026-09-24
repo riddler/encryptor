@@ -14,17 +14,17 @@ defmodule Encryptor.Vault.Encrypt do
   #
   #   1. `Encryptor.Vault.ready/2` - the vault is running and its provider, if
   #      it has a process, is alive (ADR-0001 decision 2).
-  #   2. The **selector profile check**. A `:tenant` vault refuses `:default`
+  #   2. The **selector profile check**. A `:scoped` vault refuses `:default`
   #      and a `:single` vault refuses a string, both as
   #      `{:invalid_selector, selector}`, and both **before the provider is
-  #      consulted** (ADR-0004 decision 3). A per-tenant provider handed
+  #      consulted** (ADR-0004 decision 3). A per-scope provider handed
   #      `:default` by mistake is the failure this catches one layer above the
   #      provider.
   #   3. The provider resolves the selector to one descriptor.
   #   4. `Encryptor.Vault.Keyring` validates the descriptor and maps it to an
   #      engine keyring. Only the vault does this (ADR-0002 decision 3).
-  #   5. `Encryptor.Context` composes the four layers, with `tenant_ref`
-  #      injected by the vault on a `:tenant` vault and refused from a caller
+  #   5. `Encryptor.Context` composes the four layers, with `"tenant_ref"`
+  #      injected by the vault on a `:scoped` vault and refused from a caller
   #      (ADR-0004 decision 4).
   #
   # Steps 2, 3 and 5 are `Encryptor.Vault.Resolve`'s, because the decrypt path
@@ -32,8 +32,8 @@ defmodule Encryptor.Vault.Encrypt do
   # a check at all. What is this module's alone is step 4's single descriptor,
   # the stack below, and the engine call.
   #   6. `Encryptor.Vault.Partition` derives the cache partition id from the
-  #      same selector that chose the key, which is what keeps one tenant's
-  #      data key out of another tenant's cache lookup (ADR-0001 decision 7).
+  #      same selector that chose the key, which is what keeps one scope's
+  #      data key out of another scope's cache lookup (ADR-0001 decision 7).
   #   7. The CMM stack, then the client, then the engine call.
   #
   # ## The CMM stack order is a security property, not a style choice
@@ -111,33 +111,33 @@ defmodule Encryptor.Vault.Encrypt do
   # argument rather than an option so that no caller of the public vault
   # surface can reach it - see `Encryptor.Vault.Resolve.context/5`. Its only
   # caller is `Encryptor.Envelope`, writing ADR-0003 decision 4's binding onto
-  # a wrapped tenant key.
+  # a wrapped scope key.
   @spec call(module(), binary(), keyword(), Context.context()) ::
           {:ok, binary()} | {:error, Error.t()}
   def call(vault, plaintext, opts, reserved \\ %{})
       when is_binary(plaintext) and is_list(opts) and is_map(reserved) do
     opened = Resolve.open(vault, opts, :encrypt)
-    tenant_ref = Resolve.telemetry_reference(opened)
+    scope_ref = Resolve.telemetry_reference(opened)
 
     # ADR-0006 decision 3's span pair, by hand rather than through
     # `:telemetry.span/3` (decision 2), with `size` on the start half - the
     # plaintext's length is already recoverable from the ciphertext the host
     # stores, so measuring it discloses nothing the row did not (decision 4).
-    span = Telemetry.operation_start(vault, :encrypt, tenant_ref, %{size: byte_size(plaintext)})
+    span = Telemetry.operation_start(vault, :encrypt, scope_ref, %{size: byte_size(plaintext)})
 
     result =
       with {:ok, config, selector, reference} <- opened do
-        encrypt(config, selector, reference, plaintext, opts, reserved, tenant_ref)
+        encrypt(config, selector, reference, plaintext, opts, reserved, scope_ref)
       end
 
-    Telemetry.operation_stop(vault, :encrypt, span, tenant_ref, result)
+    Telemetry.operation_stop(vault, :encrypt, span, scope_ref, result)
 
     result
   end
 
-  defp encrypt(config, selector, reference, plaintext, opts, reserved, tenant_ref) do
+  defp encrypt(config, selector, reference, plaintext, opts, reserved, scope_ref) do
     with {:ok, descriptor} <-
-           Telemetry.provider_span(config, :encryption_key, :encrypt, tenant_ref, fn ->
+           Telemetry.provider_span(config, :encryption_key, :encrypt, scope_ref, fn ->
              Resolve.encryption_key(config, selector, :encrypt)
            end),
          {:ok, keyring} <- Keyring.build(config.vault, :encrypt, descriptor),

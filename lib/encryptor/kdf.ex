@@ -6,8 +6,8 @@ defmodule Encryptor.Kdf do
   This module is the primitive underneath ADR-0003 decisions 6 and 7. It holds
   no state, reads no configuration, touches no vault, and every function that
   derives a *key* depends on nothing but `:crypto`. Everything above it - the
-  root vault's wrapping material, the tenant reference subkey, and any
-  purpose-separated subkey of a tenant master key - is a call into
+  root vault's wrapping material, the scope reference subkey, and any
+  purpose-separated subkey of a scope master key - is a call into
   `derive_subkey/3` with a different purpose.
 
   ## The one function that is not a key derivation
@@ -40,14 +40,14 @@ defmodule Encryptor.Kdf do
 
     * the root key material is supplied to the host vault's `init/1` as
       deployment-supplied key material (ADR-0001 decision 5), and
-    * a tenant master key is 32 bytes from the CSPRNG, generated once and
+    * a scope master key is 32 bytes from the CSPRNG, generated once and
       never derived (ADR-0003 decision 1).
 
   RFC 5869 section 3.3 names exactly this case - "if the input key material is
   already a good pseudorandom key" - as the one where the extract step may be
   skipped. Both accepted records say `HKDF-Expand` rather than `HKDF`, and
   those two trees implement what they say. Salting them would change the root
-  vault's provider material and every stored `tenant_ref`, which is a rewrap
+  vault's provider material and every stored `scope_ref`, which is a rewrap
   of every stored wrapping and a re-index of every stored row.
 
   The 32-byte guard on the pseudorandom key is what makes that reasoning
@@ -60,7 +60,7 @@ defmodule Encryptor.Kdf do
   that uses it: the derived-subkey surface a downstream consumer reaches
   through `Encryptor.Vault.derive/3`. Its output leaves this package, so it
   is salted with a per-deployment value that the consumer cannot supply, and
-  two deployments provisioned from the same tenant key material derive
+  two deployments provisioned from the same scope key material derive
   unrelated subkeys.
 
   `salted_subkey/5` is that whole construction, and it is deliberately three
@@ -97,7 +97,7 @@ defmodule Encryptor.Kdf do
   | Label | Use | Record |
   |---|---|---|
   | `"encryptor/v1/root-wrap"` | the root vault's `Static` provider material | ADR-0003 d6 |
-  | `"encryptor/v1/tenant-ref"` | the keyed tenant reference derivation | ADR-0003 d5, d6 |
+  | `"encryptor/v1/tenant-ref"` | the keyed scope reference derivation | ADR-0003 d5, d6 |
   | `"encryptor/v1/blind-index"` | downstream index keys, through `Encryptor.Vault.derive/3` | ADR-0003 d7, amendment A |
 
   **The reservation is one-way.** Any future purpose-separated key takes a
@@ -105,7 +105,7 @@ defmodule Encryptor.Kdf do
   (ADR-0003 decision 6). Reusing a label to mean a second thing is what
   silently collapses two keys that the design says are independent.
 
-  One use is deliberately unlabelled: a tenant master key is used *directly*
+  One use is deliberately unlabelled: a scope master key is used *directly*
   as `RawAes` material on the encryption path. That use predates and defines
   the key, and labelling it would invalidate every stored ciphertext
   (ADR-0003 decision 7).
@@ -119,7 +119,7 @@ defmodule Encryptor.Kdf do
   reason the labels exist:
 
     * **Independent lifecycles.** The wrapping subkey can be replaced by a
-      rewrap pass while every stored `tenant_ref` stays valid, because the two
+      rewrap pass while every stored `scope_ref` stays valid, because the two
       are separate expansions of the same material (ADR-0003 decision 6).
     * **No cross-purpose reuse.** A subkey derived for one purpose is not the
       key any other purpose uses, so a component handed one of them cannot
@@ -131,7 +131,7 @@ defmodule Encryptor.Kdf do
 
   What it does **not** buy is capability separation. Deriving a subkey
   requires the key it is expanded from, so a component that can derive a
-  tenant's index key necessarily holds that tenant's master key and can
+  scope's index key necessarily holds that scope's master key and can
   therefore also decrypt. ADR-0003 decision 7 states this plainly and holds
   the door open for independently wrapped, independently stored keys if a
   genuine search-only capability is ever wanted. Nothing in this module
@@ -144,7 +144,7 @@ defmodule Encryptor.Kdf do
   purpose-separated key tree derives its own key under this package's label
   first, then expands again under its own info string:
 
-      index_key = Encryptor.Kdf.derive_subkey(tenant_master_key, "blind-index")
+      index_key = Encryptor.Kdf.derive_subkey(scope_master_key, "blind-index")
       field_key = Encryptor.Kdf.expand(index_key, downstream_info, 32)
 
   Both steps are HKDF-Expand and the outer label stays this package's, so the
@@ -247,7 +247,7 @@ defmodule Encryptor.Kdf do
   Derives a labelled subkey from key material.
 
   This is ADR-0003 decision 6's root subkey expansion and decision 7's
-  purpose-separated tenant subkey expansion - one operation, called with a
+  purpose-separated scope subkey expansion - one operation, called with a
   different purpose and different material. The default length is 32 bytes,
   which is what both decisions specify.
 

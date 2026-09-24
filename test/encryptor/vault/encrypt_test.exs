@@ -105,8 +105,8 @@ defmodule Encryptor.Vault.EncryptTest do
       assert {:ok, %{plaintext: @pan}} = read_app(ciphertext)
     end
 
-    # sabotage: made vault_supplied/2 return %{} on a :tenant vault - red,
-    # because the merchant's own key then writes a message with no tenant
+    # sabotage: made vault_supplied/2 return %{} on a :scoped vault - red,
+    # because the merchant's own key then writes a message with no scope
     # attribution in it at all.
     test "a per-merchant vault writes under the merchant's own key" do
       vault = start_vault(EncryptVaults.Merchant)
@@ -231,11 +231,11 @@ defmodule Encryptor.Vault.EncryptTest do
   end
 
   describe "the selector profile check" do
-    # sabotage: relaxed the tenant guard to `is_atom(selector) or
-    # is_binary(selector)` - red, because a per-tenant provider handed
+    # sabotage: relaxed the scope guard to `is_atom(selector) or
+    # is_binary(selector)` - red, because a per-scope provider handed
     # `:default` is the failure ADR-0004 decision 3 exists to catch one layer
     # above the provider.
-    test "a tenant vault refuses :default, and refuses it before the provider is consulted" do
+    test "a scoped vault refuses :default, and refuses it before the provider is consulted" do
       vault = start_vault(EncryptVaults.MerchantCacheless)
 
       # The provider would have answered {:unknown_key, :default} had it been
@@ -244,10 +244,10 @@ defmodule Encryptor.Vault.EncryptTest do
       assert {:invalid_selector, :default} = reason(vault.encrypt(@pan, key: :default))
     end
 
-    # sabotage: relaxed the tenant guard to `is_atom(selector) or
-    # is_binary(selector)` - red, because an empty tenant identifier is the
+    # sabotage: relaxed the scope guard to `is_atom(selector) or
+    # is_binary(selector)` - red, because an empty scope identifier is the
     # selector every caller who forgot to resolve one shares.
-    test "a tenant vault refuses an empty selector" do
+    test "a scoped vault refuses an empty selector" do
       vault = start_vault(EncryptVaults.MerchantCacheless)
 
       assert {:invalid_selector, ""} = reason(vault.encrypt(@pan, key: ""))
@@ -274,9 +274,9 @@ defmodule Encryptor.Vault.EncryptTest do
 
   describe "the encryption context" do
     # sabotage: dropped the `supplied:` option from context/3 - red, because
-    # the tenant pair then has to come from a caller, which is the one place
+    # the scope pair then has to come from a caller, which is the one place
     # ADR-0004 decision 4 refuses to let it come from.
-    test "the vault injects tenant_ref, derived from the :key selector" do
+    test "the vault injects scope_ref, derived from the :key selector" do
       vault = start_vault(EncryptVaults.Merchant)
       expected = Reference.derive(EncryptVaults.reference_subkey(), "merchant_a")
 
@@ -379,9 +379,9 @@ defmodule Encryptor.Vault.EncryptTest do
     end
 
     # sabotage: built required_keys/2 from :required_context alone - red,
-    # because a :tenant vault's required set is the profile's key plus the
-    # host's, and dropping the profile's makes tenant binding optional.
-    test "a tenant vault requires tenant_ref, which it supplies itself" do
+    # because a :scoped vault's required set is the profile's key plus the
+    # host's, and dropping the profile's makes scope binding optional.
+    test "a scoped vault requires scope_ref, which it supplies itself" do
       vault = start_vault(EncryptVaults.Merchant)
 
       assert config(vault).required_keys == ["tenant_ref", "table", "column"]
@@ -499,7 +499,7 @@ defmodule Encryptor.Vault.EncryptTest do
     end
   end
 
-  describe "the tenant reference" do
+  describe "the scope reference" do
     # sabotage: dropped the binary_part/3 truncation - red, because the
     # reference's width is what a key name and a context value are budgeted
     # for, and the vault's own known-answer check pins it.

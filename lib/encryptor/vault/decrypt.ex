@@ -14,7 +14,7 @@ defmodule Encryptor.Vault.Decrypt do
   #      it has a process, is alive (ADR-0001 decision 2).
   #   2. The selector profile check, before the provider is consulted
   #      (ADR-0004 decision 3). Identical to the write half's, and shared with
-  #      it: a `:tenant` vault that refused `:default` at encrypt and accepted
+  #      it: a `:scoped` vault that refused `:default` at encrypt and accepted
   #      it at decrypt would accept a read no write could have produced.
   #   3. `c:Encryptor.Provider.decryption_keys/2` resolves the selector to
   #      **every** key a stored message might have been written under, newest
@@ -26,8 +26,8 @@ defmodule Encryptor.Vault.Decrypt do
   #      a name dropped from the list is a message nobody can read again
   #      (ADR-0002 decision 7).
   #   5. `Encryptor.Context` composes the reproduced context, from the same
-  #      four layers the writer composed the stored one from, with `tenant_ref`
-  #      injected by the vault on a `:tenant` vault and refused from a caller
+  #      four layers the writer composed the stored one from, with `"tenant_ref"`
+  #      injected by the vault on a `:scoped` vault and refused from a caller
   #      (ADR-0004 decision 4).
   #   6. **The value comparison** (ADR-0004 decision 6), below.
   #   7. The CMM stack, then the client, then the engine call.
@@ -67,7 +67,7 @@ defmodule Encryptor.Vault.Decrypt do
   # context to cover the stored one would make every message unreadable the
   # moment a host added an advisory key to a vault's static configuration.
   # Required keys are what close the gap for the keys that matter, and on a
-  # `:tenant` vault `tenant_ref` is always in the required set.
+  # `:scoped` vault `"tenant_ref"` is always in the required set.
   #
   # ## The reader's stack is the writer's stack
   #
@@ -126,18 +126,18 @@ defmodule Encryptor.Vault.Decrypt do
   def call(vault, ciphertext, opts, reserved \\ %{})
       when is_binary(ciphertext) and is_list(opts) and is_map(reserved) do
     opened = Resolve.open(vault, opts, :decrypt)
-    tenant_ref = Resolve.telemetry_reference(opened)
-    span = Telemetry.operation_start(vault, :decrypt, tenant_ref)
+    scope_ref = Resolve.telemetry_reference(opened)
+    span = Telemetry.operation_start(vault, :decrypt, scope_ref)
 
     result =
       with {:ok, config, selector, reference} <- opened do
-        decrypt(config, selector, reference, ciphertext, opts, reserved, tenant_ref)
+        decrypt(config, selector, reference, ciphertext, opts, reserved, scope_ref)
       end
 
     # ADR-0006 decision 4 puts `size` on this half rather than on the start:
     # what a decrypt measures is the plaintext it produced, and a failure
     # produced none. Decision 7 is why the metadata stops at `reason_tag`.
-    Telemetry.operation_stop(vault, :decrypt, span, tenant_ref, result, %{size: size(result)})
+    Telemetry.operation_stop(vault, :decrypt, span, scope_ref, result, %{size: size(result)})
 
     result
   end
@@ -145,9 +145,9 @@ defmodule Encryptor.Vault.Decrypt do
   defp size({:ok, plaintext}), do: byte_size(plaintext)
   defp size({:error, _error}), do: 0
 
-  defp decrypt(config, selector, reference, ciphertext, opts, reserved, tenant_ref) do
+  defp decrypt(config, selector, reference, ciphertext, opts, reserved, scope_ref) do
     with {:ok, candidates} <-
-           Telemetry.provider_span(config, :decryption_keys, :decrypt, tenant_ref, fn ->
+           Telemetry.provider_span(config, :decryption_keys, :decrypt, scope_ref, fn ->
              Resolve.decryption_keys(config, selector, :decrypt)
            end),
          {:ok, keyring} <- Keyring.build_all(config.vault, :decrypt, candidates),

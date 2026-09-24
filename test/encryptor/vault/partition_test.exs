@@ -18,7 +18,7 @@ defmodule Encryptor.Vault.PartitionTest do
     end
 
     # sabotage: dropped the selector from the hash pre-image - red, because
-    # every tenant in a vault then shares one partition, which is two tenants
+    # every scope in a vault then shares one partition, which is two scopes
     # sharing a data key.
     test "two selectors in one vault produce distinct ids" do
       first = Partition.id(LifecycleVaults.Cached, "tenant-42")
@@ -37,7 +37,7 @@ defmodule Encryptor.Vault.PartitionTest do
     end
 
     # sabotage: dropped the tag bytes from encoded/1, so `:default` encodes as
-    # "default" and a string encodes as itself - red, because a tenant
+    # "default" and a string encodes as itself - red, because a scope
     # literally named "default" then collides with a single-key vault's own
     # partition.
     test "the :default selector does not collide with the string \"default\"" do

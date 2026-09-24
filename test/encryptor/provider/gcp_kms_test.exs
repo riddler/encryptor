@@ -2,7 +2,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
   @moduledoc """
   ADR-0007: the GCP KMS wrap-provider.
 
-  The conformance suite runs first, against a tenant that was provisioned
+  The conformance suite runs first, against a scope that was provisioned
   through `provision/2` and stored the way a host would store it, so the
   record's whole round trip - create, mint, wrap, store, unwrap - is what the
   shared properties are asserted over rather than a hand-built fixture.
@@ -30,8 +30,8 @@ defmodule Encryptor.Provider.GcpKmsTest do
   alias Encryptor.Provider.GcpKms.Api
   alias Encryptor.Vault.Reference
 
-  @selector "tenant-42"
-  @unknown "tenant-99"
+  @selector "scope-42"
+  @unknown "scope-99"
 
   @impl true
   def provider_case do
@@ -57,7 +57,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
     end
 
     # mutation: accept any binary as the reference subkey - a 16-byte subkey
-    # derives a tenant_ref no other deployment can reproduce.
+    # derives a scope_ref no other deployment can reproduce.
     test "refuses a reference subkey that is not 32 bytes" do
       assert {:error, {:invalid_config, :reference_subkey, :invalid_length}} =
                GcpKms.init(GcpKmsCase.opts(reference_subkey: :binary.copy(<<1>>, 16)))
@@ -148,7 +148,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
           )
 
       assert GcpKms.crypto_key_name(state, @selector) ==
-               "projects/myapp-test/locations/us-east1/keyRings/tenant-keys/cryptoKeys/" <>
+               "projects/myapp-test/locations/us-east1/keyRings/scope-keys/cryptoKeys/" <>
                  expected
     end
 
@@ -177,7 +177,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
     test "is the host's when key_id_fun is configured" do
       state = GcpKmsCase.state(key_id_fun: fn selector -> "host-" <> selector end)
 
-      assert String.ends_with?(GcpKms.crypto_key_name(state, @selector), "/host-tenant-42")
+      assert String.ends_with?(GcpKms.crypto_key_name(state, @selector), "/host-scope-42")
     end
   end
 
@@ -205,16 +205,16 @@ defmodule Encryptor.Provider.GcpKmsTest do
   end
 
   describe "provision/2 (ADR-0007 decisions 3 and 6)" do
-    # mutation: return the selector instead of the tenant_ref - the raw tenant
+    # mutation: return the selector instead of the scope_ref - the raw scope
     # identifier lands in the wrapped-key store, reversing the property
     # ADR-0004 decision 4's amendment established.
-    test "returns a row keyed by tenant_ref, with neither the selector nor the plaintext" do
+    test "returns a row keyed by scope_ref, with neither the selector nor the plaintext" do
       {state, row} = GcpKmsCase.provisioned(@selector)
 
-      assert row.tenant_ref == Reference.derive(GcpKmsCase.subkey(), @selector)
+      assert row.scope_ref == Reference.derive(GcpKmsCase.subkey(), @selector)
       assert row.version == 1
       assert row.namespace == "encryptor-tenant"
-      assert row.name == "t/" <> row.tenant_ref <> "/v1"
+      assert row.name == "t/" <> row.scope_ref <> "/v1"
       assert row.bits == 256
       assert is_binary(row.wrapped)
       assert row.key_id == key_id(state, @selector)
@@ -232,7 +232,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
       assert {:ok, _row} = GcpKms.provision(state, @selector)
 
       assert_received {:kms_request, url, body, opts}
-      assert url =~ "/keyRings/tenant-keys/cryptoKeys?cryptoKeyId=t-"
+      assert url =~ "/keyRings/scope-keys/cryptoKeys?cryptoKeyId=t-"
       assert body["purpose"] == "ENCRYPT_DECRYPT"
       assert body["versionTemplate"] == %{"protectionLevel" => "HSM"}
       refute Map.has_key?(body, "rotationPeriod")
@@ -260,7 +260,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
       assert {:error, {:key_unavailable, @selector}} = GcpKms.provision(state, @selector)
     end
 
-    # mutation: accept :default - a tenant reference has no meaning for it and
+    # mutation: accept :default - a scope reference has no meaning for it and
     # the derivation would raise.
     test "refuses a selector that is not a non-empty string" do
       state = GcpKmsCase.state()
@@ -270,7 +270,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
     end
 
     # mutation: derive the master key from anything - decision 1 keeps
-    # ADR-0003 decision 1's independent 32 CSPRNG bytes per tenant.
+    # ADR-0003 decision 1's independent 32 CSPRNG bytes per scope.
     test "mints independent material on every call" do
       {state, first} = GcpKmsCase.provisioned(@selector)
       {:ok, second} = GcpKms.provision(state, @selector)
@@ -280,8 +280,8 @@ defmodule Encryptor.Provider.GcpKmsTest do
   end
 
   describe "resolution" do
-    # mutation: resolve from the selector rather than the derived tenant_ref -
-    # the store is keyed by reference, never by a raw tenant identifier.
+    # mutation: resolve from the selector rather than the derived scope_ref -
+    # the store is keyed by reference, never by a raw scope identifier.
     test "unwraps the stored row into an AES descriptor the vault can build" do
       {_state, row} = GcpKmsCase.provisioned(@selector)
       state = GcpKmsCase.state(store: store([row]))
@@ -294,7 +294,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
     end
 
     # mutation: rebuild the AAD from anything but the row's own fields - a
-    # wrapping moved between tenants or versions then unwraps silently, which
+    # wrapping moved between scopes or versions then unwraps silently, which
     # is the property the binding exists to buy.
     test "fails closed on a row whose claimed version does not match its blob" do
       {_state, row} = GcpKmsCase.provisioned(@selector)
@@ -303,7 +303,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
       assert {:error, {:key_unavailable, @selector}} = GcpKms.encryption_key(state, @selector)
     end
 
-    test "fails closed on a wrapping moved to another tenant's row" do
+    test "fails closed on a wrapping moved to another scope's row" do
       {_state, row} = GcpKmsCase.provisioned(@selector)
       {_other_state, other} = GcpKmsCase.provisioned(@unknown)
       state = GcpKmsCase.state(store: store([%{row | wrapped: other.wrapped}]))
@@ -418,23 +418,23 @@ defmodule Encryptor.Provider.GcpKmsTest do
   end
 
   defp store(rows) do
-    tenant_ref = Reference.derive(GcpKmsCase.subkey(), @selector)
+    scope_ref = Reference.derive(GcpKmsCase.subkey(), @selector)
 
-    fn ref -> if ref == tenant_ref, do: {:ok, rows}, else: {:ok, []} end
+    fn ref -> if ref == scope_ref, do: {:ok, rows}, else: {:ok, []} end
   end
 
-  # A second live version for one tenant: ADR-0007 decision 7's level-2
+  # A second live version for one scope: ADR-0007 decision 7's level-2
   # rotation, which is a procedure over the store rather than a second
   # `provision/2`.
   defp next_version(state, row) do
     version = row.version + 1
-    aad = Aad.encode(Envelope.binding(row.tenant_ref, version, row.namespace))
+    aad = Aad.encode(Envelope.binding(row.scope_ref, version, row.namespace))
     {:ok, wrapped} = Api.encrypt(state, row.key_id, :crypto.strong_rand_bytes(32), aad)
 
     %{
       row
       | version: version,
-        name: Envelope.key_name(row.tenant_ref, version),
+        name: Envelope.key_name(row.scope_ref, version),
         wrapped: wrapped
     }
   end

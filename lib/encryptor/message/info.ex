@@ -26,7 +26,7 @@ defmodule Encryptor.Message.Info do
   discloses everything they could.
 
   The `key_name` in each entry of `encrypted_data_keys` is the wrapping key's
-  name, which under ADR-0003 decision 5 is a keyed derivation and not a tenant
+  name, which under ADR-0003 decision 5 is a keyed derivation and not a scope
   identifier. It is a pseudonym, and `Encryptor.Message.describe/1`'s
   documentation says what that buys.
 

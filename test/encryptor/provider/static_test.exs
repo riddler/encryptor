@@ -143,7 +143,7 @@ defmodule Encryptor.Provider.StaticTest do
 
   describe "the selector" do
     # sabotage: added a selector guard to encryption_key/2 that matched only
-    # :default - the tenant cases go red. A single-key vault resolves anything
+    # :default - the scope cases go red. A single-key vault resolves anything
     # identically, which is what lets the vault omit a special case.
     test "is ignored, not rejected" do
       assert {:ok, state} = Static.init(key: key_bytes(32))

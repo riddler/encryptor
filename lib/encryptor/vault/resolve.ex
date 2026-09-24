@@ -10,10 +10,10 @@ defmodule Encryptor.Vault.Resolve do
   # composed - and the failure that each of those checks exists to catch is a
   # failure that has to be caught on both sides or it is not caught at all.
   #
-  # A `:tenant` vault that refused `:default` at encrypt and accepted it at
+  # A `:scoped` vault that refused `:default` at encrypt and accepted it at
   # decrypt would accept a read no write could have produced. A caller-supplied
-  # `tenant_ref` refused on the way in and honoured on the way out would be a
-  # second place to claim a tenant, which is exactly what ADR-0004 decision 4
+  # `"tenant_ref"` refused on the way in and honoured on the way out would be a
+  # second place to claim a scope, which is exactly what ADR-0004 decision 4
   # removes. So these live here rather than once per path, and `rekey/2`
   # (`enc-gsd`) inherits them by calling the same three functions.
   #
@@ -43,10 +43,10 @@ defmodule Encryptor.Vault.Resolve do
   # refusals are caller-argument failures that depend on no ciphertext.
   #
   # An absent `:key` is `:default`, which is what makes the single-key vault's
-  # "no per-call ceremony" ergonomics of ADR-0001 decision 4 true. A `:tenant`
+  # "no per-call ceremony" ergonomics of ADR-0001 decision 4 true. A `:scoped`
   # vault therefore refuses an absent `:key` as `{:invalid_selector, :default}`,
   # which is the same refusal it gives for an explicit one: there is no shape
-  # of the call in which a tenant vault reaches key material without a tenant.
+  # of the call in which a scoped vault reaches key material without a scope.
   @doc false
   @spec selector(Config.t(), keyword(), Error.operation()) ::
           {:ok, Error.selector()} | {:error, Error.t()}
@@ -57,7 +57,7 @@ defmodule Encryptor.Vault.Resolve do
     end
   end
 
-  def selector(%Config{context_profile: :tenant} = config, opts, operation) do
+  def selector(%Config{context_profile: :scoped} = config, opts, operation) do
     case Keyword.get(opts, :key, :default) do
       selector when is_binary(selector) and selector != "" -> {:ok, selector}
       other -> {:error, error(config, operation, {:invalid_selector, other})}
@@ -100,7 +100,7 @@ defmodule Encryptor.Vault.Resolve do
   # (A5): every path resolves before it builds a caching CMM, so the deny is
   # ahead of the materials cache and the very next call fails, warm cache or
   # cold. That is the opposite of the shred, whose P3 must drain caches before
-  # a running node stops serving a tenant.
+  # a running node stops serving a scope.
   #
   # `encrypt/2`, `decrypt/2`, `rekey/2` and `derive/2` reach one of the two
   # callbacks above and are therefore all covered; `provision/3` is not, and
@@ -110,7 +110,7 @@ defmodule Encryptor.Vault.Resolve do
   # The term is the existing `{:key_unavailable, selector}` and the amendment
   # adds none (A4): the key exists and could not be answered with, which is
   # precisely what ADR-0002 decision 6 means by it. It is distinct from
-  # `{:unknown_key, selector}`, which a whole-tenant shred gives, and from
+  # `{:unknown_key, selector}`, which a whole-scope shred gives, and from
   # `:decrypt_failed`, which a retired version gives per message. The honest
   # cost, recorded in the amendment rather than hidden here, is that a
   # suspension is not distinguishable from a provider that could not reach its
@@ -181,7 +181,7 @@ defmodule Encryptor.Vault.Resolve do
 
   @doc false
   # ADR-0006 amendment A decision 3: the two steps every instrumented path
-  # takes before its `:start` half fires, taken together, with the tenant
+  # takes before its `:start` half fires, taken together, with the scope
   # reference derived **once per operation** here and threaded from here on.
   #
   # The ordering is the amendment's and not a convenience: a `:start` half
@@ -200,10 +200,10 @@ defmodule Encryptor.Vault.Resolve do
   end
 
   @doc false
-  # ADR-0004 decision 4's `tenant_ref`, derived once. `nil` on a `:single`
-  # vault, which has no tenant to name.
+  # ADR-0004 decision 4's `scope_ref`, derived once. `nil` on a `:single`
+  # vault, which has no scope to name.
   @spec reference(Config.t(), Error.selector()) :: String.t() | nil
-  def reference(%Config{context_profile: :tenant} = config, selector) when is_binary(selector),
+  def reference(%Config{context_profile: :scoped} = config, selector) when is_binary(selector),
     do: Reference.derive(config.reference_subkey, selector)
 
   def reference(%Config{}, _selector), do: nil
@@ -219,7 +219,7 @@ defmodule Encryptor.Vault.Resolve do
           {:ok, Config.t(), Error.selector(), String.t() | nil}
           | {:error, Error.t()}
         ) :: String.t() | nil
-  def telemetry_reference({:ok, %Config{telemetry_tenant_ref: true}, _selector, reference}),
+  def telemetry_reference({:ok, %Config{telemetry_scope_ref: true}, _selector, reference}),
     do: reference
 
   def telemetry_reference(_opened), do: nil
@@ -255,14 +255,14 @@ defmodule Encryptor.Vault.Resolve do
     )
   end
 
-  # ADR-0004 decision 4: on a `:tenant` vault the pair is derived from the
+  # ADR-0004 decision 4: on a `:scoped` vault the pair is derived from the
   # `:key` selector rather than accepted from the caller, so the routing
   # argument and the context pair are incapable of disagreeing. A caller that
-  # supplies `tenant_ref` or `tenant_id` is refused by `Encryptor.Context`,
-  # which is where the reserved vocabulary lives.
+  # supplies `"tenant_ref"`, `"scope_id"` or `"tenant_id"` is refused by
+  # `Encryptor.Context`, which is where the reserved vocabulary lives.
   @spec vault_supplied(String.t() | nil) :: Context.context()
   defp vault_supplied(reference) when is_binary(reference),
-    do: %{Context.tenant_ref_key() => reference}
+    do: %{Context.scope_ref_key() => reference}
 
   defp vault_supplied(nil), do: %{}
 

@@ -50,7 +50,7 @@ defmodule Encryptor.DeriveVaults do
   @spec other_salt() :: binary()
   def other_salt, do: @other_salt
 
-  @doc "The reference subkey the tenant vault derives `tenant_ref` under."
+  @doc "The reference subkey the scoped vault derives `scope_ref` under."
   @spec reference_subkey() :: binary()
   def reference_subkey, do: @reference_subkey
 
@@ -142,9 +142,9 @@ defmodule Encryptor.DeriveVaults do
   end
 
   defmodule Merchant do
-    @moduledoc "A per-merchant vault: the tenant profile, with a derivation salt."
+    @moduledoc "A per-merchant vault: the scope profile, with a derivation salt."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped
 
     @doc "Layer 5: the provider, the reference subkey, and the salt."
     def init(config) do

@@ -2,7 +2,7 @@ defmodule Encryptor.Provider.KmsTest do
   @moduledoc """
   ADR-0008: the keyring-backed provider.
 
-  The shared conformance suite runs first, against the fixture tenants the
+  The shared conformance suite runs first, against the fixture scopes the
   fake client holds keys for - which is the record's in-repo proof obligation
   that the suite is shape-aware rather than Aes-shaped.
 
@@ -357,7 +357,7 @@ defmodule Encryptor.Provider.KmsTest do
       assert Map.take(sent, Map.keys(AwsKmsVaults.static_context())) ==
                AwsKmsVaults.static_context()
 
-      # Values that vary per run are not pinned: `tenant_ref` is ADR-0003
+      # Values that vary per run are not pinned: `scope_ref` is ADR-0003
       # decision 5's keyed derivation, and pinning its bytes would pin a
       # fixture subkey into an assertion.
       assert is_binary(sent["tenant_ref"]) and sent["tenant_ref"] != "acme"
@@ -443,7 +443,7 @@ defmodule Encryptor.Provider.KmsTest do
 
       assert_received {:kms_context, :generate_data_key, sent}
 
-      binding = Envelope.binding(wrapped.tenant_ref, wrapped.version, wrapped.namespace)
+      binding = Envelope.binding(wrapped.scope_ref, wrapped.version, wrapped.namespace)
 
       assert is_binary(sent[@engine_pair])
       assert Map.delete(sent, @engine_pair) == composed(vault, nil, [], :encrypt, binding)

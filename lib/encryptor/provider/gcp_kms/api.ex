@@ -44,7 +44,7 @@ defmodule Encryptor.Provider.GcpKms.Api do
   # level from configuration.
   #
   # `ALREADY_EXISTS` is `{:ok, :exists}` rather than a failure: decision 6
-  # makes a repeated mint for one selector find this tenant's own key and
+  # makes a repeated mint for one selector find this scope's own key and
   # continue, which is what makes a half-succeeded provision retryable.
   @spec create_crypto_key(state(), String.t()) ::
           {:ok, :created | :exists} | {:error, failure()}
@@ -92,7 +92,7 @@ defmodule Encryptor.Provider.GcpKms.Api do
   end
 
   @doc false
-  # The resource name of a tenant's `CryptoKey`, for an operator's runbook and
+  # The resource name of a scope's `CryptoKey`, for an operator's runbook and
   # for the provider's own moduledoc. Nothing calls GCP with it here: ADR-0007
   # decision 8 leaves `DestroyCryptoKeyVersion` to the host's runbook and open
   # question 5 leaves whether this package should ever offer it undecided.

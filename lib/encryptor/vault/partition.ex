@@ -3,7 +3,7 @@ defmodule Encryptor.Vault.Partition do
   Derives the fixed-width cache partition id a vault hands the caching CMM.
 
   One cache process serves every partition within a vault (ADR-0001 decision
-  3), so the thing that keeps one tenant's data key out of another tenant's
+  3), so the thing that keeps one scope's data key out of another scope's
   cache lookup is the partition id, not a second process. Decision 7 fixes
   the derivation:
 
@@ -20,7 +20,7 @@ defmodule Encryptor.Vault.Partition do
   the partition id into the cache id pre-image **with no length prefix**. A
   variable-width partition id therefore makes the pre-image ambiguous, and two
   different partitions could in principle hash to one cache id - which is two
-  tenants sharing a data key. Sixteen bytes is the width of the UUID the
+  scopes sharing a data key. Sixteen bytes is the width of the UUID the
   engine generates when no partition id is given, so matching it removes the
   ambiguity by construction rather than by argument.
 
@@ -30,7 +30,7 @@ defmodule Encryptor.Vault.Partition do
 
   It is a cache-key input only. It is not key material, it is not secret, and
   it never reaches a message. Deriving it by hash rather than using the raw
-  selector keeps tenant identifiers out of a structure this package does not
+  selector keeps scope identifiers out of a structure this package does not
   control the lifetime of, and buys the uniform width for free.
 
   Records: ADR-0001 decisions 3 and 7; the selector type is ADR-0004
@@ -44,9 +44,9 @@ defmodule Encryptor.Vault.Partition do
   @bytes 16
 
   # The selector is `:default` on a `:single` vault and a non-empty string on
-  # a `:tenant` vault (ADR-0004 decision 3). The two live in one hash
-  # pre-image, so they are tagged apart: without the tag, a `:tenant` vault
-  # holding the tenant `"default"` and a `:single` vault would derive the same
+  # a `:scoped` vault (ADR-0004 decision 3). The two live in one hash
+  # pre-image, so they are tagged apart: without the tag, a `:scoped` vault
+  # holding the scope `"default"` and a `:single` vault would derive the same
   # partition. Neither vault can hold both selector shapes today, so the tag
   # costs a byte and removes a whole class of future collision.
   @default_tag 0
@@ -58,12 +58,12 @@ defmodule Encryptor.Vault.Partition do
   Pure, total over the selector types ADR-0004 decision 3 admits, and
   allocating nothing that outlives the call.
 
-      iex> id = Encryptor.Vault.Partition.id(MyApp.Vault, "tenant-42")
+      iex> id = Encryptor.Vault.Partition.id(MyApp.Vault, "scope-42")
       iex> byte_size(id)
       16
 
-      iex> Encryptor.Vault.Partition.id(MyApp.Vault, "tenant-42") ==
-      ...>   Encryptor.Vault.Partition.id(MyApp.Vault, "tenant-43")
+      iex> Encryptor.Vault.Partition.id(MyApp.Vault, "scope-42") ==
+      ...>   Encryptor.Vault.Partition.id(MyApp.Vault, "scope-43")
       false
 
       iex> Encryptor.Vault.Partition.id(MyApp.Vault, :default) ==

@@ -63,7 +63,7 @@ defmodule Encryptor.Message do
   support tooling, for a migration that needs to know which key version wrote
   a row, and for an operator holding a row they cannot explain. **Never make
   an authorization or routing decision on it.** A host that reads
-  `"tenant_ref"` out of the context and shows the row to that tenant has built
+  `"tenant_ref"` out of the context and shows the row to that scope has built
   an access check out of an attacker-editable field.
 
   Offering this at all is an exception to ADR-0001 decision 10's collapse

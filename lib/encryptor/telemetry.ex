@@ -4,9 +4,9 @@ defmodule Encryptor.Telemetry do
 
   No event carries a plaintext, a key of any kind, an encryption context
   value, a `:key` selector, a partition id, or an `Encryptor.Error`'s
-  `:engine` term. No event carries a per-tenant dimension unless the vault
-  opted in with `telemetry_tenant_ref: true`, and then it is the keyed
-  `tenant_ref` and never the partition id.
+  `:engine` term. No event carries a per-scope dimension unless the vault
+  opted in with `telemetry_scope_ref: true`, and then it is the keyed
+  `scope_ref` and never the partition id.
   Handlers run on the calling process, so a slow handler is a slow encrypt.
 
   This module is the single definition site for the vocabulary (ADR-0006
@@ -78,19 +78,19 @@ defmodule Encryptor.Telemetry do
   | `provider` | `module()` | provider spans |
   | `callback` | `:encryption_key \\| :decryption_keys` | provider spans |
   | `cache` | `boolean()` | `[:encryptor, :vault, :started]` |
-  | `profile` | `:single \\| :tenant` | `[:encryptor, :vault, :started]` |
+  | `profile` | `:single \\| :scoped` | `[:encryptor, :vault, :started]` |
   | `reference_check` | `:verified \\| :unpinned` | `[:encryptor, :vault, :started]` |
-  | `tenant_ref` | `String.t()` | the four span names' halves, only when `:telemetry_tenant_ref` is on |
+  | `scope_ref` | `String.t()` | the four span names' halves, only when `:telemetry_scope_ref` is on |
 
-  ## The opt-in tenant dimension
+  ## The opt-in scope dimension
 
-  With `telemetry_tenant_ref: true`, every encrypt, decrypt, rekey and
-  provider event carries `tenant_ref` - ADR-0003 decision 5's keyed reference
-  for the tenant the call routed to. It is a pseudonym and not an identifier:
-  it does not contain the tenant identifier and cannot be reversed into it.
+  With `telemetry_scope_ref: true`, every encrypt, decrypt, rekey and
+  provider event carries `scope_ref` - ADR-0003 decision 5's keyed reference
+  for the scope the call routed to. It is a pseudonym and not an identifier:
+  it does not contain the scope identifier and cannot be reversed into it.
   Anyone holding the vault's reference subkey can re-identify it, by deriving
-  the reference for a candidate tenant and comparing, and so can anyone who
-  can enumerate or guess your tenant identifiers. Telemetry metadata is
+  the reference for a candidate scope and comparing, and so can anyone who
+  can enumerate or guess your scope identifiers. Telemetry metadata is
   forwarded verbatim by handlers you did not write to vendors whose retention
   you did not choose. Turning this on is a decision about that, and it is off
   by default.
@@ -101,7 +101,7 @@ defmodule Encryptor.Telemetry do
   option is off the key is **absent** from the metadata map rather than
   present as `nil`: a handler tells "this host did not opt in" from any value
   by `Map.has_key?/2`, and a `nil` in a `:telemetry_metrics` tag is a
-  dimension value. Cardinality is your tenant count, which is what you asked
+  dimension value. Cardinality is your scope count, which is what you asked
   for and is your vendor's bill (ADR-0006 amendment A).
   """
 
@@ -166,7 +166,7 @@ defmodule Encryptor.Telemetry do
           optional(:cache) => boolean(),
           optional(:profile) => Config.profile(),
           optional(:reference_check) => :verified | :unpinned,
-          optional(:tenant_ref) => String.t()
+          optional(:scope_ref) => String.t()
         }
 
   @doc """
@@ -297,13 +297,13 @@ defmodule Encryptor.Telemetry do
   # correct way to pair the halves, and a monotonic reading, which is what a
   # duration may be measured from and `System.system_time/0` is not.
   @spec operation_start(module(), :encrypt | :decrypt | :rekey, String.t() | nil, map()) :: span()
-  def operation_start(vault, operation, tenant_ref, measurements \\ %{}) do
+  def operation_start(vault, operation, scope_ref, measurements \\ %{}) do
     span_ref = make_ref()
 
     execute(
       [:encryptor, operation, :start],
       Map.put(measurements, :system_time, System.system_time()),
-      tenant(%{vault: vault, operation: operation, span_ref: span_ref}, tenant_ref)
+      scope(%{vault: vault, operation: operation, span_ref: span_ref}, scope_ref)
     )
 
     {span_ref, System.monotonic_time()}
@@ -322,11 +322,11 @@ defmodule Encryptor.Telemetry do
           {:ok, term()} | {:error, Error.t()},
           map()
         ) :: :ok
-  def operation_stop(vault, operation, {span_ref, started}, tenant_ref, result, extra \\ %{}) do
+  def operation_stop(vault, operation, {span_ref, started}, scope_ref, result, extra \\ %{}) do
     metadata =
       %{vault: vault, operation: operation, span_ref: span_ref}
       |> outcome(result)
-      |> tenant(tenant_ref)
+      |> scope(scope_ref)
 
     execute(
       [:encryptor, operation, :stop],
@@ -360,7 +360,7 @@ defmodule Encryptor.Telemetry do
           String.t() | nil,
           (-> {:ok, term()} | {:error, Error.t()})
         ) :: {:ok, term()} | {:error, Error.t()}
-  def provider_span(%Config{} = config, callback, operation, tenant_ref, round_trip) do
+  def provider_span(%Config{} = config, callback, operation, scope_ref, round_trip) do
     {module, _opts} = config.provider
     base = %{vault: config.vault, provider: module, callback: callback, operation: operation}
     span_ref = make_ref()
@@ -368,7 +368,7 @@ defmodule Encryptor.Telemetry do
     execute(
       [:encryptor, :provider, :start],
       %{system_time: System.system_time()},
-      tenant(Map.put(base, :span_ref, span_ref), tenant_ref)
+      scope(Map.put(base, :span_ref, span_ref), scope_ref)
     )
 
     started = System.monotonic_time()
@@ -378,7 +378,7 @@ defmodule Encryptor.Telemetry do
       base
       |> Map.put(:span_ref, span_ref)
       |> outcome(result)
-      |> tenant(tenant_ref)
+      |> scope(scope_ref)
 
     execute(
       [:encryptor, :provider, :stop],
@@ -389,8 +389,8 @@ defmodule Encryptor.Telemetry do
     result
   end
 
-  # ADR-0002's consequence "Long-lived tenants accumulate candidates" says the
-  # list grows without bound; this is the measurement that would tell an
+  # ADR-0002's consequences say a long-lived key owner accumulates candidates
+  # and the list grows without bound; this is the measurement that would tell an
   # operator it had. Only on a successful `decryption_keys/2` - there is no
   # candidate list on the write side, and a failure produced none.
   @spec candidates(map(), :encryption_key | :decryption_keys, term()) :: map()
@@ -409,11 +409,11 @@ defmodule Encryptor.Telemetry do
   # distinguishes "this host did not opt in" from any value by
   # `Map.has_key?/2`, and a `nil` in a `:telemetry_metrics` tag is a dimension
   # value.
-  @spec tenant(map(), String.t() | nil) :: map()
-  defp tenant(metadata, nil), do: metadata
+  @spec scope(map(), String.t() | nil) :: map()
+  defp scope(metadata, nil), do: metadata
 
-  defp tenant(metadata, reference) when is_binary(reference),
-    do: Map.put(metadata, :tenant_ref, reference)
+  defp scope(metadata, reference) when is_binary(reference),
+    do: Map.put(metadata, :scope_ref, reference)
 
   # ADR-0006 decision 9: synchronously, on the caller's process, before the
   # entry point returns. No task, no queue, no timeout - the process hop costs

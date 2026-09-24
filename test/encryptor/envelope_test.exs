@@ -17,7 +17,7 @@ defmodule Encryptor.EnvelopeTest do
   # independently of the module under test. A test that read them from
   # `Encryptor.Envelope` would agree with any typo the module made.
   @purpose_key "encryptor-purpose"
-  @tenant_ref_key "encryptor-tenant-ref"
+  @scope_ref_key "encryptor-tenant-ref"
   @version_key "encryptor-key-version"
   @namespace_key "encryptor-key-namespace"
   @wrap_purpose "tenant-key-wrap"
@@ -57,7 +57,7 @@ defmodule Encryptor.EnvelopeTest do
     )
   end
 
-  describe "provision/3, minting a tenant master key" do
+  describe "provision/3, minting a scope master key" do
     # sabotage: returned the plaintext material as a seventh field of the
     # struct - red, and it is the failure the whole narrow surface exists to
     # prevent: a host that can see the key beside the wrapping will store it.
@@ -68,13 +68,13 @@ defmodule Encryptor.EnvelopeTest do
       assert %WrappedKey{version: 1, namespace: "encryptor-tenant", bits: 256} = wrapped
 
       assert wrapped |> Map.keys() |> Enum.sort() ==
-               [:__struct__, :bits, :name, :namespace, :tenant_ref, :version, :wrapped]
+               [:__struct__, :bits, :name, :namespace, :scope_ref, :version, :wrapped]
     end
 
     # sabotage: derived the material as :crypto.mac(:hmac, :sha256, root,
     # selector) instead of strong_rand_bytes/1 - red, and it is decision 1
     # itself: a derived key cannot be crypto-shredded, because the holder of
-    # the root recomputes it from the tenant id forever.
+    # the root recomputes it from the scope id forever.
     test "mints independently random material, so two provisions never collide" do
       start_vault(EnvelopeVaults.Root)
 
@@ -91,16 +91,16 @@ defmodule Encryptor.EnvelopeTest do
 
     # sabotage: dropped the "encryptor-purpose" pair from the binding - red,
     # because the pair is what stops an unrelated Encryptor message being read
-    # as a tenant key.
+    # as a scope key.
     test "writes exactly ADR-0003 decision 4's four pairs into the wrapping" do
       start_vault(EnvelopeVaults.Root)
-      wrapped = provisioned(EnvelopeVaults.Root, @merchant, version: 3, namespace: "acme-tenant")
+      wrapped = provisioned(EnvelopeVaults.Root, @merchant, version: 3, namespace: "acme-scope")
 
       assert context(wrapped.wrapped) == %{
                @purpose_key => @wrap_purpose,
-               @tenant_ref_key => wrapped.tenant_ref,
+               @scope_ref_key => wrapped.scope_ref,
                @version_key => "3",
-               @namespace_key => "acme-tenant"
+               @namespace_key => "acme-scope"
              }
     end
 
@@ -117,13 +117,13 @@ defmodule Encryptor.EnvelopeTest do
     # sabotage: derived the reference with :crypto.hash(:sha256, selector) -
     # red. An unkeyed hash of a short identifier is reversible by anyone who
     # can guess the identifier space, which is the delta decision 5 states.
-    test "the tenant reference is the keyed derivation, and the name follows the grammar" do
+    test "the scope reference is the keyed derivation, and the name follows the grammar" do
       start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(EnvelopeVaults.Root, @merchant, version: 2)
 
       ref = expected_ref(EnvelopeVaults.reference_subkey(), @merchant)
 
-      assert wrapped.tenant_ref == ref
+      assert wrapped.scope_ref == ref
       assert wrapped.name == "t/" <> ref <> "/v2"
     end
 
@@ -156,7 +156,7 @@ defmodule Encryptor.EnvelopeTest do
   describe "provision/3, what it refuses" do
     # sabotage: merged a caller's :encryption_context into the binding instead
     # of refusing it - red. A caller that can write the context can write a
-    # different tenant's reference into its own wrapping.
+    # different scope's reference into its own wrapping.
     test "refuses a caller-supplied encryption context, naming the key" do
       start_vault(EnvelopeVaults.Root)
 
@@ -217,8 +217,8 @@ defmodule Encryptor.EnvelopeTest do
                {:invalid_config, :version, :not_a_positive_integer}
     end
 
-    # sabotage: accepted :default as a selector - red. A tenant reference has
-    # no meaning for a vault with no tenant, and the row it minted would be
+    # sabotage: accepted :default as a selector - red. A scope reference has
+    # no meaning for a vault with no scope, and the row it minted would be
     # unfindable.
     test "refuses a selector that is not a non-empty string" do
       start_vault(EnvelopeVaults.Root)
@@ -243,8 +243,8 @@ defmodule Encryptor.EnvelopeTest do
 
     # sabotage: had provision/3 supply its own selector to the root vault
     # rather than letting the vault's profile check run - red. A root vault
-    # typed as a tenant vault is a configuration error, and it should be loud.
-    test "a root vault mistyped as a tenant vault refuses the wrap" do
+    # typed as a scoped vault is a configuration error, and it should be loud.
+    test "a root vault mistyped as a scoped vault refuses the wrap" do
       start_vault(EnvelopeVaults.MistypedRoot)
 
       assert reason(provision(EnvelopeVaults.MistypedRoot)) == {:invalid_selector, :default}
@@ -256,10 +256,10 @@ defmodule Encryptor.EnvelopeTest do
     # and decision 3 is exactly that there is no such function.
     test "returns the descriptor a provider returns, rebuilt from the row" do
       start_vault(EnvelopeVaults.Root)
-      wrapped = provisioned(EnvelopeVaults.Root, @merchant, namespace: "acme-tenant")
+      wrapped = provisioned(EnvelopeVaults.Root, @merchant, namespace: "acme-scope")
 
       assert {:ok, %Aes{} = descriptor} = Envelope.unwrap(EnvelopeVaults.Root, wrapped)
-      assert descriptor.namespace == "acme-tenant"
+      assert descriptor.namespace == "acme-scope"
       assert descriptor.name == wrapped.name
       assert descriptor.bits == 256
       assert byte_size(descriptor.material) == 32
@@ -274,11 +274,11 @@ defmodule Encryptor.EnvelopeTest do
 
       {:ok, descriptor} = Envelope.unwrap(EnvelopeVaults.Root, wrapped)
       EnvelopeVaults.resolve_with(descriptor)
-      tenant = start_vault(EnvelopeVaults.Tenant)
+      scope = start_vault(EnvelopeVaults.Scope)
 
-      ciphertext = tenant.encrypt!(@pan, encryption_context: %{"table" => "cards"})
+      ciphertext = scope.encrypt!(@pan, encryption_context: %{"table" => "cards"})
 
-      assert tenant.decrypt!(ciphertext, encryption_context: %{"table" => "cards"}) == @pan
+      assert scope.decrypt!(ciphertext, encryption_context: %{"table" => "cards"}) == @pan
     end
 
     # sabotage: compared the binding with Map.get(stored, key, value) - the
@@ -289,7 +289,7 @@ defmodule Encryptor.EnvelopeTest do
       root = start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(root)
 
-      foreign = root.encrypt!("not a tenant key", [])
+      foreign = root.encrypt!("not a scope key", [])
 
       assert reason(Envelope.unwrap(root, %WrappedKey{wrapped | wrapped: foreign})) ==
                :decrypt_failed
@@ -298,10 +298,10 @@ defmodule Encryptor.EnvelopeTest do
                {:encryption_context_mismatch, @namespace_key}
     end
 
-    # sabotage: dropped the tenant-ref pair from the required binding - red.
-    # A blob copied between tenants then unwraps, which is the confused-deputy
+    # sabotage: dropped the scope-ref pair from the required binding - red.
+    # A blob copied between scopes then unwraps, which is the confused-deputy
     # failure decision 4 exists to make impossible.
-    test "a wrapping moved to another tenant's row does not unwrap" do
+    test "a wrapping moved to another scope's row does not unwrap" do
       start_vault(EnvelopeVaults.Root)
       a = provisioned(EnvelopeVaults.Root, "merchant-a")
       b = provisioned(EnvelopeVaults.Root, "merchant-b")
@@ -311,7 +311,7 @@ defmodule Encryptor.EnvelopeTest do
       assert reason(Envelope.unwrap(EnvelopeVaults.Root, swapped)) == :decrypt_failed
 
       assert engine(Envelope.unwrap(EnvelopeVaults.Root, swapped)) ==
-               {:encryption_context_mismatch, @tenant_ref_key}
+               {:encryption_context_mismatch, @scope_ref_key}
     end
 
     # sabotage: dropped the version pair from the required binding - red. A
@@ -333,7 +333,7 @@ defmodule Encryptor.EnvelopeTest do
     # id against, so a drifted column is a message no reader can open.
     test "a row whose namespace column has drifted does not unwrap" do
       start_vault(EnvelopeVaults.Root)
-      wrapped = provisioned(EnvelopeVaults.Root, @merchant, namespace: "acme-tenant")
+      wrapped = provisioned(EnvelopeVaults.Root, @merchant, namespace: "acme-scope")
 
       drifted = %WrappedKey{wrapped | namespace: "acme-other"}
 
@@ -361,7 +361,7 @@ defmodule Encryptor.EnvelopeTest do
       start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(EnvelopeVaults.Root)
 
-      for {field, value} <- [tenant_ref: "", version: 0, namespace: nil, wrapped: ""] do
+      for {field, value} <- [scope_ref: "", version: 0, namespace: nil, wrapped: ""] do
         broken = Map.put(wrapped, field, value)
 
         assert reason(Envelope.unwrap(EnvelopeVaults.Root, broken)) ==
@@ -412,7 +412,7 @@ defmodule Encryptor.EnvelopeTest do
       staged = start_vault(EnvelopeVaults.Staged)
       rotated = start_vault(EnvelopeVaults.Rotated)
 
-      original = provisioned(EnvelopeVaults.Root, @merchant, version: 4, namespace: "acme-tenant")
+      original = provisioned(EnvelopeVaults.Root, @merchant, version: 4, namespace: "acme-scope")
       {:ok, rewrapped} = Envelope.rewrap(staged, original)
 
       assert %WrappedKey{original | wrapped: rewrapped.wrapped} == rewrapped
@@ -426,7 +426,7 @@ defmodule Encryptor.EnvelopeTest do
 
     # sabotage: had rewrap/2 re-encrypt the material under a freshly minted
     # key instead of calling rekey/2 - red: the descriptor changes, and a root
-    # rotation that changes tenant key material orphans every ciphertext.
+    # rotation that changes scope key material orphans every ciphertext.
     test "the rewrapped wrapping unwraps to the identical descriptor" do
       start_vault(EnvelopeVaults.Root)
       staged = start_vault(EnvelopeVaults.Staged)
@@ -470,11 +470,11 @@ defmodule Encryptor.EnvelopeTest do
 
     # sabotage: dropped require_binding/4 from rewrap/2 - red. A rekey of a
     # foreign message writes a blob into the wrapped-key population under a
-    # row that claims it is a tenant key.
-    test "refuses to rewrap a blob that is not a tenant-key wrapping" do
+    # row that claims it is a scope key.
+    test "refuses to rewrap a blob that is not a scope-key wrapping" do
       staged = start_vault(EnvelopeVaults.Staged)
       wrapped = provisioned(staged)
-      foreign = staged.encrypt!("not a tenant key", [])
+      foreign = staged.encrypt!("not a scope key", [])
 
       assert reason(Envelope.rewrap(staged, %WrappedKey{wrapped | wrapped: foreign})) ==
                :decrypt_failed
@@ -493,13 +493,13 @@ defmodule Encryptor.EnvelopeTest do
     end
   end
 
-  describe "tenant_ref/2" do
+  describe "scope_ref/2" do
     # sabotage: truncated the HMAC tag to 8 bytes instead of 16 - red against
     # the record's own formula, computed here independently.
     test "is ADR-0003 decision 5's derivation, byte for byte" do
       subkey = EnvelopeVaults.reference_subkey()
 
-      assert Envelope.tenant_ref(subkey, @merchant) == {:ok, expected_ref(subkey, @merchant)}
+      assert Envelope.scope_ref(subkey, @merchant) == {:ok, expected_ref(subkey, @merchant)}
     end
 
     # sabotage: seeded the derivation with strong_rand_bytes/1 - red. An
@@ -508,15 +508,15 @@ defmodule Encryptor.EnvelopeTest do
       subkey = EnvelopeVaults.reference_subkey()
       other = Envelope.root_subkey(EnvelopeVaults.root_key(), "tenant-ref")
 
-      assert Envelope.tenant_ref(subkey, @merchant) == Envelope.tenant_ref(subkey, @merchant)
-      refute Envelope.tenant_ref(subkey, @merchant) == Envelope.tenant_ref(subkey, "merchant-43")
-      refute Envelope.tenant_ref(subkey, @merchant) == Envelope.tenant_ref(other, @merchant)
+      assert Envelope.scope_ref(subkey, @merchant) == Envelope.scope_ref(subkey, @merchant)
+      refute Envelope.scope_ref(subkey, @merchant) == Envelope.scope_ref(subkey, "merchant-43")
+      refute Envelope.scope_ref(subkey, @merchant) == Envelope.scope_ref(other, @merchant)
     end
 
     # sabotage: had the encrypt path derive the reference with its own copy of
     # the formula - red. Three call sites, one derivation: a drifted reference
     # is discovered at decrypt time against a permanent subkey.
-    test "agrees with what a tenant vault writes into a message header" do
+    test "agrees with what a scoped vault writes into a message header" do
       merchant = start_vault(EncryptVaults.Merchant)
 
       ciphertext =
@@ -525,30 +525,30 @@ defmodule Encryptor.EnvelopeTest do
           encryption_context: %{"table" => "payment_methods", "column" => "pan"}
         )
 
-      {:ok, ref} = Envelope.tenant_ref(EncryptVaults.reference_subkey(), "merchant_a")
+      {:ok, ref} = Envelope.scope_ref(EncryptVaults.reference_subkey(), "merchant_a")
 
       assert context(ciphertext)["tenant_ref"] == ref
     end
 
     # sabotage: accepted a short subkey - red. A 16-byte reference subkey is
     # not the value the vault's own start-time check pinned.
-    test "refuses a subkey that is not 32 bytes, and a selector with no tenant in it" do
-      assert reason(Envelope.tenant_ref(<<1, 2, 3>>, @merchant)) ==
+    test "refuses a subkey that is not 32 bytes, and a selector with no scope in it" do
+      assert reason(Envelope.scope_ref(<<1, 2, 3>>, @merchant)) ==
                {:invalid_config, :reference_subkey, :invalid_length}
 
-      assert reason(Envelope.tenant_ref(:not_a_key, @merchant)) ==
+      assert reason(Envelope.scope_ref(:not_a_key, @merchant)) ==
                {:invalid_config, :reference_subkey, :invalid_length}
 
-      assert reason(Envelope.tenant_ref(EnvelopeVaults.reference_subkey(), :default)) ==
+      assert reason(Envelope.scope_ref(EnvelopeVaults.reference_subkey(), :default)) ==
                {:invalid_selector, :default}
     end
 
     # sabotage: stamped the standalone failure with a vault and an operation -
-    # red. `tenant_ref/2` touches neither, and claiming otherwise sends an
+    # red. `scope_ref/2` touches neither, and claiming otherwise sends an
     # operator reading a log line to the wrong place.
     test "a standalone failure names no vault and no operation" do
       {:error, %Error{vault: vault, operation: operation}} =
-        Envelope.tenant_ref(<<0>>, @merchant)
+        Envelope.scope_ref(<<0>>, @merchant)
 
       assert vault == nil
       assert operation == nil
@@ -583,7 +583,7 @@ defmodule Encryptor.EnvelopeTest do
     # sabotage: derived the subkey from the descriptor's name rather than its
     # material - red. A subkey that is not a function of the master key does
     # not inherit the master key's shred semantics.
-    test "subkey/2 is the labelled expansion of the tenant master key" do
+    test "subkey/2 is the labelled expansion of the scope master key" do
       start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(EnvelopeVaults.Root)
       {:ok, %Aes{material: material} = descriptor} = Envelope.unwrap(EnvelopeVaults.Root, wrapped)
@@ -599,7 +599,7 @@ defmodule Encryptor.EnvelopeTest do
     # independent, and decision 6's reservation is one-way.
     test "subkey/2 refuses the root's two purposes" do
       descriptor = %Aes{
-        namespace: "acme-tenant",
+        namespace: "acme-scope",
         name: "t/ref/v1",
         material: :binary.copy(<<7>>, 32),
         bits: 256

@@ -54,7 +54,7 @@ defmodule Encryptor.Vault.DecryptTest do
     # sabotage: read with a bare Default CMM instead of Encrypt.client/3's stack -
     # red, because this engine mixes the required subset of the context into the
     # header AAD and a reader that does not know it fails authentication.
-    test "round trips on a tenant vault, with the pair the vault supplied itself" do
+    test "round trips on a scoped vault, with the pair the vault supplied itself" do
       vault = start_vault(EncryptVaults.Merchant)
 
       {:ok, ciphertext} =
@@ -65,8 +65,8 @@ defmodule Encryptor.Vault.DecryptTest do
     end
 
     # sabotage: passed `supplied: %{}` from Resolve.context/4 - red, because the
-    # tenant pair is then in neither the message nor the claim, and the binding
-    # the whole tenant profile exists for is gone.
+    # scope pair is then in neither the message nor the claim, and the binding
+    # the whole scope profile exists for is gone.
     test "the message the vault wrote carries the context the reader reproduces" do
       vault = start_vault(EncryptVaults.Merchant)
 
@@ -165,7 +165,7 @@ defmodule Encryptor.Vault.DecryptTest do
     # sabotage: inverted the comparison in compare/4 - red. Note this one is red
     # for the cold read only; the warm-cache test below is the one that fails
     # when the check is removed outright.
-    test "a column swap inside one tenant fails, and the engine's term shape is ours" do
+    test "a column swap inside one scope fails, and the engine's term shape is ours" do
       vault = start_vault(EncryptVaults.Bound)
 
       ciphertext = vault.encrypt!(@pan, encryption_context: @columns)
@@ -286,9 +286,9 @@ defmodule Encryptor.Vault.DecryptTest do
     end
 
     # sabotage: passed `supplied: %{}` from Resolve.context/4 - red, because the
-    # caller's `tenant_ref` is then no longer colliding with the vault's and a
-    # second way to claim a tenant reopens.
-    test "a caller cannot claim a tenant through the context" do
+    # caller's `scope_ref` is then no longer colliding with the vault's and a
+    # second way to claim a scope reopens.
+    test "a caller cannot claim a scope through the context" do
       vault = start_vault(EncryptVaults.Merchant)
 
       ciphertext =
@@ -303,16 +303,16 @@ defmodule Encryptor.Vault.DecryptTest do
       assert reason(result) == {:reserved_context_key, "tenant_ref"}
     end
 
-    # sabotage: gave Resolve.selector/3's :tenant clause a `:default` arm - red,
-    # because a tenant vault would then read under a selector no write could use.
-    test "a tenant vault refuses a read that names no tenant, before the provider" do
+    # sabotage: gave Resolve.selector/3's :scoped clause a `:default` arm - red,
+    # because a scoped vault would then read under a selector no write could use.
+    test "a scoped vault refuses a read that names no scope, before the provider" do
       vault = start_vault(EncryptVaults.Merchant)
 
       assert reason(vault.decrypt("not a message")) == {:invalid_selector, :default}
     end
 
     # sabotage: gave Resolve.selector/3's :single clause a binary arm - red,
-    # because a per-tenant selector would then silently resolve the one key.
+    # because a per-scope selector would then silently resolve the one key.
     test "a single-key vault refuses a read that names one" do
       vault = start_vault(DecryptVaults.Loose)
 

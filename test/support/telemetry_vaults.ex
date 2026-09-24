@@ -6,12 +6,12 @@ defmodule Encryptor.TelemetryVaults do
   check had a pinned value to check against.
 
   `Encryptor.LifecycleVaults` covers the `:single` halves of that already, so
-  what is here is the tenant vault with a pinned `:reference_check` - the only
+  what is here is the scoped vault with a pinned `:reference_check` - the only
   configuration that reports `reference_check: :verified`.
 
-  The vaults below `Pinned` and `Unpinned` are the span half's: three tenant
+  The vaults below `Pinned` and `Unpinned` are the span half's: three scope
   vaults that differ only in whether they opted in to ADR-0006 amendment A's
-  tenant dimension and in whether their key store answers, plus the single
+  scope dimension and in whether their key store answers, plus the single
   vault that may never carry the dimension at all. Their key material is
   `Encryptor.EncryptVaults`' - a second copy of a fixture key would be a
   second key-shaped constant for no gain.
@@ -48,13 +48,13 @@ defmodule Encryptor.TelemetryVaults do
   end
 
   defmodule Merchant do
-    @moduledoc "A tenant vault that opted in to the keyed tenant dimension."
+    @moduledoc "A scoped vault that opted in to the keyed scope dimension."
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478,
-      telemetry_tenant_ref: true
+      telemetry_scope_ref: true
 
     @doc "Layer 5: the provider and the reference subkey, both key material."
     def init(config) do
@@ -68,7 +68,7 @@ defmodule Encryptor.TelemetryVaults do
 
   defmodule Quiet do
     @moduledoc """
-    The same tenant vault with the dimension off, which is the default.
+    The same scoped vault with the dimension off, which is the default.
 
     It carries a `:derivation_salt` the opted-in vaults do not, so that
     `Encryptor.Vault.derive/3` reaches the provider callback here rather than
@@ -79,7 +79,7 @@ defmodule Encryptor.TelemetryVaults do
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478
 
     @doc "Layer 5: the provider, the reference subkey and the deployment salt."
@@ -94,13 +94,13 @@ defmodule Encryptor.TelemetryVaults do
   end
 
   defmodule Downed do
-    @moduledoc "A tenant vault, opted in, whose key store has gone away."
+    @moduledoc "A scoped vault, opted in, whose key store has gone away."
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478,
-      telemetry_tenant_ref: true
+      telemetry_scope_ref: true
 
     @doc "Layer 5: the unreachable store and the reference subkey."
     def init(config) do
@@ -113,13 +113,13 @@ defmodule Encryptor.TelemetryVaults do
   end
 
   defmodule AppOptedIn do
-    @moduledoc "A single-key vault asking for a dimension it has no tenant to fill."
+    @moduledoc "A single-key vault asking for a dimension it has no scope to fill."
 
     use Encryptor.Vault,
       otp_app: :encryptor,
       context_profile: :single,
       algorithm_suite_id: 0x0478,
-      telemetry_tenant_ref: true
+      telemetry_scope_ref: true
 
     @doc "Layer 5: the key material a config file must not hold."
     def init(config) do
@@ -142,9 +142,9 @@ defmodule Encryptor.TelemetryVaults do
   end
 
   defmodule Pinned do
-    @moduledoc "A tenant vault whose reference subkey is checked against a pinned answer."
+    @moduledoc "A scoped vault whose reference subkey is checked against a pinned answer."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped
 
     @doc "Layer 5: the provider, the reference subkey, and the answer it must reproduce."
     def init(config) do
@@ -158,9 +158,9 @@ defmodule Encryptor.TelemetryVaults do
   end
 
   defmodule Unpinned do
-    @moduledoc "The same tenant vault with nothing pinned, which is the finding :unpinned names."
+    @moduledoc "The same scoped vault with nothing pinned, which is the finding :unpinned names."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped
 
     @doc "Layer 5: the provider and the reference subkey, and no pinned answer."
     def init(config) do

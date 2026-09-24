@@ -61,7 +61,7 @@ defmodule Encryptor.Error do
 
   @typedoc """
   A key selector, as ADR-0004 decision 3 fixes it: a non-empty `String.t()` in
-  a `:tenant` vault, and the atom `:default` in a `:single` one.
+  a `:scoped` vault, and the atom `:default` in a `:single` one.
   """
   @type selector :: String.t() | :default
 

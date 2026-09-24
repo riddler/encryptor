@@ -2,14 +2,14 @@ defmodule Encryptor.Provider.Static do
   @moduledoc """
   A provider that holds its keys in configuration.
 
-  The single-key vault, the root vault under the per-tenant envelope, and the
+  The single-key vault, the root vault under the per-scope envelope, and the
   test double. It resolves nothing from a store, which is exactly why the
   envelope's root vault uses it: a root vault configured with a store-backed
   provider would be a genuine cycle.
 
   It is deliberately not a tenancy solution. The selector is ignored, not
-  rejected, so a `:single` vault resolves `:default` and a `:tenant` vault
-  resolves every tenant to the same key.
+  rejected, so a `:single` vault resolves `:default` and a `:scoped` vault
+  resolves every scope to the same key.
 
   ## Two option shapes, mutually exclusive
 

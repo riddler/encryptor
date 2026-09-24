@@ -1,6 +1,6 @@
 defmodule Encryptor.Envelope.WrappedKey do
   @moduledoc """
-  One tenant master key, wrapped, plus the identity a store has to give back.
+  One scope master key, wrapped, plus the identity a store has to give back.
 
   This is what `Encryptor.Envelope.provision/3` returns and what
   `Encryptor.Envelope.unwrap/2` and `Encryptor.Envelope.rewrap/2` consume. It
@@ -9,7 +9,7 @@ defmodule Encryptor.Envelope.WrappedKey do
   the six fields (ADR-0003 decision 9).
 
       %Encryptor.Envelope.WrappedKey{
-        tenant_ref: "9f2cQ1n5Zk8mMvJ0Yl3xRg",
+        scope_ref: "9f2cQ1n5Zk8mMvJ0Yl3xRg",
         version: 1,
         namespace: "encryptor-tenant",
         name: "t/9f2cQ1n5Zk8mMvJ0Yl3xRg/v1",
@@ -27,8 +27,8 @@ defmodule Encryptor.Envelope.WrappedKey do
       own. It is the only field that is secret-adjacent, and it is secret only
       in combination with the root key: decision 10's table is explicit that
       the wrapped-key store alone reads nothing.
-    * `:tenant_ref` and `:version` - they reproduce the encryption context and
-      therefore gate the unwrap (decision 4). A row whose `tenant_ref` has
+    * `:scope_ref` and `:version` - they reproduce the encryption context and
+      therefore gate the unwrap (decision 4). A row whose `scope_ref` has
       been edited does not unwrap; that is the confused-deputy defence, not a
       validation.
     * `:namespace` and `:name` - what the encrypted data key matches on.
@@ -50,7 +50,7 @@ defmodule Encryptor.Envelope.WrappedKey do
 
   There is no `:material`. ADR-0003 decision 3 is explicit that the plaintext
   key never appears in a return value and that no function in this package
-  returns a bare tenant master key as a binary: "the one thing a host is
+  returns a bare scope master key as a binary: "the one thing a host is
   likely to do wrong with this API is persist the plaintext key beside the
   wrapping 'for convenience', and an API that never hands it over makes that
   require obvious effort."
@@ -70,7 +70,7 @@ defmodule Encryptor.Envelope.WrappedKey do
   @type bits :: 256
 
   @type t :: %__MODULE__{
-          tenant_ref: String.t(),
+          scope_ref: String.t(),
           version: pos_integer(),
           namespace: String.t(),
           name: String.t(),
@@ -78,6 +78,6 @@ defmodule Encryptor.Envelope.WrappedKey do
           wrapped: binary()
         }
 
-  @enforce_keys [:tenant_ref, :version, :namespace, :name, :bits, :wrapped]
+  @enforce_keys [:scope_ref, :version, :namespace, :name, :bits, :wrapped]
   defstruct @enforce_keys
 end

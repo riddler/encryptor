@@ -29,7 +29,7 @@ defmodule Encryptor.AwsKms.Fake do
   @globex "arn:aws:kms:us-east-1:111122223333:key/globex-v1"
   @mrk "arn:aws:kms:us-east-1:111122223333:key/mrk-acme-v1"
 
-  @doc "The ARN the acme tenant's writes go under."
+  @doc "The ARN the acme scope's writes go under."
   @spec acme() :: String.t()
   def acme, do: @acme
 
@@ -37,7 +37,7 @@ defmodule Encryptor.AwsKms.Fake do
   @spec acme_previous() :: String.t()
   def acme_previous, do: @acme_previous
 
-  @doc "The ARN the globex tenant's writes go under."
+  @doc "The ARN the globex scope's writes go under."
   @spec globex() :: String.t()
   def globex, do: @globex
 
@@ -224,7 +224,7 @@ defmodule Encryptor.AwsKmsVaults do
   @moduledoc """
   The vaults the keyring-backed path is exercised through.
 
-  A tenant vault whose provider is `Encryptor.Provider.Kms` against the fake
+  A scoped vault whose provider is `Encryptor.Provider.Kms` against the fake
   client, and a migration vault whose provider answers both descriptor shapes
   for one selector - ADR-0008 decision 6's overlap, which is an ordinary
   rotation window rather than a new mechanism.
@@ -267,13 +267,13 @@ defmodule Encryptor.AwsKmsVaults do
     {KmsProvider, client: Recording.new(), keys: %{"acme" => [Fake.acme(), Fake.acme_previous()]}}
   end
 
-  @doc "The `Kms` provider options a single-tenant vault records under."
+  @doc "The `Kms` provider options a single-scoped vault records under."
   @spec recording_root_provider() :: {module(), keyword()}
   def recording_root_provider do
     {KmsProvider, client: Recording.new(), key_id: Fake.acme()}
   end
 
-  @doc "The `Kms` provider options the tenant vault is configured with."
+  @doc "The `Kms` provider options the scoped vault is configured with."
   @spec provider() :: {module(), keyword()}
   def provider do
     {KmsProvider,
@@ -317,10 +317,10 @@ defmodule Encryptor.AwsKmsVaults do
      end}
   end
 
-  defmodule Tenant do
-    @moduledoc "A tenant vault whose keys are KMS keys."
+  defmodule Scope do
+    @moduledoc "A scoped vault whose keys are KMS keys."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped
 
     @doc """
     Layer 5: the provider, the reference subkey, and a derivation salt.
@@ -340,9 +340,9 @@ defmodule Encryptor.AwsKmsVaults do
   end
 
   defmodule Previous do
-    @moduledoc "A tenant vault pinned to acme's older KMS key, so a message exists under it."
+    @moduledoc "A scoped vault pinned to acme's older KMS key, so a message exists under it."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped
 
     @doc "Layer 5: the older key alone, and the reference subkey."
     def init(config) do
@@ -357,9 +357,9 @@ defmodule Encryptor.AwsKmsVaults do
   end
 
   defmodule Unreachable do
-    @moduledoc "A tenant vault whose KMS client refuses every call."
+    @moduledoc "A scoped vault whose KMS client refuses every call."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped
 
     @doc "Layer 5: the refusing client, and the reference subkey."
     def init(config) do
@@ -374,9 +374,9 @@ defmodule Encryptor.AwsKmsVaults do
   end
 
   defmodule Migrating do
-    @moduledoc "The same tenant vault, mid-migration: both descriptor shapes for one selector."
+    @moduledoc "The same scoped vault, mid-migration: both descriptor shapes for one selector."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped
 
     @doc "Layer 5: the overlap provider and the reference subkey."
     def init(config) do
@@ -389,14 +389,14 @@ defmodule Encryptor.AwsKmsVaults do
 
   defmodule Recorded do
     @moduledoc """
-    The tenant vault, with every KMS call's encryption context recorded.
+    The scoped vault, with every KMS call's encryption context recorded.
 
     `cache: false` so no operation is answered from cached materials: a
     cached data key is a KMS call that did not happen, and an assertion about
     what KMS received cannot be made about a call that was skipped.
     """
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant, cache: false
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped, cache: false
 
     @doc "Layer 5: the recording provider, the reference subkey, and the static context."
     def init(config) do
@@ -422,7 +422,7 @@ defmodule Encryptor.AwsKmsVaults do
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :tenant,
+      context_profile: :scoped,
       algorithm_suite_id: 0x0478,
       cache: false
 
@@ -438,7 +438,7 @@ defmodule Encryptor.AwsKmsVaults do
 
   defmodule RecordedRoot do
     @moduledoc """
-    A single-tenant vault over KMS, recording, for the envelope's own path.
+    A single-scoped vault over KMS, recording, for the envelope's own path.
 
     `Encryptor.Envelope` is the only caller that writes ADR-0003 decision 4's
     reserved layer, and it wraps under a root vault with no `:key` selector -
@@ -465,9 +465,9 @@ defmodule Encryptor.AwsKmsVaults do
   end
 
   defmodule Legacy do
-    @moduledoc "The tenant vault as it ran before the migration: AES material only."
+    @moduledoc "The scoped vault as it ran before the migration: AES material only."
 
-    use Encryptor.Vault, otp_app: :encryptor, context_profile: :tenant
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped
 
     @doc "Layer 5: the pre-migration provider and the reference subkey."
     def init(config) do

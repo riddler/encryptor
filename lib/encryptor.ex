@@ -1,12 +1,12 @@
 defmodule Encryptor do
   @moduledoc """
   Ergonomic envelope encryption for Elixir - a vault module, pluggable key
-  providers, and per-tenant keys - on the
+  providers, and per-scope keys - on the
   [aws_encryption_sdk](https://hex.pm/packages/aws_encryption_sdk) engine.
 
   The engine already does the cryptography correctly. What it does not do is
   make the everyday shape of the job pleasant: standing up a client, holding
-  a keyring, deciding which key a given tenant's data belongs to, rotating
+  a keyring, deciding which key a given scope's data belongs to, rotating
   that key without rewriting call sites. This package is that layer - a
   supervised vault a host configures once and then calls, with key material
   resolved through a provider rather than hard-wired at the call site.
@@ -15,11 +15,11 @@ defmodule Encryptor do
   here is readable by the official ESDKs in any language.
 
   Two guides are the way in: `guides/getting-started.md` stands up a
-  single-key vault and then a per-tenant one, and `guides/rotation-runbook.md`
+  single-key vault and then a per-scope one, and `guides/rotation-runbook.md`
   is the four operator procedures and what each of them destroys.
 
   This module exists so the package has a root; the vault surface, the
-  key-provider behaviour, the per-tenant envelope, the encryption-context
+  key-provider behaviour, the per-scope envelope, the encryption-context
   convention and the rotation model each have an accepted decision record
   behind them.
 
@@ -38,7 +38,7 @@ defmodule Encryptor do
   everyday surface.
 
   `Encryptor.Envelope` is the level 1 to level 2 relationship above that
-  surface: how a tenant master key is minted, what protects it at rest, and
+  surface: how a scope master key is minted, what protects it at rest, and
   how it gets back into memory. `Encryptor.Message.describe/1` reads what a
   stored message says about itself, without a key and without verifying it.
   """

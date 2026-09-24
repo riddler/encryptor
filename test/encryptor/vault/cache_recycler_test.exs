@@ -67,7 +67,7 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
 
   describe "the recycler as a supervised child" do
     # sabotage: returned only the cache child from cache_child/1 - red,
-    # because an unbounded cache then grows one entry per tenant per context
+    # because an unbounded cache then grows one entry per scope per context
     # forever, which is the defect ADR-0001 decision 6 exists to bound.
     test "a cached vault runs a recycler under its own derived name" do
       start_vault(LifecycleVaults.Cached)
@@ -126,11 +126,11 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
     # (enc-eaa). The tick itself is covered by the two tests below, neither
     # of which reads through the cache.
     test "a recycle empties every partition at once" do
-      put_entry(LifecycleVaults.Cached, "tenant-42")
-      put_entry(LifecycleVaults.Cached, "tenant-43")
+      put_entry(LifecycleVaults.Cached, "scope-42")
+      put_entry(LifecycleVaults.Cached, "scope-43")
 
-      assert cached?(LifecycleVaults.Cached, "tenant-42")
-      assert cached?(LifecycleVaults.Cached, "tenant-43")
+      assert cached?(LifecycleVaults.Cached, "scope-42")
+      assert cached?(LifecycleVaults.Cached, "scope-43")
 
       before = cache_pid(LifecycleVaults.Cached)
 
@@ -144,8 +144,8 @@ defmodule Encryptor.Vault.CacheRecyclerTest do
       assert after_recycle != before
       assert cache_pid(LifecycleVaults.Cached) == after_recycle
 
-      refute cached?(LifecycleVaults.Cached, "tenant-42")
-      refute cached?(LifecycleVaults.Cached, "tenant-43")
+      refute cached?(LifecycleVaults.Cached, "scope-42")
+      refute cached?(LifecycleVaults.Cached, "scope-43")
     end
 
     # sabotage: removed the reschedule from handle_info/2 - red, because the

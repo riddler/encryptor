@@ -51,8 +51,8 @@ defmodule Encryptor.Vault.SuspensionTest do
   # materials resident for a partition without going through an encrypt.
   #
   # The cache id is computed over the composed context, not over the caller's
-  # half of it: `Encryptor.Vault.Resolve.context/5` adds the tenant reference
-  # on a `:tenant` vault, and the required-context CMM passes the whole map
+  # half of it: `Encryptor.Vault.Resolve.context/5` adds the scope reference
+  # on a `:scoped` vault, and the required-context CMM passes the whole map
   # down to the caching one. Planting under `%{}` would leave a resident entry
   # at an id the asserted call never looks up, and a test that means "the
   # materials are still there" would pass on an empty partition.
@@ -67,13 +67,13 @@ defmodule Encryptor.Vault.SuspensionTest do
   defp composed_context(selector) do
     reference = Reference.derive(EncryptVaults.reference_subkey(), selector)
 
-    Map.put(@columns, Context.tenant_ref_key(), reference)
+    Map.put(@columns, Context.scope_ref_key(), reference)
   end
 
   describe "the observable (A1)" do
     # sabotage: dropped the `allowed/3` guard from Resolve.encryption_key/3 -
     # red. The write half is half the observable, and a suspension that let
-    # writes through would leave a suspended tenant accumulating rows nobody
+    # writes through would leave a suspended scope accumulating rows nobody
     # can read.
     test "a suspended selector cannot encrypt" do
       vault = start_vault(EncryptVaults.Merchant)
@@ -127,7 +127,7 @@ defmodule Encryptor.Vault.SuspensionTest do
     end
 
     # sabotage: suspended the whole vault rather than the selector - red. A
-    # suspension that took every tenant down with one is an outage, not a
+    # suspension that took every scope down with one is an outage, not a
     # verb.
     test "no other selector on the vault is affected" do
       vault = start_vault(EncryptVaults.Merchant)
@@ -171,20 +171,20 @@ defmodule Encryptor.Vault.SuspensionTest do
 
   describe "the three states kept apart (A4)" do
     # sabotage: answered a suspension with {:unknown_key, selector} - red.
-    # Decision 9's rule is that a whole-tenant shred is loud and specific;
+    # Decision 9's rule is that a whole-scope shred is loud and specific;
     # an operator who cannot tell a suspension from a shred cannot tell a
     # reversible state from an irreversible one.
     test "suspended, shredded and retired are three distinguishable reasons" do
-      tenant = start_vault(EncryptVaults.Merchant)
+      scope = start_vault(EncryptVaults.Merchant)
 
-      assert :ok = Vault.suspend(tenant, @suspended)
+      assert :ok = Vault.suspend(scope, @suspended)
 
       # Suspended: reversible, and the store still holds the rows.
-      assert reason(tenant.encrypt(@pan, key: @suspended, encryption_context: @columns)) ==
+      assert reason(scope.encrypt(@pan, key: @suspended, encryption_context: @columns)) ==
                {:key_unavailable, @suspended}
 
-      # A whole tenant with no live version - what P3 leaves behind.
-      assert reason(tenant.encrypt(@pan, key: @unknown, encryption_context: @columns)) ==
+      # A whole scope with no live version - what P3 leaves behind.
+      assert reason(scope.encrypt(@pan, key: @unknown, encryption_context: @columns)) ==
                {:unknown_key, @unknown}
 
       # A retired version: per message, and collapsed, because it depends on
@@ -220,18 +220,18 @@ defmodule Encryptor.Vault.SuspensionTest do
     # none, and a suspension that blocked onboarding would be a different
     # decision than the one recorded.
     test "provisioning is not on A1's list" do
-      vault = start_vault(GcpKmsVaults.Tenant)
+      vault = start_vault(GcpKmsVaults.Scope)
 
-      assert :ok = Vault.suspend(vault, "tenant-42")
+      assert :ok = Vault.suspend(vault, "scope-42")
 
-      assert {:ok, _row} = vault.provision("tenant-42")
+      assert {:ok, _row} = vault.provision("scope-42")
     end
   end
 
   describe "the cache half (A6)" do
     # sabotage: returned :ok from suspend/2 without calling the recycler -
     # red. The drop is hygiene rather than correctness, but a suspended
-    # tenant's data keys sitting resident for the length of the suspension is
+    # scope's data keys sitting resident for the length of the suspension is
     # the thing the decision refuses.
     test "suspending drops the vault's materials cache" do
       vault = start_vault(EncryptVaults.Merchant)

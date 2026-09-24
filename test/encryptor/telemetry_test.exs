@@ -28,7 +28,7 @@ defmodule Encryptor.TelemetryTest do
     :cache,
     :profile,
     :reference_check,
-    :tenant_ref
+    :scope_ref
   ]
 
   @allowed_measurement_keys [:duration, :system_time, :size, :candidates]
@@ -208,11 +208,11 @@ defmodule Encryptor.TelemetryTest do
       assert metadata.vault == LifecycleVaults.Cacheless
     end
 
-    # sabotage: returned :verified whenever the profile was :tenant rather
-    # than when a value was pinned - red, because a tenant vault running with
+    # sabotage: returned :verified whenever the profile was :scoped rather
+    # than when a value was pinned - red, because a scoped vault running with
     # no known-answer check then reports that it has one, and the record says
     # this is the only place that finding is visible.
-    test "a tenant vault reports whether its known-answer check is pinned" do
+    test "a scoped vault reports whether its known-answer check is pinned" do
       capture()
       start_vault(TelemetryVaults.Pinned)
 
@@ -221,7 +221,7 @@ defmodule Encryptor.TelemetryTest do
       assert pinned == %{
                vault: TelemetryVaults.Pinned,
                cache: false,
-               profile: :tenant,
+               profile: :scoped,
                reference_check: :verified
              }
 
@@ -229,7 +229,7 @@ defmodule Encryptor.TelemetryTest do
 
       assert_receive {:telemetry, [:encryptor, :vault, :started], _m2, unpinned}
       assert unpinned.reference_check == :unpinned
-      assert unpinned.profile == :tenant
+      assert unpinned.profile == :scoped
     end
   end
 
@@ -398,12 +398,12 @@ defmodule Encryptor.TelemetryTest do
       end)
     end
 
-    # sabotage: added `tenant_ref` to the `:vault, :started` metadata - red,
+    # sabotage: added `scope_ref` to the `:vault, :started` metadata - red,
     # because amendment A decision 3 rides the dimension on the four span
-    # names and on nothing else: a vault start has no tenant in scope, and the
+    # names and on nothing else: a vault start has no scope in scope, and the
     # refusal event fires before a frozen configuration exists to read the
     # option from at all.
-    test "the tenant dimension rides on the four span names and nothing else" do
+    test "the scope dimension rides on the four span names and nothing else" do
       capture()
 
       start_vault(TelemetryVaults.Merchant)
@@ -420,18 +420,18 @@ defmodule Encryptor.TelemetryTest do
 
       reference = Reference.derive(EncryptVaults.reference_subkey(), "merchant_a")
 
-      Enum.each(spans, fn {_name, _m, metadata} -> assert metadata.tenant_ref == reference end)
+      Enum.each(spans, fn {_name, _m, metadata} -> assert metadata.scope_ref == reference end)
 
       Enum.each(points, fn {name, _m, metadata} ->
-        refute Map.has_key?(metadata, :tenant_ref),
-               "#{inspect(name)} is not a span half and carried a tenant dimension"
+        refute Map.has_key?(metadata, :scope_ref),
+               "#{inspect(name)} is not a span half and carried a scope dimension"
       end)
     end
 
     # sabotage: emitted the raw `:key` selector beside the reference "so an
     # operator can read the metric" - red, and it is ADR-0004's acceptance
-    # amendment 1 in a second place: publishing the tenant identifier beside
-    # its derived reference voids the keying for every tenant that ever wrote
+    # amendment 1 in a second place: publishing the scope identifier beside
+    # its derived reference voids the keying for every scope that ever wrote
     # a row, and a metrics backend has worse retention, no authentication and
     # a vendor boundary.
     test "the only binary an opted-in vault emits is the keyed reference" do
@@ -487,7 +487,7 @@ defmodule Encryptor.TelemetryTest do
       # says it is not secret, and decision 6 refuses it anyway - it is an
       # unkeyed SHA-256 of the selector, confirmable by guess, and unbounded
       # cardinality.
-      partition = Partition.id(LifecycleVaults.Cached, "tenant-42")
+      partition = Partition.id(LifecycleVaults.Cached, "scope-42")
       subkey = TelemetryVaults.reference_subkey()
       check = TelemetryVaults.pinned_check()
 

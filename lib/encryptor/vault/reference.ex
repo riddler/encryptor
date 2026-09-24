@@ -1,30 +1,31 @@
 defmodule Encryptor.Vault.Reference do
   @moduledoc false
 
-  # The keyed tenant reference, in one place.
+  # The keyed scope reference, in one place.
   #
   # ADR-0003 decision 5 fixes the derivation, and ADR-0004's acceptance
-  # amendment 1 moves the reference subkey into tenant-vault configuration so
+  # amendment 1 moves the reference subkey into scoped-vault configuration so
   # that the vault itself can compute it on the encrypt path:
   #
-  #     tenant_ref =
+  #     scope_ref =
   #       Base.url_encode64(
   #         binary_part(HMAC-SHA256(reference_subkey, selector), 0, 16),
   #         padding: false
   #       )
   #
   # Two properties are what the derivation is bought for. It is **stable**, so
-  # the same tenant always resolves to the same reference and the row can be
+  # the same scope always resolves to the same reference and the row can be
   # found. And it is **unguessable without the subkey**, so a header discloses
-  # that two ciphertexts belong to the same tenant without disclosing which
-  # tenant that is - which an unkeyed hash of a short slug would not.
+  # that two ciphertexts belong to the same scope without disclosing which
+  # scope that is - which an unkeyed hash of a short slug would not.
   #
   # ## Why this module exists rather than a second copy of six lines
   #
   # Three call sites want the same bytes: the vault's start-time known-answer
   # check (`Encryptor.Vault.Config.known_answer/1`), the encrypt path's
-  # injection of `tenant_ref` into the context, and - when it lands -
-  # `Encryptor.Envelope.tenant_ref/2`, whose public signature ADR-0003 fixes.
+  # injection of the reference into the context under `"tenant_ref"`, and -
+  # when it lands - `Encryptor.Envelope.scope_ref/2`, whose public signature
+  # ADR-0003 fixes.
   # A derivation spelled three times is a derivation that can drift in two of
   # them, and a drifted reference is not a failed check: it is a message no
   # correct reader can open, discovered at decrypt time against a subkey that

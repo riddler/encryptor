@@ -95,9 +95,9 @@ defmodule Encryptor.Vault.Config do
       an idle one and the bound a crypto-shred waits on, and `:max_bytes`
       fires first only above a payload of `max_bytes / max_messages` - about
       107 KB under these defaults.
-    * `:context_profile` is `:single` or `:tenant`, and `:required_context` is
+    * `:context_profile` is `:single` or `:scoped`, and `:required_context` is
       a list of context keys (ADR-0004 decision 3).
-    * On a `:tenant` vault `:reference_subkey` is required, and when the
+    * On a `:scoped` vault `:reference_subkey` is required, and when the
       deployment has pinned a `:reference_check` value the subkey must
       reproduce it (ADR-0004 decision 4).
     * `:derivation_salt` is optional on both profiles, and when present is a
@@ -115,9 +115,9 @@ defmodule Encryptor.Vault.Config do
       `:argon2_elixir` dependency present refuses the start with
       `{:missing_optional_dependency, :argon2_elixir}` (ADR-0003 amendment B
       decisions 4 and 5).
-    * `:telemetry_tenant_ref` is a boolean, defaults to `false`, and is
+    * `:telemetry_scope_ref` is a boolean, defaults to `false`, and is
       refused as `true` on a `:single` vault with
-      `{:invalid_config, :telemetry_tenant_ref, :vault_is_single_profile}`. It
+      `{:invalid_config, :telemetry_scope_ref, :vault_is_single_profile}`. It
       is a disclosure decision rather than a verbosity one - see
       `Encryptor.Telemetry` (ADR-0006 amendment A decision 1).
     * `:static_encryption_context` is validated and bounded here, against the
@@ -148,11 +148,11 @@ defmodule Encryptor.Vault.Config do
   `:context_profile` arrives through the same five layers as everything else,
   and three of those layers do not exist when the vault module - or any module
   downstream of it - is compiled. A downstream layer that needs to know
-  whether a vault is `:single` or `:tenant` reads it from the frozen struct at
+  whether a vault is `:single` or `:scoped` reads it from the frozen struct at
   runtime, through `fetch/1`, and never from the `use` options.
 
-      case Encryptor.Vault.Config.fetch(MyApp.TenantVault) do
-        {:ok, %{context_profile: :tenant}} -> :ok
+      case Encryptor.Vault.Config.fetch(MyApp.ScopedVault) do
+        {:ok, %{context_profile: :scoped}} -> :ok
         {:ok, %{context_profile: :single}} -> {:error, :vault_is_single_profile}
         {:error, error} -> {:error, error}
       end
@@ -210,11 +210,11 @@ defmodule Encryptor.Vault.Config do
   # constant rather than configuration because ADR-0004 decision 4 describes
   # configuration as carrying one pinned value, not a pair, which only closes
   # if both sides derive against the same fixed probe. It is shaped so it
-  # cannot collide with a real tenant identifier.
+  # cannot collide with a real scope identifier.
   @known_answer_probe "encryptor/v1/known-answer-probe"
 
   @typedoc "Which shape of vault this is, and therefore which selector and required keys it takes."
-  @type profile :: :single | :tenant
+  @type profile :: :single | :scoped
 
   @typedoc "An encryption context: a flat map of string to string."
   @type context :: %{optional(String.t()) => String.t()}
@@ -240,7 +240,7 @@ defmodule Encryptor.Vault.Config do
           max_encrypted_data_keys: pos_integer(),
           static_encryption_context: context(),
           context_profile: profile(),
-          telemetry_tenant_ref: boolean(),
+          telemetry_scope_ref: boolean(),
           required_context: [String.t()],
           required_keys: [String.t()],
           reference_subkey: binary() | nil,
@@ -260,7 +260,7 @@ defmodule Encryptor.Vault.Config do
     :max_encrypted_data_keys,
     :static_encryption_context,
     :context_profile,
-    :telemetry_tenant_ref,
+    :telemetry_scope_ref,
     :required_context,
     :required_keys,
     :reference_subkey,
@@ -274,7 +274,7 @@ defmodule Encryptor.Vault.Config do
 
   Three keys are deliberately absent. `:provider` and `:context_profile` are
   required, because there is no defensible default for where key material
-  comes from or for whether a vault is per-tenant, and a wrong guess at either
+  comes from or for whether a vault is per-scope, and a wrong guess at either
   changes what goes into a message. `:reference_subkey` is key material and
   arrives through `init/1`.
 
@@ -293,7 +293,7 @@ defmodule Encryptor.Vault.Config do
       max_encrypted_data_keys: @default_max_encrypted_data_keys,
       static_encryption_context: %{},
       required_context: [],
-      telemetry_tenant_ref: false
+      telemetry_scope_ref: false
     ]
   end
 
@@ -426,7 +426,7 @@ defmodule Encryptor.Vault.Config do
          {:ok, edks} <- max_encrypted_data_keys(vault, opts),
          {:ok, cache} <- cache(vault, opts),
          {:ok, profile} <- context_profile(vault, opts),
-         {:ok, tenant_ref_dimension} <- telemetry_tenant_ref(vault, profile, opts),
+         {:ok, scope_ref_dimension} <- telemetry_scope_ref(vault, profile, opts),
          {:ok, required} <- required_context(vault, profile, opts),
          {:ok, static} <- static_encryption_context(vault, profile, opts),
          {:ok, subkey} <- reference_subkey(vault, profile, opts),
@@ -445,7 +445,7 @@ defmodule Encryptor.Vault.Config do
          max_encrypted_data_keys: edks,
          static_encryption_context: static,
          context_profile: profile,
-         telemetry_tenant_ref: tenant_ref_dimension,
+         telemetry_scope_ref: scope_ref_dimension,
          required_context: required,
          required_keys: required_keys(profile, required),
          reference_subkey: subkey,
@@ -459,7 +459,7 @@ defmodule Encryptor.Vault.Config do
   # ADR-0004 decision 3: the profile contributes its own required keys ahead
   # of the host's, and the effective set is frozen so the hot path reads it
   # rather than recomputing it.
-  defp required_keys(:tenant, required), do: Enum.uniq([Context.tenant_ref_key() | required])
+  defp required_keys(:scoped, required), do: Enum.uniq([Context.scope_ref_key() | required])
   defp required_keys(:single, required), do: Enum.uniq(required)
 
   defp provider(vault, opts) do
@@ -618,7 +618,7 @@ defmodule Encryptor.Vault.Config do
 
   defp context_profile(vault, opts) do
     case Keyword.fetch(opts, :context_profile) do
-      {:ok, profile} when profile in [:single, :tenant] ->
+      {:ok, profile} when profile in [:single, :scoped] ->
         {:ok, profile}
 
       {:ok, _other} ->
@@ -629,7 +629,7 @@ defmodule Encryptor.Vault.Config do
     end
   end
 
-  # ADR-0006 amendment A decision 1: the opt-in keyed tenant dimension, as a
+  # ADR-0006 amendment A decision 1: the opt-in keyed scope dimension, as a
   # vault option rather than an attach-time one. `:telemetry.execute/3` does
   # not tell the emitting process who is attached or with what configuration,
   # so an attach-time flag could only be honoured by deriving the reference
@@ -638,18 +638,18 @@ defmodule Encryptor.Vault.Config do
   # including the ones that did not opt in.
   #
   # `true` on a `:single` vault is a start-time error and not a silent no-op,
-  # for `Encryptor.Envelope.tenant_ref/2`'s own reason - a `:single` vault has
-  # no tenant to name - and because a host that asked for the dimension and
+  # for `Encryptor.Envelope.scope_ref/2`'s own reason - a `:single` vault has
+  # no scope to name - and because a host that asked for the dimension and
   # quietly did not get it would build a dashboard on a key that is never
   # there. `false` there is the package default rather than a declaration, and
   # refusing it would refuse every `:single` vault ever written.
-  defp telemetry_tenant_ref(vault, profile, opts) do
-    case Keyword.fetch!(opts, :telemetry_tenant_ref) do
+  defp telemetry_scope_ref(vault, profile, opts) do
+    case Keyword.fetch!(opts, :telemetry_scope_ref) do
       value when not is_boolean(value) ->
-        {:error, error(vault, {:invalid_config, :telemetry_tenant_ref, :not_a_boolean})}
+        {:error, error(vault, {:invalid_config, :telemetry_scope_ref, :not_a_boolean})}
 
       true when profile == :single ->
-        {:error, error(vault, {:invalid_config, :telemetry_tenant_ref, :vault_is_single_profile})}
+        {:error, error(vault, {:invalid_config, :telemetry_scope_ref, :vault_is_single_profile})}
 
       value ->
         {:ok, value}
@@ -668,13 +668,13 @@ defmodule Encryptor.Vault.Config do
       invalid = Enum.find(keys, &(not context_key?(&1))) ->
         {:error, error(vault, {:invalid_config, :required_context, {:invalid_key, invalid}})}
 
-      profile == :single and Context.tenant_ref_key() in keys ->
-        # ADR-0004 decision 2: `tenant_ref` is refused on a `:single` vault, so
+      profile == :single and Context.scope_ref_key() in keys ->
+        # ADR-0004 decision 2: `"tenant_ref"` is refused on a `:single` vault, so
         # requiring it there is a vault that can never encrypt.
         {:error,
          error(
            vault,
-           {:invalid_config, :required_context, {:reserved_key, Context.tenant_ref_key()}}
+           {:invalid_config, :required_context, {:reserved_key, Context.scope_ref_key()}}
          )}
 
       true ->
@@ -718,7 +718,7 @@ defmodule Encryptor.Vault.Config do
 
   defp context_key?(value), do: Context.valid_string?(value)
 
-  defp reference_subkey(vault, :tenant, opts) do
+  defp reference_subkey(vault, :scoped, opts) do
     case Keyword.fetch(opts, :reference_subkey) do
       {:ok, subkey} when is_binary(subkey) and byte_size(subkey) == @reference_subkey_bytes ->
         {:ok, subkey}
@@ -734,7 +734,7 @@ defmodule Encryptor.Vault.Config do
   defp reference_subkey(vault, :single, opts) do
     if Keyword.has_key?(opts, :reference_subkey) do
       # A reference subkey on a `:single` vault means the host believes this is
-      # a tenant vault. Refusing here catches a mistyped profile at start
+      # a scoped vault. Refusing here catches a mistyped profile at start
       # rather than at the first string selector.
       {:error, error(vault, {:invalid_config, :reference_subkey, :single_profile})}
     else
@@ -748,7 +748,7 @@ defmodule Encryptor.Vault.Config do
   # this from breaking every existing vault for a surface most never call.
   #
   # Both profiles take it. A `:single` vault derives from its one key just as
-  # a `:tenant` vault derives from a tenant's, and there is no reason the
+  # a `:scoped` vault derives from a scope's, and there is no reason the
   # salted tree should exist for one and not the other.
   defp derivation_salt(vault, opts) do
     case Keyword.fetch(opts, :derivation_salt) do
@@ -869,7 +869,7 @@ defmodule Encryptor.Vault.Config do
       else: {:error, error(vault, {:missing_optional_dependency, @argon2_dependency})}
   end
 
-  defp reference_check(vault, :tenant, subkey, opts) do
+  defp reference_check(vault, :scoped, subkey, opts) do
     case Keyword.fetch(opts, :reference_check) do
       {:ok, pinned} when is_binary(pinned) ->
         # The reference is a published value - it travels in the clear in
@@ -900,7 +900,7 @@ defmodule Encryptor.Vault.Config do
   The value is the reference this package derives for a fixed probe selector,
   by ADR-0003 decision 5's keyed derivation. An operator runs this once,
   against the reference subkey the deployment was provisioned with, and writes
-  the result into the tenant vault's configuration. Every node then refuses to
+  the result into the scoped vault's configuration. Every node then refuses to
   start unless its subkey reproduces it.
 
   The check exists because the alternative failure is silent and fleet-wide: a
@@ -909,7 +909,7 @@ defmodule Encryptor.Vault.Config do
   corruption-shaped, and discovered at decrypt time, when the reference subkey
   is already permanent (ADR-0004 decision 4).
 
-  The returned value is not secret. It is the same shape as a `tenant_ref`,
+  The returned value is not secret. It is the same shape as a `scope_ref`,
   which travels in the clear in every message header.
   """
   @spec known_answer(binary()) :: String.t()

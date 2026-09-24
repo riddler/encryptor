@@ -1,6 +1,6 @@
 defmodule Encryptor.Provider.Kms do
   @moduledoc """
-  A keyring-backed provider: the tenant's key *is* an AWS KMS key.
+  A keyring-backed provider: the scope's key *is* an AWS KMS key.
 
   ADR-0008. This is the only adapter that answers `Encryptor.Key.Kms`
   descriptors, and AWS KMS is the only key manager that ever will - every
@@ -14,15 +14,15 @@ defmodule Encryptor.Provider.Kms do
   | version identity | `:name`, minted by the provider | the KMS key ARN, assigned by AWS |
   | who holds the wrapping key | the host's key store, as a wrapped blob | AWS KMS; nothing is stored |
   | the data key is generated | by the engine, locally | inside KMS, by `GenerateDataKey` |
-  | the two-level envelope | yes | **no** - there is no tenant master key to wrap |
+  | the two-level envelope | yes | **no** - there is no scope master key to wrap |
   | `Encryptor.Vault.derive/3` | available | refused, `{:invalid_key_descriptor, :not_derivable}` |
   | dropping a version from the candidate list | **is** the crypto-shred | is **not** the shred |
-  | the shred | `DELETE` the wrapping from the key store | `ScheduleKeyDeletion` on the tenant's KMS key |
+  | the shred | `DELETE` the wrapping from the key store | `ScheduleKeyDeletion` on the scope's KMS key |
 
   ## The row that destroys data if it is skimmed
 
   **Removing a key from what this provider answers is not a crypto-shred.** It
-  hides the tenant's data from this vault; KMS can still decrypt it for anyone
+  hides the scope's data from this vault; KMS can still decrypt it for anyone
   holding `kms:Decrypt` on the key, including from a backup of the ciphertext.
   The shred on this path is `ScheduleKeyDeletion` on the key itself, it is not
   complete until the pending-deletion window elapses, and `CancelKeyDeletion`
@@ -34,7 +34,7 @@ defmodule Encryptor.Provider.Kms do
 
   ## Configuration
 
-      config :my_app, MyApp.TenantVault,
+      config :my_app, MyApp.ScopedVault,
         provider:
           {Encryptor.Provider.Kms,
            region: "us-east-1",
@@ -52,7 +52,7 @@ defmodule Encryptor.Provider.Kms do
       `{:ok, entries}` / `{:error, reason}`. A bare string is the one-entry
       shape. A selector the map does not hold is `{:unknown_key, selector}`.
     * `:key_id` - the selector-ignoring shape, for a `:single` vault or a host
-      that puts every tenant on one key. Mutually exclusive with `:keys`.
+      that puts every scope on one key. Mutually exclusive with `:keys`.
     * `:client` - the engine's KMS client struct, built by the host. Mutually
       exclusive with `:region`.
     * `:region` - builds the engine's shipped `ExAws` client, which is what
@@ -122,7 +122,7 @@ defmodule Encryptor.Provider.Kms do
       `Encryptor.Vault.derive/3` and every blind index built on it need the
       material-source shape instead.
 
-  ## Migrating a tenant from raw keys to KMS
+  ## Migrating a scope from raw keys to KMS
 
   An ordinary rotation window (ADR-0005 decision 2), because a candidate list
   may hold both shapes at once: answer the `Encryptor.Key.Kms` descriptor
