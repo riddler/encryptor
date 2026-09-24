@@ -1,6 +1,6 @@
 # ADR-0009: Scope names the key's owner, and the v1 wire spellings stay constants behind it
 
-Status: proposed (2026-09-24)
+Status: accepted (2026-09-24)
 
 ## Context
 
@@ -196,3 +196,95 @@ recovery would be an R3 pass.
    `:tenant` is still accepted by the profile validator with a warning, and
    whether `tenant_ref/2` delegates to `scope_ref/2` for a release, is the
    rename's call to make and record in its changelog entry.
+
+## Note (2026-09-24): accepted; what was verified, where the anchors now resolve, and open question 1's answer
+
+This record is accepted on 2026-09-24. Its code shipped in encryptor 0.5.0,
+published on Hex from the `v0.5.0` tag at `9ad74e2`. Every claim below was
+re-read by anchor at `e84b648`, the tip of `main` when this Note was written;
+`lib/` is byte-identical between the two, and the only files that differ are
+`mix.exs` and `mix.lock`. This Note changes no decision, and it carries the
+record's status rather than one of its own.
+
+### 1. Decisions 1 to 4 are implemented as written
+
+- Decision 1: on a `:scoped` vault, `Encryptor.Vault.Resolve.selector/3`
+  accepts any non-empty binary as the selector and interprets it no further,
+  and nothing in `lib/` gives a scope a parent or a child.
+- Decision 2: `Encryptor.Vault.Config`'s `@type profile` is `:single | :scoped`,
+  and the private `context_profile/2` accepts those two values and nothing
+  else.
+- Decision 3: every row of the rename table is the code's name.
+  `Encryptor.Context.scope_ref_key/0`, `Encryptor.Envelope.scope_ref/2`, the
+  `scope_ref` field of `%Encryptor.Envelope.WrappedKey{}`, the `scope_ref` key
+  of `Encryptor.Provider`'s `provisioned` type, the `:telemetry_scope_ref`
+  option (the private `telemetry_scope_ref/3` in `Encryptor.Vault.Config`) and
+  the `scope_ref` metadata key (`Encryptor.Telemetry`'s metadata table). The
+  invalid wrapped-key field is reported as `:scope_ref` (the private
+  `invalid_field/3` call in `Encryptor.Envelope`). `Encryptor.Context`'s
+  `@owner_ids` reserves `"scope_id"` and `"tenant_id"` together, and
+  `compose/3`'s doctest still returns `{:reserved_context_key, "tenant_ref"}`.
+- Decision 4: each of the seven spellings is the byte string 0.4.1 wrote,
+  checked against the `v0.4.1` tag attribute by attribute. The table's
+  anchors were given at `5e532aa`, before the rename; three module attributes
+  were renamed with it and resolve under their new names:
+
+| Row | Cited at `5e532aa` | Resolves at `e84b648` |
+|---|---|---|
+| 1 | `lib/encryptor/context.ex`, `@tenant_ref`, returned by `tenant_ref_key/0` | `@scope_ref`, returned by `scope_ref_key/0` |
+| 3 | `lib/encryptor/envelope.ex`, `@tenant_ref_key` | `@scope_ref_key`, still applied by `binding/3` |
+| 6 | `lib/encryptor/envelope.ex`, `@tenant_ref_purpose` | `@scope_ref_purpose`, still the refusal in `subkey/2` |
+
+Rows 2, 4, 5 and 7 resolve at the anchors the table names: `key_name/2`,
+`@wrap_purpose`, both `@default_namespace` attributes, and
+`Encryptor.Kdf.label/1` over `@label_namespace` and `@label_version`. The
+GCP KMS provider's `aad/3` still encodes `binding/3`'s map, and
+`Encryptor.Vault.Reference.derive/2` has no code change since `v0.4.1`. The
+getting-started guide's "Onboarding a merchant" step still passes
+`"tenant-ref"` to `root_subkey/2`. The comment above `@purpose_key` still
+says "a typo in any of them is a wrapped-key population that a corrected
+build can no longer open".
+
+### 2. Decision 6, read with decision 3
+
+Decision 6 says "After the rename the only `tenant` spellings left in `lib/`
+are decision 4's constants and the comments that explain them". Every
+`tenant` spelling in `lib/` at `e84b648` is one of decision 4's seven, prose
+that quotes one of them, a comment that says why one is pinned, or the
+reserved caller key `"tenant_id"`. The last is not in decision 4's table: it
+is decision 3's, whose last row keeps it reserved on a `:scoped` vault. Read
+decision 6's "decision 4's constants" as including that one reserved key,
+which the record keeps on purpose; it is explained where it is declared, at
+`Encryptor.Context`'s `@owner_ids`.
+
+### 3. The Consequences hold
+
+- The rename shipped in a minor release, 0.5.0, whose changelog opens with
+  a `**Breaking**` section naming every renamed surface.
+- The acceptance fixture the second bullet asked for is
+  `test/encryptor/wire_fixture_test.exs`: a wrapped key and a ciphertext
+  written by 0.4.1, unwrapped, rewrapped, decrypted and rekeyed by the renamed
+  build.
+- `describe/1` still reports the context key as `"tenant_ref"`. The docs say
+  so where a scoped vault is introduced, in the getting-started guide's
+  "Part 2: a scoped vault", and again in the guide whose subject is the
+  scope, `guides/choosing-the-scope.md`'s "Scope, and the spellings that
+  stay", which the first links to. The bullet says "once"; two places is
+  one mention per entry point, not a claim that fails.
+
+### 4. The sentences that named the record as unlanded are met, not reworded
+
+Decision 3's "The rename is scheduled work that follows this record, not
+code this record lands" and the typespec section's "As the rename is to
+spell them; a proposal, not landed code" were true when written. They are
+left as they stand. The rename has landed, and the typespecs match the code:
+`@type profile`, `scope_ref_key/0`'s and `scope_ref/2`'s specs, and
+`WrappedKey`'s `@type t`.
+
+### 5. Open question 1 is answered: a clean break
+
+The 0.5.0 release kept no deprecated aliases. The profile validator refuses
+`:tenant` as `{:invalid_config, :context_profile, :unknown}`, and
+`Encryptor.Envelope` has no `tenant_ref/2`. The 0.5.0 changelog's first
+Breaking entry records it in the words "renamed with no deprecated aliases",
+which is where the question said the answer would be recorded.

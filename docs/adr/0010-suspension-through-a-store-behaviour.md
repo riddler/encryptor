@@ -1,6 +1,6 @@
 # ADR-0010: A suspension is read from a store behaviour, the per-node ETS set is its default, and a shared store is the host's
 
-Status: proposed (2026-09-24)
+Status: accepted (2026-09-24)
 
 ## Context
 
@@ -423,3 +423,119 @@ count: 2`.
    of the wrong shape, or one the provider does not know, is as open as it
    was; a shared store makes a mistyped suspension reach every node, which is
    one more reason to decide the shape check first.
+
+## Note (2026-09-24): accepted; what was verified, decision 10's superseded sentence, and the first load's event
+
+This record is accepted on 2026-09-24. Its code shipped in encryptor 0.5.0,
+published on Hex from the `v0.5.0` tag at `9ad74e2`. Every claim below was
+re-read by anchor at `e84b648`, the tip of `main` when this Note was written;
+`lib/` is byte-identical between the two, and the only files that differ are
+`mix.exs` and `mix.lock`. This Note changes no decision, and it carries the
+record's status rather than one of its own.
+
+### 1. Decisions 1 to 9 are implemented as written
+
+- Decision 1: `Encryptor.Vault.Suspension.Store` declares `init/2`,
+  `suspend/2`, `reinstate/2` and `list/1` and no other callback, with
+  `selector` typed as `Encryptor.Error.selector()`.
+- Decision 2: `Encryptor.Vault.Config`'s defaults name
+  `{Encryptor.Vault.Suspension.Store.Ets, []}` and `5_000`. The private
+  `suspension_store/2` refuses a value that is not a `{module, keyword}`
+  pair as `{:invalid_config, :suspension_store, :shape}`, and refuses a
+  module that does not export the four callbacks the same way. The private
+  `suspension_store_state/2` runs `init/2` during `resolve/4` and refuses an
+  error as `{:invalid_config, :suspension_store, :init}` with the term in
+  `:engine`; `Encryptor.Vault.Supervisor` emits
+  `[:encryptor, :vault, :start_refused]` for it as for every configuration
+  refusal. The private `suspension_poll_interval/2` refuses anything but a
+  positive integer as `{:invalid_config, :suspension_poll_interval, value}`.
+  The configuration's inspect redacts `:suspension_store_state`.
+- Decision 3: the gate is `Encryptor.Vault.Suspension.suspended?/2`, one
+  `:ets.member/2` on the table `table/1` names, called from the private
+  `allowed/3` in `Encryptor.Vault.Resolve` ahead of both provider callbacks.
+- Decision 4: `Encryptor.Vault.Suspension.Store.Ets` writes and lists the
+  table the gate reads, `suspended?/2` answers `false` for an absent table
+  under it, and `Encryptor.Vault.Supervisor`'s private `refresher_child/1`
+  starts no refresher under it.
+- Decision 5: `Encryptor.Vault.Suspension.Refresher` is a child of the vault's
+  supervisor listed after `Encryptor.Vault.Lifecycle`. It lists the store in
+  `handle_continue/2` at start and schedules the next list
+  `suspension_poll_interval` milliseconds after each one returns. The private
+  `apply_view/2` in `Encryptor.Vault.Suspension` inserts the added members
+  before deleting the departed ones. `suspend/2` and `reinstate/2` under a
+  shared store are `GenServer.call`s into the refresher at the default
+  timeout, and an exit is reported through `failed/3` as a failed write.
+- Decision 6: the gate still covers `encrypt/2`, `decrypt/2`, `rekey/2` and
+  `derive/2` through `Resolve.encryption_key/3` and
+  `Resolve.decryption_keys/3`. Under a shared store, `perform/3` updates the
+  local view only after the store's write returned `:ok`.
+- Decision 7: `perform/3` changes nothing locally when the store refuses, and
+  `failed/3` returns `{:suspension_store_unavailable, store}` with the
+  store's term in `:engine` and `:operation` `:start`. The private
+  `call_store/3` turns an error, an exit and a raise into that one outcome.
+  Before the first successful `list/1`, a shared store's view lives under
+  `unloaded_table/1`, which the gate never reads, and `suspended?/2` answers
+  `true` for an absent table under any store but the default: a cold start,
+  a view recreated by a `Lifecycle` restart, and the moment with no table all
+  deny every scope. After it, `refresh/2` leaves the view alone on a failed
+  list.
+- Decision 8: `Encryptor.Telemetry.suspension_changed/4` emits the event with
+  `vault`, `action`, `store` and `outcome`, adds `reason_tag`
+  `:suspension_store_unavailable` on an error, and measures `system_time`
+  always and `count` only on `:ok`. No call passes it the selector.
+- Decision 9: the comment at the head of `lib/encryptor/vault/suspension.ex`
+  now sends a host to the provider locus for "a deny that must bind more than
+  this vault", which is the sentence decision 9 said it would become.
+
+### 2. Decision 8's enumeration and the first successful load
+
+Decision 8 says the event fires "when the vault's suspension state changes"
+and lists three occasions. The code emits on one more, and it is the kind of
+change the record's own third bullet counts: the first successful `list/1`
+under a shared store takes the view out of decision 7's deny-all state, so it
+emits `action: :refresh, outcome: :ok` even when the store's set is empty and
+no membership changed. `refresh/2` emits whenever the private `apply_view/2`
+answers `true`, and `apply_view/2` answers `true` for a view it has just
+renamed into place. `test/encryptor/vault/suspension_store_test.exs` relies
+on it in `await_first_refresh/0`, whose comment says "The first successful
+list/1 is a change even when the set is empty". Read the list as including
+that occasion. The sentence "A successful refresh that changed nothing emits
+nothing" still holds: the first load changes what the node answers.
+
+### 3. Decision 10's "it is not landed" is superseded by a later record
+
+Decision 10 says "A Repo-backed store is planned for `encryptor_ecto`, as a
+later piece of work in that repository; it is not landed, and this record
+does not decide its schema." That work has since landed there:
+`Encryptor.Ecto.SuspensionStore`, released in encryptor_ecto 0.6.0 and
+recorded by ece-ADR-0007 (2026-09-24), "A Repo-backed suspension store, and
+a shred on the key store that returns what it destroyed". The sentence is
+left as it stands; read "it is not landed" as true on the day it was written.
+The rest of decision 10 holds: this package still ships no shared store, no
+database, no network client and no cluster membership, and the schema is
+ece-ADR-0007's, not this record's.
+
+### 4. The Consequences hold
+
+- `Encryptor.Error`'s reason type and its description carry
+  `{:suspension_store_unavailable, module()}`, and
+  `Encryptor.Telemetry.reason_tag/1` maps it to its tag.
+- The deny-all before the first `list/1` and the kept set after a failed one
+  are pinned in `test/encryptor/vault/suspension_store_test.exs`, including
+  "before the first successful list, every scope is denied" and "after it,
+  a failed refresh keeps the last known set".
+- `guides/rotation-runbook.md` says which property holds for which store,
+  and its P5 steps say "on every node" under the default store and "once, on
+  any node" under a shared store.
+
+### 5. The sentences that named the record as unimplemented are met, not reworded
+
+The typespec section's "A proposal, not landed code", decision 9's "once
+this record is implemented", and decision 11's "If this record is accepted"
+were conditional when written. They are left as they stand. The typespecs
+match `Encryptor.Vault.Suspension.Store`, the two options in
+`Encryptor.Vault.Config`'s `@type t`, and `Encryptor.Error`'s added reason;
+decision 9's sentence is met as section 1 says; and decision 11's
+qualification of ADR-0005 Amendment A's A8 and its answer to open question
+A-1 now stand. ADR-0005's text is unchanged, as decision 11 said it would be.
+Open questions 1 to 4 stay open.
