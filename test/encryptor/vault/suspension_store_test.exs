@@ -18,6 +18,7 @@ defmodule Encryptor.Vault.SuspensionStoreTest do
   alias Encryptor.SuspensionStoreFakes.NotAStore
   alias Encryptor.SuspensionStoreFakes.Shared
   alias Encryptor.Vault
+  alias Encryptor.Vault.Suspension
   alias Encryptor.Vault.Suspension.Refresher
   alias Encryptor.Vault.Suspension.Store
 
@@ -285,8 +286,9 @@ defmodule Encryptor.Vault.SuspensionStoreTest do
       assert reason(encrypt(vault, "merchant_a")) == {:key_unavailable, "merchant_a"}
     end
 
-    # sabotage: skipped the marker row in Suspension.create/1 - red, because
-    # a node that has not read the store then serves every suspended scope.
+    # sabotage: created a shared store's view under the served name in
+    # Suspension.create/1 - red, because a node that has not read the store
+    # then serves every suspended scope.
     test "before the first successful list, every scope is denied" do
       :ok = SuspensionStoreFakes.put_elsewhere(@agent, "merchant_a")
       :ok = SuspensionStoreFakes.answer(@agent, :list, :error)
@@ -319,9 +321,10 @@ defmodule Encryptor.Vault.SuspensionStoreTest do
       end
     end
 
-    # sabotage: skipped the marker row in Suspension.create/1 - red here too:
-    # a recreated view would serve the suspended scope until the store
-    # answered, which is A8's volatility back in through the side door.
+    # sabotage: created a shared store's view under the served name in
+    # Suspension.create/1 - red here too: a recreated view would serve the
+    # suspended scope until the store answered, which is A8's volatility back
+    # in through the side door.
     test "a view recreated by a Lifecycle restart denies every scope until the store answers" do
       :ok = SuspensionStoreFakes.put_elsewhere(@agent, "merchant_a")
       vault = start_shared()
@@ -339,6 +342,51 @@ defmodule Encryptor.Vault.SuspensionStoreTest do
       assert_receive {:changed, %{count: 1}, %{action: :refresh, outcome: :ok}}, @within
       assert reason(encrypt(vault, "merchant_a")) == {:key_unavailable, "merchant_a"}
       assert {:ok, _ciphertext} = encrypt(vault, "merchant_b")
+    end
+  end
+
+  describe "the view is loaded out of the gate's sight (decisions 3 and 7)" do
+    setup [:start_store, :capture]
+
+    # sabotage: made live/1 look up only the served name - red, because the
+    # operator's verbs then answer not-started on a vault that is up but has
+    # not read its store yet. The order that makes the first load safe -
+    # fill the unloaded view, then rename it into place - cannot be forced
+    # into an interleaving by a test; it is pinned by the comment on
+    # Suspension.apply_view/2, and this test pins the two states on either
+    # side of the rename.
+    test "a shared view that has not been loaded is unreachable to the gate, and the verbs still work" do
+      :ok = SuspensionStoreFakes.answer(@agent, :list, :error)
+      vault = start_shared()
+      assert_receive {:changed, _m, %{action: :refresh, outcome: :error}}, @within
+
+      assert :ets.whereis(Suspension.table(vault)) == :undefined
+      assert :ets.whereis(Suspension.unloaded_table(vault)) != :undefined
+
+      assert :ok = Vault.suspend(vault, "merchant_a")
+      assert reason(encrypt(vault, "merchant_b")) == {:key_unavailable, "merchant_b"}
+
+      :ok = SuspensionStoreFakes.answer(@agent, :list, :ok)
+      assert_receive {:changed, %{count: 1}, %{action: :refresh, outcome: :ok}}, @within
+
+      assert :ets.whereis(Suspension.unloaded_table(vault)) == :undefined
+      assert {:ok, config} = Vault.config(vault)
+      assert Suspension.suspended?(config, "merchant_a")
+      refute Suspension.suspended?(config, "merchant_b")
+    end
+
+    # sabotage: added a second :ets.member/2 to suspended?/2 under a shared
+    # store - red, because decision 3 keeps the read on every call at one
+    # lookup whatever the store.
+    test "under a shared store the gate is one lookup, suspended or not" do
+      :ok = SuspensionStoreFakes.put_elsewhere(@agent, "merchant_a")
+      vault = start_shared()
+      assert_receive {:changed, %{count: 1}, %{action: :refresh, outcome: :ok}}, @within
+      assert {:ok, config} = Vault.config(vault)
+
+      for {selector, expected} <- [{"merchant_a", true}, {"merchant_b", false}] do
+        assert {expected, 1} == count_members(fn -> Suspension.suspended?(config, selector) end)
+      end
     end
   end
 
@@ -417,6 +465,22 @@ defmodule Encryptor.Vault.SuspensionStoreTest do
       assert Error.message(error) ==
                "suspension store Encryptor.SuspensionStoreFakes.Shared is unavailable " <>
                  "(Encryptor.EncryptVaults.Merchant, start)"
+    end
+  end
+
+  # Counts the :ets.member/2 calls the calling process makes inside `fun`.
+  defp count_members(fun) do
+    mfa = {:ets, :member, 2}
+    1 = :erlang.trace_pattern(mfa, true, [:call_count])
+    _ = :erlang.trace(self(), true, [:call])
+
+    try do
+      answer = fun.()
+      {:call_count, count} = :erlang.trace_info(mfa, :call_count)
+      {answer, count}
+    after
+      _ = :erlang.trace(self(), false, [:call])
+      :erlang.trace_pattern(mfa, false, [:call_count])
     end
   end
 

@@ -50,8 +50,10 @@ defmodule Encryptor.Vault.Suspension do
   # a host has distribution and persistence of its own making, and
   # `Encryptor.Vault.Suspension.Refresher` keeps the table in step with the
   # store once per poll interval (decision 5). Until its first successful
-  # read, the table carries one marker row that denies every scope (decision
-  # 7). A deny that must bind more than this vault - a second client, a node
+  # read, a shared store's view exists only under a second name the gate
+  # never reads, so the gate finds no view and denies every scope (decision
+  # 7); the refresher renames it into place when the store first answers.
+  # A deny that must bind more than this vault - a second client, a node
   # configured with a different store - still belongs at the provider locus of
   # A3: an IAM binding revoked on the key material itself (decision 9).
   #
@@ -76,11 +78,6 @@ defmodule Encryptor.Vault.Suspension do
   alias Encryptor.Vault.Suspension.Refresher
   alias Encryptor.Vault.Suspension.Store
 
-  # The marker row a shared store's view carries until its first successful
-  # `list/1`. A selector is a string or `:default`, so a tuple key cannot
-  # collide with one.
-  @unloaded {__MODULE__, :unloaded}
-
   @typedoc false
   @type action :: :suspend | :reinstate
 
@@ -91,18 +88,26 @@ defmodule Encryptor.Vault.Suspension do
   def table(vault), do: Module.concat(vault, "Suspended")
 
   @doc false
-  # Called from `Encryptor.Vault.Lifecycle.init/1`, so the table exists before
-  # the cache, the provider, or any call that reads it. Under a shared store
-  # it is born denying every scope (ADR-0010 decision 7): a table recreated
-  # empty by a `Lifecycle` restart must not serve a suspended scope until the
-  # refresher has read the store again.
+  # The name a shared store's view is born under, before the store has been
+  # read. The gate never looks it up; only the refresher and the two verbs
+  # do.
+  @spec unloaded_table(module()) :: atom()
+  def unloaded_table(vault), do: Module.concat(vault, "SuspendedUnloaded")
+
+  @doc false
+  # Called from `Encryptor.Vault.Lifecycle.init/1`, so the view exists before
+  # the cache, the provider, or any call that reads it.
+  #
+  # Under a shared store it is born under `unloaded_table/1`, not under the
+  # name the gate reads (ADR-0010 decision 7): until the refresher has read
+  # the store and renamed it into place, the gate finds no view and denies
+  # every scope. That covers a cold start and a view recreated empty by a
+  # `Lifecycle` restart alike, because both come through here.
   @spec create(Config.t()) :: :ets.table()
   def create(%Config{vault: vault} = config) do
-    tid = :ets.new(table(vault), [:set, :public, :named_table, read_concurrency: true])
+    name = if shared?(config), do: unloaded_table(vault), else: table(vault)
 
-    if shared?(config), do: true = :ets.insert(tid, {@unloaded})
-
-    tid
+    :ets.new(name, [:set, :public, :named_table, read_concurrency: true])
   end
 
   @doc false
@@ -120,27 +125,28 @@ defmodule Encryptor.Vault.Suspension do
   # honest answer: A8 makes the set die with the process, so a vault that
   # restarted is serving the selector again by decision. Under a shared store
   # it is `true`, because a node that has not read the store does not know
-  # what is suspended (ADR-0010 decision 7).
+  # what is suspended (ADR-0010 decision 7) - and a shared view that has not
+  # been loaded yet lives under a name this function does not look up, so it
+  # reads as absent too.
   #
-  # The default store's read is one lookup, as before. A shared store's view
-  # adds the marker's lookup on the same table, only when the selector itself
-  # is not in it.
+  # Under either store the read is one `:ets.member/2` on one table
+  # (decision 3). Which answer an absent table gets comes from the frozen
+  # configuration, never from a second lookup. There is no interleaving with
+  # the first load that can serve a suspended scope: the view is filled while
+  # it is unreachable and becomes reachable in one atomic `:ets.rename/2`, so
+  # this read sees either no table (deny) or the whole loaded set.
   @spec suspended?(Config.t(), Error.selector()) :: boolean()
   def suspended?(%Config{vault: vault} = config, selector) do
     case :ets.whereis(table(vault)) do
       :undefined -> shared?(config)
-      tid -> :ets.member(tid, selector) or (shared?(config) and :ets.member(tid, @unloaded))
+      tid -> :ets.member(tid, selector)
     end
   end
 
   @doc false
-  # The selectors a view holds, without the marker.
+  # The selectors a view holds.
   @spec members(:ets.table()) :: [Error.selector()]
-  def members(tid) do
-    tid
-    |> :ets.select([{{:"$1"}, [], [:"$1"]}])
-    |> Enum.reject(&(&1 == @unloaded))
-  end
+  def members(tid), do: :ets.select(tid, [{{:"$1"}, [], [:"$1"]}])
 
   @doc false
   # The not-started check, then the write. Under the default store the write
@@ -161,7 +167,7 @@ defmodule Encryptor.Vault.Suspension do
   def reinstate(%Config{} = config, selector), do: write(config, :reinstate, selector)
 
   defp write(%Config{vault: vault} = config, action, selector) do
-    with {:ok, _tid} <- live(vault) do
+    with {:ok, _view} <- live(vault) do
       if shared?(config),
         do: Refresher.write(config, action, selector),
         else: perform(config, action, selector)
@@ -253,44 +259,72 @@ defmodule Encryptor.Vault.Suspension do
   defp store_answer({:error, term}, _callback), do: {:error, term}
   defp store_answer(other, _callback), do: {:error, {:bad_return, other}}
 
+  # A local write lands in whichever view exists: the served one, or, before
+  # the first load, the unloaded one, which the first load then makes equal
+  # to the store's set (which already holds this write) before renaming it.
   defp update_view(vault, action, selector) do
-    case :ets.whereis(table(vault)) do
-      :undefined -> :ok
-      tid when action == :suspend -> true = :ets.insert(tid, {selector})
-      tid -> true = :ets.delete(tid, selector)
+    case view(vault) do
+      :none -> :ok
+      {_state, tid} when action == :suspend -> true = :ets.insert(tid, {selector})
+      {_state, tid} -> true = :ets.delete(tid, selector)
     end
   end
 
   # Makes the view equal to the store's set, and answers whether its
   # membership changed. New members go in before the departed ones come out,
-  # and the marker comes out between the two, so a scope suspended both before
-  # and after is never momentarily absent (ADR-0010 decision 5). A view with
-  # no table - a `Lifecycle` restart in progress - is left to the next
-  # refresh.
+  # so a scope suspended both before and after is never momentarily absent
+  # from a served view (ADR-0010 decision 5).
+  #
+  # An unloaded view is filled completely first and only then renamed to the
+  # name the gate reads. The rename is the one step that makes it reachable,
+  # and it is atomic, so no reader ever sees a partly loaded view (decision
+  # 7). The order - fill, then rename - is the invariant; no test can force
+  # the interleaving it rules out.
+  #
+  # A view with no table - a `Lifecycle` restart in progress - is left to the
+  # next refresh, which finds the recreated, unloaded view.
   defp apply_view(vault, selectors) do
-    case :ets.whereis(table(vault)) do
-      :undefined ->
+    case view(vault) do
+      :none ->
         false
 
-      tid ->
+      {state, tid} ->
         wanted = MapSet.new(selectors)
         current = MapSet.new(members(tid))
         added = MapSet.difference(wanted, current)
         departed = MapSet.difference(current, wanted)
-        unloaded? = :ets.member(tid, @unloaded)
 
         true = :ets.insert(tid, Enum.map(added, &{&1}))
-        true = :ets.delete(tid, @unloaded)
         Enum.each(departed, &(true = :ets.delete(tid, &1)))
 
-        unloaded? or MapSet.size(added) > 0 or MapSet.size(departed) > 0
+        if state == :unloaded, do: :ets.rename(unloaded_table(vault), table(vault))
+
+        state == :unloaded or MapSet.size(added) > 0 or MapSet.size(departed) > 0
     end
   end
 
   defp count(vault) do
-    case :ets.whereis(table(vault)) do
-      :undefined -> 0
-      tid -> length(members(tid))
+    case view(vault) do
+      :none -> 0
+      {_state, tid} -> length(members(tid))
+    end
+  end
+
+  # The vault's view under either name. The unloaded name is looked up first,
+  # so a rename that lands between the two lookups is still found under the
+  # served one. Only the refresher renames, and the refresher is the only
+  # process that writes a shared view, so its own reads see a stable name.
+  @spec view(module()) :: {:served | :unloaded, :ets.table()} | :none
+  defp view(vault) do
+    case :ets.whereis(unloaded_table(vault)) do
+      :undefined ->
+        case :ets.whereis(table(vault)) do
+          :undefined -> :none
+          tid -> {:served, tid}
+        end
+
+      tid ->
+        {:unloaded, tid}
     end
   end
 
@@ -299,14 +333,15 @@ defmodule Encryptor.Vault.Suspension do
   # vault's: with no table there is nothing to write to and nothing that would
   # survive if there were. It is reported as the same not-started error every
   # other entry point gives, so an operator's console session reads one
-  # vocabulary.
+  # vocabulary. A shared view that has not been loaded yet exists, so the
+  # verbs work on it.
   @spec live(module()) :: {:ok, :ets.table()} | {:error, Error.t()}
   defp live(vault) do
-    case :ets.whereis(table(vault)) do
-      :undefined ->
+    case view(vault) do
+      :none ->
         {:error, %Error{reason: {:vault_not_started, vault}, vault: vault, operation: :start}}
 
-      tid ->
+      {_state, tid} ->
         {:ok, tid}
     end
   end
