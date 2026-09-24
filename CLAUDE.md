@@ -98,7 +98,7 @@ Also avoid `bd edit`, which opens `$EDITOR` and blocks. Use
 ## What this project is
 
 `encryptor`: ergonomic envelope encryption for Elixir - a vault module,
-pluggable key providers, and per-tenant keys - on the
+pluggable key providers, and per-scope keys - on the
 [aws_encryption_sdk](https://hex.pm/packages/aws_encryption_sdk) engine.
 
 Application-level encryption in Elixir usually arrives either as a thin
@@ -115,7 +115,7 @@ layer that does:
   database column, KMS - is an adapter behind one contract, so call sites do
   not change when the source does.
 - **Key identity and key version are first-class.** A multi-tenant host app
-  needs per-tenant keys and needs to roll them on its own schedule. Ciphertext
+  needs per-scope keys and needs to roll them on its own schedule. Ciphertext
   records which key encrypted it; rotation is re-encryption against a new
   version, not a flag day.
 - **The message format stays the AWS ESDK's.** Ciphertexts written from Elixir
@@ -126,13 +126,15 @@ layer that does:
 **The package is implemented.** `Encryptor.Vault` is the supervised surface -
 `encrypt`/`decrypt`/`rekey` and their bang forms, plus `derive/3`,
 `provision/2`, `suspend/2` and `reinstate/2`. `Encryptor.Envelope` holds the
-per-tenant wrap, unwrap, rewrap and tenant-reference derivation;
+per-scope wrap, unwrap, rewrap and scope-reference derivation
+(`scope_ref/2`; the reference still travels under its v1 wire spelling,
+`tenant_ref`, per ADR-0009 decision 4);
 `Encryptor.Kdf` holds the HKDF trees and the optional Argon2id slow hash;
 `Encryptor.Provider` holds the behaviour, its conformance suite and the
 `Static`, `Function` and `GcpKms` adapters; the vault's config, cache,
 rekey, suspension and lifecycle machinery lives under
 `lib/encryptor/vault/`. The user-facing guides are in `guides/`:
-getting-started, secrets-at-start, selector-boundaries and the rotation
+getting-started, secrets-at-start, choosing-the-scope and the rotation
 runbook. So the conventions below are demonstrated by code rather than
 inherited on faith - check a claim against the module before relying on it.
 
