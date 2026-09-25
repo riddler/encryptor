@@ -329,8 +329,8 @@ defmodule Encryptor.Vault.ConfigTest do
       assert {:ok, %Config{cache: %{recycle_after: 1_200}}} = single(cache: [max_age: 60])
     end
 
-    # RQ-SF043-3a and amendment A's scope line: the amendment revises the bound
-    # defaults and does not flip this one.
+    # Amendment A's scope line (ruled by the operator, 2026-09-13): the
+    # amendment revises the bound defaults and does not flip this one.
     # sabotage: made defaults/0 return `cache: [max_age: 60]` - red.
     test "the cache itself is still opt-in: the default is false" do
       assert false == Keyword.fetch!(Config.defaults(), :cache)
