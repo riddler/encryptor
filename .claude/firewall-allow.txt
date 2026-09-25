@@ -1,0 +1,9 @@
+# Exact strings the planning-id scan may allow in this repo. Each covers a
+# reference to this repo's own numbered list, never a private one.
+#
+# ADR-0005's own rotation classes (its decision 1 table), cited from lib/.
+ADR-0005 R1
+ADR-0005 R2
+decision 1's R2
+decision 1's R3
+R3 re-encrypt rather than a rotation
