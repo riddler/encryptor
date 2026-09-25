@@ -1046,7 +1046,7 @@ the host's own measurement, not to this record.
 Two corrections, neither of which changes a decision. Amendment A above keeps
 every word it has and keeps its own status; this Note appends below it and
 edits nothing. Every cite below was re-read by anchor at enc `110e266`.
-Provenance: campaign RF048, bead `enc-9ro`, which folds in `enc-07g`.
+Provenance: bead `enc-9ro`, which folds in `enc-07g`.
 
 ### 1. The worked example's cost sentence still carries the premise Amendment A withdrew
 
@@ -1119,7 +1119,7 @@ The "still not an" phrasing is this record's `:562` and nowhere else; a
 residue note that also placed it at ADR-0005 `:531` was reading decision
 10's hypothetical, which is a different sentence and needs no reading.
 
-Provenance: campaign RF048, bead `enc-4hx`, folding `enc-2gq` (1).
+Provenance: bead `enc-4hx`, folding `enc-2gq` (1).
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.

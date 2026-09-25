@@ -666,8 +666,8 @@ Finding 1's third claim is against ADR-0002 decision 2, not this record, and
 this amendment does not answer it. It returns below under "What this leaves
 open", because A5 depends on the same fact.
 
-Scope, from the campaign ruling that scheduled this record (RQ-SF043-3a, the
-SF043 walk, 2026-09-13): **this amendment revises the shipped bound defaults
+Scope, from the ruling that scheduled this record (ruled by the operator,
+2026-09-13): **this amendment revises the shipped bound defaults
 and records a recommended posture; it does not flip the `cache:` default,
 which is already `false`.** `Encryptor.Vault.Config.defaults/0` returns
 `cache: false` (`lib/encryptor/vault/config.ex:281-291`, the entry at `:283`),

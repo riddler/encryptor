@@ -1518,7 +1518,7 @@ a reader can re-locate it by anchor after the line numbers move. Auditing the
 record's quotations against that rule is a reviewer's sweep rather than a
 list kept here.
 
-Provenance: campaign RF048, bead `enc-4hx`, folding `enc-j9v` (2).
+Provenance: bead `enc-4hx`, folding `enc-j9v` (2).
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.

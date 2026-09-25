@@ -1081,7 +1081,7 @@ Three items, none of which changes a decision. Decisions 1 to 12, the failure
 table and the open questions stand as written, no error term is added, and
 this Note carries the record's status rather than one of its own. Every cite
 was read by anchor at enc `971f1bf`, with `aws_encryption_sdk` at the version
-`mix.lock` pins (`1.0.0`, `mix.lock:3`). Provenance: campaign RF048, bead
+`mix.lock` pins (`1.0.0`, `mix.lock:3`). Provenance: bead
 `enc-4hx`, folding `enc-15q`, `enc-83l` (b) and `enc-oxx`.
 
 ### 1. Under a signing suite the KMS API also receives the engine's reserved pair
