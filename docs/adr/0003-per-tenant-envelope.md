@@ -1439,7 +1439,7 @@ characters reads a micro sign beside a latency as conforming and anything
 else as a finding, whatever the occurrence count is on the day it runs. A
 later Note that quotes a figure again is expected to move the count again.
 
-Provenance: campaign RF048, bead `enc-4hx`, folding `enc-83l` (a).
+Provenance: bead `enc-4hx`, folding `enc-83l` (a).
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.

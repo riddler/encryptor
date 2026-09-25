@@ -7,3 +7,42 @@ ADR-0005 R2
 decision 1's R2
 decision 1's R3
 R3 re-encrypt rather than a rotation
+#
+# ADR-0005's own rotation classes, as defined in its decision 1 table and
+# cited from docs/adr/ and guides/rotation-runbook.md.
+| Root rotation | R1 |
+| Tenant key rotation | R2 |
+Format or context change | R3 |
+| Crypto-shred | R4 |
+| Root rotation (P1) | R1 |
+| Scope key rotation (P2) | R2 |
+| Crypto-shred (P3, P4) | R4 |
+R3 appears here only to be disclaimed
+assigns R2 to itself
+R3, where the format or the context changes
+across R2 and R3
+wants R2's rewrite
+Root rotation (R1, level 1)
+Tenant key rotation (R2, level 2)
+Scope key rotation (R2, level 2)
+Tenant shred (R4, offboarding)
+Scope shred (R4, offboarding)
+Version retire (R4, one version)
+**R1 needs nothing from the migrator
+while R1 and R4 get
+R1 and R4 need to enumerate
+Not R2, not R1, not an operation in this package's vocabulary
+**R3 is not this package's at all.**
+an R3 re-encrypt
+remains an R3.
+decision 1's table names R3:
+Renaming a wire constant is R3.
+is an R3 and is recorded as one
+would be an R3 pass.
+changing the declared value is an R3
+#
+# encryptor_ecto's ADR-0002 open questions, cited by that record's own
+# numbering from ADR-0005.
+downstream's open question Q3
+that record's open question Q3
+its open question Q2

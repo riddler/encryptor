@@ -1338,7 +1338,7 @@ engine-owned pair. This Note records the fact. It decides nothing: decisions 1
 to 12, the two acceptance amendments at the top, and A1 to A5 stand exactly as
 written; the default suite is unchanged; nothing is removed from the context.
 It carries the record's status rather than one of its own. Recorded for
-`enc-msh`, the record half of `enc-dzf`, campaign RF045.
+`enc-msh`, the record half of `enc-dzf`.
 
 ### 1. The rule
 
@@ -1480,7 +1480,7 @@ It decides nothing that changes a rule. Decisions 1 to 12, the two acceptance
 amendments at the top, A1 to A5, and every Note above stand exactly as
 written; decision 7's cost sentence is unchanged; nothing is removed. It
 carries the record's status rather than one of its own. Recorded for
-`enc-obf`, folding `enc-509` and `enc-ert`, campaign RF048.
+`enc-obf`, folding `enc-509` and `enc-ert`.
 
 Everything below was read at `4c8fbe9` (= `v0.4.1`), with
 `aws_encryption_sdk` at the version `mix.lock` pins (`1.0.0`, `mix.lock:3`).
@@ -1631,7 +1631,7 @@ top, A1 to A5, and every Note above stand exactly as written; the default
 suite is unchanged; decision 12's three safety properties are unchanged;
 nothing is removed from what `describe/1` returns and nothing is added to it.
 It carries the record's status rather than one of its own. Recorded for
-`enc-7n7`, campaign RF048.
+`enc-7n7`.
 
 Everything below was read at `8b0f013`, with `aws_encryption_sdk` at the
 version `mix.lock` pins (`1.0.0`, `mix.lock:3`).
