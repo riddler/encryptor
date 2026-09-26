@@ -79,8 +79,8 @@
   # and exits 0 on. The doc_links stage fails on the link rules ExDoc
   # accepts silently: a README relative link the package files do not ship,
   # a relative link in a Markdown extra to a file that is not itself an
-  # extra, two extras sharing a basename, and a link ExDoc rewrites to a
-  # different extra.
+  # extra (moduledoc links are the Docs stage's), two extras sharing a
+  # basename, and a link ExDoc rewrites to a different extra.
   # Both are `:auto`: on while `:ex_doc` is installed, which it is in :dev.
   docs: [
     enabled: :auto
