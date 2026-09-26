@@ -607,7 +607,7 @@ Recorded rather than guessed. Each names who should settle it.
 
 ## Amendment A (2026-09-13): the provider is resolved once per call, and decision 2's round-trip sentence is withdrawn
 
-Status: **proposed** (2026-09-13).
+Status: **accepted (2026-09-26)**, proposed 2026-09-13.
 
 This amendment only adds. Decisions 1 to 7 above keep their text, and one
 sentence inside decision 2 is withdrawn by the decision below rather than
@@ -692,3 +692,38 @@ the implementation and the business of its tests, not of this record.
 4. **Whether `Encryptor.Provider.GcpKms` should bound a cache of its own** is
    raised as an open question by the ADR-0007 amendment and is decided by
    neither record today. It is public surface, and it wants its own walk.
+
+## Note (2026-09-26): the operator accepted Amendment A
+
+Amendment A's Status line now reads `accepted (2026-09-26)`. The record's own
+Status line and its index row, `accepted (2026-08-27, amended)`, do not
+change. The Amendment's "a status flip is the operator's" is this flip.
+
+A1 records what the code already did when it was written, and that code
+shipped in encryptor 0.4.1, the commit tagged `v0.4.1` (`4c8fbe9`) and
+published on Hex. The Amendment was read at `efd71c5`, which `v0.4.1`
+contains; it landed in pull request 70. Each claim was re-verified at the
+tag before the flip:
+
+- The provider is resolved once per call, ahead of the CMM:
+  `Encryptor.Vault.Encrypt` calls `Resolve.encryption_key/3` inside the
+  provider span before the caching CMM is built, and its comment section
+  "Flagged, not settled: the provider is consulted on every call" says what a
+  warm cache saves: the data key generation and the EDK wrap, not the provider
+  lookup.
+- The measurement the Amendment cites is
+  `docs/measurements/260912-enc-anz-stated-bounds.md` at the tag.
+- "What this leaves open" item 3 was closed before the release: pull request
+  74 brought the GCP KMS provider's documentation and the getting-started
+  guide into line with A1, and at `v0.4.1` `Encryptor.Provider.GcpKms`'s
+  `decryption_keys/2` doc says "One `Decrypt` per row, on every call" and
+  cites both amendments' A1.
+- Item 4 is still open: `Encryptor.Provider.GcpKms` holds no cache of its own,
+  at the tag and on main.
+
+At the tag, the comment section in `Encryptor.Vault.Encrypt` still carries its
+"Flagged, not settled" heading; a later change on main marks it settled on
+2026-09-13. That is a comment and no behaviour, and the behaviour it
+describes is A1's.
+
+No decision changes, and this Note carries no status of its own.

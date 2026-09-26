@@ -943,7 +943,7 @@ removed, and this Note carries the record's status rather than one of its own.
 
 ## Amendment A (2026-09-13): the operation-cost bullet restated on one provider resolution per call
 
-Status: **proposed** (2026-09-13).
+Status: **accepted (2026-09-26)**, proposed 2026-09-13.
 
 This amendment only adds, and it removes no line. Decisions 1 to 9 above keep
 their text and their meaning, and so does decision 10's shape ruling - one
@@ -1123,3 +1123,29 @@ Provenance: bead `enc-4hx`, folding `enc-2gq` (1).
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-26): the operator accepted Amendment A
+
+Amendment A's Status line now reads `accepted (2026-09-26)`. The record's own
+Status line, `accepted (2026-09-13)`, does not change; its index row now
+reads `accepted (2026-09-13, amended)`, as the other amended records' rows
+do.
+
+A1 restates the operation-cost bullet on the rule ADR-0002's Amendment A
+accepts the same day, and the code it describes shipped in encryptor 0.4.1,
+the commit tagged `v0.4.1` (`4c8fbe9`) and published on Hex. The Amendment
+was read at `efd71c5`, which `v0.4.1` contains; it landed in pull request 70.
+Each claim was re-verified at the tag before the flip:
+
+- `Encryptor.Provider.GcpKms.decryption_keys/2` makes one `Decrypt` per live
+  row on every call, and its doc says so, citing both amendments' A1; the
+  vault resolves the provider before the materials cache is consulted
+  (`Encryptor.Vault.Encrypt`, through `Resolve.encryption_key/3`).
+- The provider holds no cache of its own, at the tag and on main, so the
+  open question the Amendment adds is still open.
+- The request timeout from `init/1` is still the bound the bullet names.
+
+The two Notes of 2026-09-14 above still read the worked example and the
+"Why now" wording as they say.
+
+No decision changes, and this Note carries no status of its own.
