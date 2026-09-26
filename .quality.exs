@@ -78,8 +78,9 @@
   # exist, a link that resolves nowhere), which `mix docs` otherwise prints
   # and exits 0 on. The doc_links stage fails on the link rules ExDoc
   # accepts silently: a README relative link the package files do not ship,
-  # a published relative link to a file that is not an extra, two extras
-  # sharing a basename, and a link ExDoc rewrites to a different extra.
+  # a relative link in a Markdown extra to a file that is not itself an
+  # extra, two extras sharing a basename, and a link ExDoc rewrites to a
+  # different extra.
   # Both are `:auto`: on while `:ex_doc` is installed, which it is in :dev.
   docs: [
     enabled: :auto

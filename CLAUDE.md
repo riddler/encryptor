@@ -59,7 +59,8 @@ should do the work, stop before the irreversible step, and report.
 | `git merge`, merging a request | never | always - merging is the operator's, in every campaign and outside every campaign |
 | `bd close <id>` | never for a mirrored bead; otherwise the operator's call | always for a bead whose description carries a `mirrors:` line, campaign consent included |
 | `bd dolt push` | the operator's call | inside a campaign that spans mirrored trackers - the conductor pushes those atomically |
-| a release, a version bump, `mix hex.publish` | never | always |
+| a release prep (a version bump and a changelog promotion) and its tag | a release bead the operator has named (in the campaign plan or their own words); the tag once the operator has merged that prep to `origin/main`, naming its version at the merged commit | on any other bead or on `main`; the tag before the prep is on `origin/main` |
+| a release, `mix hex.publish` | never | always |
 
 The organizing principle: the human gate belongs where an action stops being
 reversible. A commit on a per-bead branch is undone with
@@ -78,8 +79,21 @@ authority is the operator's and the subagent is only the hands, so it may act.
 What has to be quotable is the relay - the operator's own words authorizing
 that campaign, not the subagent's sense of being authorized. A subagent that
 cannot quote them reports and stops. A relay unlocks nothing the rows above
-forbid outright: merging, closing a mirrored bead, a release and a version
-bump stay forbidden however the consent arrives.
+forbid outright: merging, closing a mirrored bead and a release stay
+forbidden however the consent arrives. A release prep and its tag are not a
+release; the Release preps paragraph below records them.
+
+**Release preps.** The version bump and the tag of a release prep are the
+family norm, not a grant a campaign consent has to name. On a release bead
+the operator has named (in the campaign plan or their own words), the prep -
+the version bump and the changelog promotion - lands through the rows above;
+once it is merged to `origin/main`, the conductor or the session that owns
+the release bead tags that merged commit with the new version and pushes the
+tag. Publishing (`mix hex.publish`, a docs republish included) is the
+operator's one release step, in every campaign, and no consent or relay
+delegates it. Merging the prep follows this file's merge row, and nothing
+else this file reserves for the operator changes. (Recorded 2026-09-25 by
+the operator.)
 
 Widening this section is a decision for the operator to make and record here.
 An agent may draft the change; it does not adopt it.
