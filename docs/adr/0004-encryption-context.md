@@ -1729,3 +1729,67 @@ of every path that asserts on the caller's context thereafter; the one signed
 path added since asserts on the engine's pair by design.* Clause (c)'s point -
 that no path had seen the pair, and why - stands as written for the set it was
 written about.
+
+## Note (2026-09-29): the signing-suite Note's test is in the tree, and "this file" in the `describe/1` Note's section 3 is the message test
+
+Section 4 of the 2026-09-13 signing-suite Note above says the test that pins
+its rule "is not in the tree yet", and that until it lands "this Note is the
+only place the fact is written down" (`:1449-1458`). That test has since
+landed. Separately, section 3 of the 2026-09-14 `describe/1` Note above uses
+"this file" once for a test file, where the sentences around it use the same
+words for this record. This Note records where the test is and which file
+that phrase names. It is added here rather than edited there, so both Notes
+stay as they were reviewed.
+
+It decides nothing. Decisions 1 to 12, the two acceptance amendments at the
+top, A1 to A5, and every Note above stand exactly as written; nothing is
+removed. It carries the record's status rather than one of its own. Recorded
+for `enc-2ky`, folding `enc-xo4`.
+
+Everything below was read at `fb356ee`.
+
+### 1. The signing-suite Note's test landed
+
+Commit `b4d4b5d` added it to `test/encryptor/provider/kms_test.exs`, in the
+describe block "the encryption context this provider sends to the KMS API"
+(`:315`), together with the recording client the Note found missing,
+`Encryptor.AwsKms.Recording` (`test/support/aws_kms_fakes.ex:122`). Commit
+`8b0f013` added the unsigned suite's Decrypt half. The first five tests below
+pin the key set by a sorted key list written out in the test, not derived
+from the code under test:
+
+- "is the composed context plus the engine's reserved pair, on
+  GenerateDataKey" (`:334`, its list at `:346`) and "is the same set on
+  Decrypt" (`:369`, its list at `:383`). Both run the `AwsKmsVaults.Recorded`
+  vault, which sets no `:algorithm_suite_id` and so takes the default `0x0578`
+  (`@default_algorithm_suite_id`, `lib/encryptor/vault/config.ex:189`), and
+  both lists name the composed keys plus `aws-crypto-public-key`.
+- "is exactly the composed context under the unsigned suite" (`:397`, its list
+  at `:407`) and "is the same exact set on Decrypt under the unsigned suite"
+  (`:418`, its list at `:430`). Both run the `AwsKmsVaults.RecordedUnsigned`
+  vault (`algorithm_suite_id: 0x0478`, `test/support/aws_kms_fakes.ex:426`),
+  refute the reserved pair, and assert equality with the composed map.
+- "carries the reserved encryptor-* pairs when the envelope writes them"
+  (`:438`, its list at `:451`) carries the pin to the envelope's root-vault
+  path, and "is recorded on Encrypt too, at the client boundary" (`:472`)
+  asserts the recorded context equals a map the test builds, on the third
+  KMS verb.
+
+Section 4's obligation - both halves of the rule, the composed map plus the
+engine's reserved pair on the `0x0578` path and exact equality on the
+`0x0478` path, on the calls the keyring makes - is therefore met in that
+file. Its sentence "this Note is the only place the fact is written down"
+describes the tree at `60610df`, where it was read, and not the tree since
+`b4d4b5d`.
+
+### 2. "this file" in the `describe/1` Note's section 3
+
+In "the unsigned assertions in this file are untouched: every pre-existing
+exact-context assertion still runs under `@committed_suite_id 0x0478`"
+(`:1704-1706`), "this file" is `test/encryptor/message_test.exs`, the file
+that section names in its first paragraph (`:1692`), not this record. At
+`fb356ee` that attribute is `test/encryptor/message_test.exs:18`, and the one
+signed assertion the section describes is the test "surfaces the engine's
+reserved pair beside the host's keys under the default signing suite"
+(`:150`). The same sentence's "the test the Note above unblocked" is the
+describe block section 1 of this Note names.
