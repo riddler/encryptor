@@ -727,3 +727,22 @@ At the tag, the comment section in `Encryptor.Vault.Encrypt` still carries its
 describes is A1's.
 
 No decision changes, and this Note carries no status of its own.
+
+## Note (2026-09-30): the GCP KMS provider also answers a permanent refusal under `{:invalid_key_descriptor, detail}`
+
+One pointer, which changes no decision. Decision 6 describes
+`{:invalid_key_descriptor, detail}` as "the provider answered with something
+the vault cannot build a keyring from. A bug in the provider, not in the
+caller." (`:274-276`, read at enc `0bf205e`).
+
+ADR-0007 Amendment B, proposed 2026-09-30, gives that family a second meaning
+for one provider: `Encryptor.Provider.GcpKms` answers a `Decrypt` refused with
+HTTP 400 or 404 as `{:invalid_key_descriptor, {:kms_refused, status}}`, a
+permanent refusal by the backing service that a retry cannot change, and
+keeps `{:key_unavailable, selector}` for everything a retry can. The term is
+still a member of the vocabulary this decision fixed; the amendment adds a
+detail, not a term, and the vocabulary stays closed. `Encryptor.Provider`'s
+reason doc carries the same sentence beside this decision's.
+
+Read decision 6's bullet for that provider with the amendment beside it. The
+bullet's text is left as written, and this Note carries no status of its own.

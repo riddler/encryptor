@@ -127,8 +127,8 @@ end
 defmodule Encryptor.GcpKms.ForbiddenKms do
   @moduledoc "A client whose every request is refused by IAM."
 
-  # An IAM denial. ADR-0007's typespec section is deliberate that this is the
-  # same fact to a caller as a timeout.
+  # An IAM denial. It stays the same fact to a caller as a timeout, on every
+  # call, `Decrypt` included (ADR-0007 Amendment B).
   def request(_method, _url, _headers, _body, _opts),
     do: {:ok, %{status: 403, body: ~s({"error": "PERMISSION_DENIED"})}}
 end
@@ -308,4 +308,22 @@ defmodule Encryptor.GcpKmsVaults do
   @doc "The provider options both vault tests configure."
   @spec provider_opts() :: keyword()
   def provider_opts, do: GcpKmsCase.opts()
+end
+
+defmodule Encryptor.GcpKms.DecryptStatusKms do
+  @moduledoc "A client whose Decrypt answers the status the calling test put."
+
+  # The status is read from the calling process's dictionary under this
+  # module's name, so one module covers every status and stays safe in an
+  # `async: true` test: the provider calls the client on the caller's process.
+  alias Encryptor.GcpKms.Fake
+
+  @doc false
+  def request(method, url, headers, body, opts) do
+    if String.ends_with?(url, ":decrypt") do
+      {:ok, %{status: Process.get(__MODULE__, 500), body: ~s({"error": "status"})}}
+    else
+      Fake.request(method, url, headers, body, opts)
+    end
+  end
 end

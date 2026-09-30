@@ -15,6 +15,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
   use Encryptor.Provider.Conformance
 
   alias Encryptor.Envelope
+  alias Encryptor.GcpKms.DecryptStatusKms
   alias Encryptor.GcpKms.EchoKms
   alias Encryptor.GcpKms.EncryptFailsKms
   alias Encryptor.GcpKms.ExistingKeyKms
@@ -300,7 +301,8 @@ defmodule Encryptor.Provider.GcpKmsTest do
       {_state, row} = GcpKmsCase.provisioned(@selector)
       state = GcpKmsCase.state(store: store([%{row | version: 2}]))
 
-      assert {:error, {:key_unavailable, @selector}} = GcpKms.encryption_key(state, @selector)
+      assert {:error, {:invalid_key_descriptor, {:kms_refused, 400}}} =
+               GcpKms.encryption_key(state, @selector)
     end
 
     test "fails closed on a wrapping moved to another scope's row" do
@@ -308,7 +310,8 @@ defmodule Encryptor.Provider.GcpKmsTest do
       {_other_state, other} = GcpKmsCase.provisioned(@unknown)
       state = GcpKmsCase.state(store: store([%{row | wrapped: other.wrapped}]))
 
-      assert {:error, {:key_unavailable, @selector}} = GcpKms.encryption_key(state, @selector)
+      assert {:error, {:invalid_key_descriptor, {:kms_refused, 400}}} =
+               GcpKms.encryption_key(state, @selector)
     end
 
     # mutation: answer {:key_unavailable, _} for a selector with no rows - an
@@ -392,6 +395,60 @@ defmodule Encryptor.Provider.GcpKmsTest do
       state = GcpKmsCase.state(store: store([row]), goth: {FailingToken, :test_goth})
 
       assert {:error, {:key_unavailable, @selector}} = GcpKms.encryption_key(state, @selector)
+      assert {:error, {:key_unavailable, @selector}} = GcpKms.decryption_keys(state, @selector)
+    end
+
+    # mutation: answer {:key_unavailable, _} for every Decrypt status again -
+    # a caller then retries an AAD mismatch or a missing version forever
+    # (ADR-0007 Amendment B).
+    test "reports a Decrypt 400 or 404 as a permanent kms_refused on both paths" do
+      {_state, row} = GcpKmsCase.provisioned(@selector)
+      state = GcpKmsCase.state(store: store([row]), http_client: DecryptStatusKms)
+
+      for status <- [400, 404] do
+        Process.put(DecryptStatusKms, status)
+        reason = {:invalid_key_descriptor, {:kms_refused, status}}
+
+        assert {:error, ^reason} = GcpKms.decryption_keys(state, @selector)
+        assert {:error, ^reason} = GcpKms.encryption_key(state, @selector)
+      end
+    end
+
+    # mutation: add 403 to the refused statuses - a provider-level suspension
+    # (an IAM binding revoked) then answers the permanent family instead of
+    # the key_unavailable ADR-0005 Amendment A's A3 and A4 promise.
+    test "keeps key_unavailable for an IAM denial, a throttle and a server error" do
+      {_state, row} = GcpKmsCase.provisioned(@selector)
+      state = GcpKmsCase.state(store: store([row]), http_client: DecryptStatusKms)
+
+      for status <- [403, 429, 500, 503] do
+        Process.put(DecryptStatusKms, status)
+
+        assert {:error, {:key_unavailable, @selector}} = GcpKms.decryption_keys(state, @selector)
+        assert {:error, {:key_unavailable, @selector}} = GcpKms.encryption_key(state, @selector)
+      end
+    end
+
+    # The disclosed set: the Decrypt statuses a public reason can name.
+    # mutation: add 403 to, or remove 404 from, the refused statuses - the
+    # literal list below no longer matches.
+    test "names exactly the statuses 400 and 404 in a kms_refused reason" do
+      {_state, row} = GcpKmsCase.provisioned(@selector)
+      state = GcpKmsCase.state(store: store([row]), http_client: DecryptStatusKms)
+
+      statuses = [300, 400, 401, 403, 404, 408, 409, 412, 429, 500, 502, 503, 504]
+
+      refused =
+        Enum.filter(statuses, fn status ->
+          Process.put(DecryptStatusKms, status)
+
+          match?(
+            {:error, {:invalid_key_descriptor, {:kms_refused, ^status}}},
+            GcpKms.decryption_keys(state, @selector)
+          )
+        end)
+
+      assert refused == [400, 404]
     end
 
     # mutation: return the candidates oldest first - writes then go under a
@@ -413,7 +470,8 @@ defmodule Encryptor.Provider.GcpKmsTest do
       second = next_version(provisioning, first)
       state = GcpKmsCase.state(store: store([%{second | version: 7}, first]))
 
-      assert {:error, {:key_unavailable, @selector}} = GcpKms.decryption_keys(state, @selector)
+      assert {:error, {:invalid_key_descriptor, {:kms_refused, 400}}} =
+               GcpKms.decryption_keys(state, @selector)
     end
   end
 
