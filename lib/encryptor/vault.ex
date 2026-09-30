@@ -557,7 +557,12 @@ defmodule Encryptor.Vault do
   that deadline is dropped rather than performed later. A store that had
   already begun the write may still hold it, which is why the write is
   idempotent and retrying it is always safe. Every call emits
-  `[:encryptor, :suspension, :changed]` once, successful or not.
+  `[:encryptor, :suspension, :changed]`, successful or not, and normally
+  once. The exception is a write the store accepted whose answer reaches the
+  caller more than a second after the deadline - the steps after the store's
+  answer, such as the cache drop or a slow synchronous event handler, ran
+  long: the call then answers the error and emits `:error`, while the vault
+  has already emitted `:ok` for the write, which stands.
   """
   @spec suspend(module(), Error.selector()) :: :ok | {:error, Error.t()}
   def suspend(vault, selector) when is_atom(vault) do

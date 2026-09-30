@@ -61,9 +61,14 @@ defmodule Encryptor.Vault.Suspension.Refresher do
   # One write, serialized with the refreshes, under a deadline `timeout`
   # milliseconds from now. A request dropped at its deadline, and a call that
   # exits - it timed out, or this process is restarting - are reported as a
-  # write the store did not accept (ADR-0010 decisions 5 and 7). Either way
-  # the one event is emitted here, on the caller's process, because the
-  # refresher emitted nothing for the write.
+  # write the store did not accept (ADR-0010 decisions 5 and 7), and the
+  # event is emitted here, on the caller's process. For a dropped request,
+  # and for a call that exits before the refresher took it up, that is the
+  # call's one event. A write the refresher performed in time whose answer
+  # still arrives past the deadline plus `@reply_slack` - the view update,
+  # the cache drop or a synchronous event handler ran long - is the
+  # exception: `perform/4` has emitted its own outcome and the write stands,
+  # and this emits `:error` as well. A retry is safe (decision 7).
   @spec write(Config.t(), Suspension.action(), Error.selector(), pos_integer()) ::
           :ok | {:error, Error.t()}
   def write(%Config{vault: vault} = config, action, selector, timeout \\ @write_timeout) do
