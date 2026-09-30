@@ -13,8 +13,8 @@ defmodule Encryptor.Vault.Derive do
   # ## The one property this module is for
   #
   # **The input key material never leaves this function.** It is resolved from
-  # the provider, handed to `Encryptor.Kdf.salted_subkey/5`, and goes out of
-  # scope. It is never returned, never put in an error, and never rendered:
+  # the provider, handed to `Encryptor.Kdf.salted_subkey/5`, and is not held
+  # past this call. It is never returned, never put in an error, and never rendered:
   # `{:invalid_key_descriptor, :not_derivable}` names the shape of the
   # descriptor and not the descriptor, for the same reason every other
   # descriptor failure in this package does.
@@ -82,8 +82,9 @@ defmodule Encryptor.Vault.Derive do
   defp salt(%Config{derivation_salt: salt}), do: {:ok, salt}
 
   # The caller's info, verbatim and opaque. An absent `:info` is `""`, which
-  # amendment A decision 4 calls a legitimate scope rather than a missing
-  # argument - the derivation runs the final expansion either way.
+  # amendment A decision 4 calls legitimate rather than a missing argument
+  # (its word for the info string is "scope", in the derivation's sense, not
+  # the key owner's) - the derivation runs the final expansion either way.
   @spec info(Config.t(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
   defp info(config, opts) do
     case Keyword.get(opts, :info, "") do

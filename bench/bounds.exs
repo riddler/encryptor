@@ -233,19 +233,20 @@ Report.row("max_pairs/0", Encryptor.Context.max_pairs())
 Report.row("max_bytes/0", Encryptor.Context.max_bytes())
 Report.row("canonical keys", inspect(Encryptor.Context.canonical_keys()))
 
-# What a real context actually costs. The tenant row is what a :tenant vault
-# composes: the caller's pairs plus the vault-injected tenant_ref, plus the
-# static pairs a host configures.
+# What a real context actually costs. The scoped rows are what a :scoped
+# vault composes: the caller's pairs plus the scope reference the vault
+# injects (under "tenant_ref", the pinned v1 wire key), plus the static pairs
+# a host configures.
 realistic =
   [
     {"single, table+column", canonical_ctx},
     {"single, +app", Map.put(canonical_ctx, "app", "acme_payments")},
-    {"tenant, +tenant_ref",
+    {"scoped, +tenant_ref",
      Map.merge(canonical_ctx, %{
        "app" => "acme_payments",
        "tenant_ref" => String.duplicate("a", 22)
      })},
-    {"tenant, +purpose",
+    {"scoped, +purpose",
      Map.merge(canonical_ctx, %{
        "app" => "acme_payments",
        "tenant_ref" => String.duplicate("a", 22),

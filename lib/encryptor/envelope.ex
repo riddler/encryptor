@@ -267,9 +267,10 @@ defmodule Encryptor.Envelope do
   before ADR-0005 decision 5 split the roots. After the split "a root vault
   holds only the wrapping subkey as its `Static` provider material", so a root
   vault is no longer an input the reference can be derived from - which is
-  exactly why `scope_ref/2`'s signature was amended at acceptance to take the
-  subkey. `provision/3` needs the same value for the same reason, and takes it
-  the same way. **This is an extension of the accepted `opts()` forced by the
+  exactly why the reference function's signature was amended at acceptance to
+  take the subkey (it was `tenant_ref/2` then; ADR-0009 renamed it
+  `scope_ref/2`). `provision/3` needs the same value for the same reason, and
+  takes it the same way. **This is an extension of the accepted `opts()` forced by the
   accepted amendment, and it is flagged rather than assumed.**
 
   ## What it refuses
