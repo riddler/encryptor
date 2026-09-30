@@ -59,9 +59,9 @@ Shipped, as functions:
 - `Encryptor.Vault.rekey/2` - what `rewrap/2` is built on.
 - `Encryptor.Vault.provision/2` - asks the **provider** to provision the
   selector, on a provider that implements the optional `provision/2` callback
-  (`lib/encryptor/vault.ex:501`, read at `6f4b55d`; the `use`-generated
-  `MyApp.Vault.provision/1` at `:296` is the same call with the vault module
-  filled in).
+  (`Encryptor.Vault.provision/2` in `lib/encryptor/vault.ex`; the
+  `MyApp.Vault.provision/1` that `use Encryptor.Vault` generates is the same
+  call with the vault module filled in).
 
   This is **not** the envelope-level mint, and the two are not
   interchangeable. `Encryptor.Envelope.provision/3` mints 32 random bytes and
@@ -78,8 +78,9 @@ Shipped, as functions:
   the host's, because this package owns no storage (ADR-0003 decision 9).
 - `Encryptor.Vault.suspend/2` and its inverse `Encryptor.Vault.reinstate/2` -
   the vault-local deny gate of P5, written through the vault's
-  `:suspension_store` (`lib/encryptor/vault.ex:547` and `:566`, read at
-  `6f4b55d`). They are deliberately not generated onto your vault
+  `:suspension_store` (`Encryptor.Vault.suspend/2` and
+  `Encryptor.Vault.reinstate/2` in `lib/encryptor/vault.ex`). They are
+  deliberately not generated onto your vault
   module: they are an operator's verbs, invoked from a console or a release
   task against a named vault (ADR-0005 Amendment A decision 1).
 - `Encryptor.Provider.Static`'s `keys:` option - the staged candidate list.
@@ -652,8 +653,9 @@ wrapped-key table - and it is **not** true of a **keyring-backed** one.
 AWS KMS and the wrapping key is never in your store, so there is no wrapping of
 it for you to delete. ADR-0008 decision 4 is the record that reconciles the two
 shapes, and it asks that its table be reproduced rather than paraphrased. It is
-reproduced here in full (`docs/adr/0008-aws-kms-keyring-backed.md:327-341`,
-read at `6f4b55d`); `Encryptor.Provider.Kms`'s moduledoc carries the same
+reproduced here in full (`docs/adr/0008-aws-kms-keyring-backed.md`, the table
+under decision 4, "Rotation, the shred, and suspend, per shape");
+`Encryptor.Provider.Kms`'s moduledoc carries the same
 reconciliation from the provider's side.
 
 | | `%Key.Aes{}` (material source) | `%Key.Kms{}` (keyring-backed) |
