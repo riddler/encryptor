@@ -184,9 +184,10 @@ defmodule Encryptor.Provider.GcpKms do
   every retained backup, so P3 step 4's row deletion stays as
   compliance-mandatory as ADR-0005 made it. And **the scheduled destruction
   window is a delay, not a reprieve to design around**: a version is
-  `DESTROY_SCHEDULED` for the key's configured duration, 24 hours by default,
-  and restoring it works during that window. The window exists; do not rely
-  on it.
+  `DESTROY_SCHEDULED` for the `CryptoKey`'s `destroyScheduledDuration`, and
+  restoring it works during that window. The field is immutable and set only
+  when the key is created; `provision/2` sets none, so a key it creates takes
+  the Cloud KMS default, 30 days. The window exists; do not rely on it.
 
   Records: ADR-0007 decisions 1 through 10; ADR-0002 decisions 1, 5 and 6;
   ADR-0003 decisions 1, 4, 5, 6 and 8; ADR-0004 decisions 3, 4 and 7;
