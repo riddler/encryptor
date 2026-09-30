@@ -539,3 +539,62 @@ decision 9's sentence is met as section 1 says; and decision 11's
 qualification of ADR-0005 Amendment A's A8 and its answer to open question
 A-1 now stand. ADR-0005's text is unchanged, as decision 11 said it would be.
 Open questions 1 to 4 stay open.
+
+## Note (2026-09-29): decisions 7 and 8 under a timeout
+
+This Note decides nothing. It records how the code reads decisions 5, 7 and
+8 when a shared store is slow or hung, after a gap found in review of the
+code at `fb356ee`: there, a `suspend/2` or `reinstate/2` whose call into the
+refresher timed out answered `{:suspension_store_unavailable, store}`, but
+the request stayed queued and was performed later, changing the store and
+the view and emitting a second event; and `list/1` had no bound, so a hung
+store held every queued write behind it. The fix was ruled by the operator,
+2026-09-29: a deadline carried in the call, so the refresher drops an
+expired request, and a bounded `list/1`, with no change to the four
+callbacks of decision 1. The anchors below are read in the pull request that
+adds this Note, on top of `fb356ee`.
+
+### Decision 5: the call's five seconds are a deadline
+
+Decision 5 says the call "waits the `GenServer` default of five seconds".
+The five seconds now travel with the request. `Refresher.write/4` computes
+the deadline when the caller makes the call and sends it in the message;
+`Refresher.handle_call/3` answers `:expired` without touching the store for
+a request it takes up after that deadline, and gives the store what is left
+of the deadline for one it takes up in time (`Suspension.perform/4`). The
+caller waits the deadline plus a second of slack for the refresher's
+answer; a call that exits all the same is still decision 7's failed write.
+
+`Suspension.refresh/2` bounds `list/1` at five seconds. A list past its
+bound is a failed refresh: the view keeps the last known set, and the
+refresher is free for the next queued write. Both bounds run the store
+callback on a task the vault kills at the bound (the private
+`call_store/4`), with `{:timeout, milliseconds}` in the error's `:engine`.
+
+### Decision 7: a failed write is never performed later
+
+Decision 7's first part holds with a sharper edge. A request dropped at its
+deadline is not performed at all, so "a write that fails changes nothing"
+holds for it outright. A write the store had already begun when its bound
+ran out may still have landed in the store, because killing the task stops
+the vault waiting and cannot take a write back; that is the case decision 7
+already names when it says a retry after a timeout "whose write may or may
+not have landed, is always safe". Such a write reaches this node's view at
+the next refresh, as any write made elsewhere does.
+
+### Decision 8: one event per call
+
+Decision 8 says the event fires "after every `suspend/2` or `reinstate/2`
+the vault performed, successful or not". The fix reads that as one event
+per call. A request the refresher drops emits nothing there: the caller's
+own `Suspension.failed/3` emits the call's one event, on the caller's
+process, whether the refresher answered `:expired` or the call exited. A
+store write cut off at its bound emits its one event from `perform/4`'s
+failure branch. No call emits twice. A write that landed in the store after
+its caller was told it failed is announced, if it changed the view, by the
+refresh that reads it, as decision 8's second bullet already provides.
+
+The tests are in `test/encryptor/vault/suspension_store_test.exs`, under "a
+write's deadline and a bounded list": "a write the store has not answered by
+its deadline fails, and never lands later" and "a hung list/1 is bounded,
+and a write queued behind it past its deadline is dropped".

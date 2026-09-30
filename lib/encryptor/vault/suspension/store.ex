@@ -39,6 +39,14 @@ defmodule Encryptor.Vault.Suspension.Store do
       vault denies every scope, and after that a failed call keeps the last
       set it read (ADR-0010 decision 7).
 
+  Under a shared store each call is bounded, and runs on a short-lived
+  process of its own so the vault can stop waiting: `c:list/1` has five
+  seconds, and `c:suspend/2` and `c:reinstate/2` have what is left of the
+  operator's five-second deadline. A call past its bound is killed and counts
+  as a store that could not answer, with `{:timeout, milliseconds}` in
+  `:engine`. A store that keeps per-process state - a dynamic repo, say -
+  reads it from its own state rather than from the process it runs on.
+
   A store keys its set by the vault it was initialised for, so two vaults
   never share a set. A store's state holds no key material; the vault's
   configuration redacts it when inspected all the same.

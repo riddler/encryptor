@@ -81,6 +81,10 @@ defmodule Encryptor.Vault.Suspension do
   @typedoc false
   @type action :: :suspend | :reinstate
 
+  # How long one refresh waits for the store's list/1 (ADR-0010 decision 5,
+  # and the dated Note on decisions 7 and 8).
+  @list_timeout 5_000
+
   @doc false
   # Named after the vault, like every other per-vault process and table, so
   # two vaults in one node never share a suspended set.
@@ -188,9 +192,19 @@ defmodule Encryptor.Vault.Suspension do
   # is hygiene, so a failure to find a cache child must not leave a selector
   # un-denied. A6's `cache: false` case arrives here as exactly that - no
   # child, nothing dropped, still `:ok`.
-  @spec perform(Config.t(), action(), Error.selector()) :: :ok | {:error, Error.t()}
-  def perform(%Config{vault: vault, suspension_store: {store, _opts}} = config, action, selector) do
-    case call_store(store, action, [config.suspension_store_state, selector]) do
+  #
+  # `timeout` bounds the store's write. The refresher passes what is left of
+  # the caller's deadline, and a store that has not answered by then is a
+  # store that could not answer (ADR-0010 decision 7). The default store's
+  # write runs on the caller's process with no bound, as it always has.
+  @spec perform(Config.t(), action(), Error.selector(), timeout()) :: :ok | {:error, Error.t()}
+  def perform(
+        %Config{vault: vault, suspension_store: {store, _opts}} = config,
+        action,
+        selector,
+        timeout \\ :infinity
+      ) do
+    case call_store(store, action, [config.suspension_store_state, selector], timeout) do
       :ok ->
         if shared?(config), do: update_view(vault, action, selector)
         if action == :suspend, do: _ = CacheRecycler.recycle(vault, Vault.supervisor_name(vault))
@@ -224,9 +238,14 @@ defmodule Encryptor.Vault.Suspension do
   # whether the refresh failed, which is the one thing the refresher carries
   # from one refresh to the next (ADR-0010 decision 8: the first success
   # after a failure is a change, and says so).
+  #
+  # The list is bounded by `@list_timeout`: a store that has not answered by
+  # then is a failed refresh, which keeps the last known set (decision 7). The
+  # refresher is the process a shared store's writes queue on, so an
+  # unbounded list would hold every write behind a hung store.
   @spec refresh(Config.t(), boolean()) :: boolean()
   def refresh(%Config{vault: vault, suspension_store: {store, _opts}} = config, failing?) do
-    case call_store(store, :list, [config.suspension_store_state]) do
+    case call_store(store, :list, [config.suspension_store_state], @list_timeout) do
       {:ok, selectors} ->
         if apply_view(vault, selectors) or failing?,
           do: Telemetry.suspension_changed(vault, :refresh, store, {:ok, count(vault)})
@@ -244,6 +263,24 @@ defmodule Encryptor.Vault.Suspension do
   # out of a store callback are one outcome, a store that could not answer.
   # This is that decision, not a rescue-to-default: every branch becomes the
   # failure the caller reports, and the store's own term rides in `:engine`.
+  #
+  # A bounded call runs the callback on a task of its own and kills it at the
+  # bound, so a store that has not answered in time is the same outcome with
+  # `{:timeout, milliseconds}` in `:engine`. Killing the task stops the
+  # vault waiting; it cannot take back a write the store had already begun,
+  # which is why decision 7 says a retry after a timeout is safe rather than
+  # that the write did not land.
+  defp call_store(store, callback, args, :infinity), do: call_store(store, callback, args)
+
+  defp call_store(store, callback, args, timeout) do
+    task = Task.async(fn -> call_store(store, callback, args) end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, answer} -> answer
+      nil -> {:error, {:timeout, timeout}}
+    end
+  end
+
   defp call_store(store, callback, args) do
     store
     |> apply(callback, args)

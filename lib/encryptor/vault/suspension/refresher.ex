@@ -20,14 +20,32 @@ defmodule Encryptor.Vault.Suspension.Refresher do
   # process, so a local write and a refresh never interleave: a refresh that
   # listed the store before a local write landed can never remove what that
   # write just added. They are operator verbs, so serializing them costs
-  # nothing on the call path A8 protects. The call waits the `GenServer`
-  # default of five seconds; one that exits is decision 7's failed write.
+  # nothing on the call path A8 protects.
+  #
+  # A write carries its deadline, five seconds after the caller made it, and
+  # this process drops a request it takes up after that deadline: it answers
+  # `:expired`, writes nothing and emits nothing, so a write its caller was
+  # told had failed is never performed later and never emits a second event
+  # (ADR-0010 decisions 7 and 8, and the dated Note on them). A request taken
+  # up in time gives the store what is left of its deadline and no more.
+  # Every refresh is bounded too (`Encryptor.Vault.Suspension.refresh/2`), so
+  # a hung store holds a queued write for at most one bounded list. The
+  # caller waits the deadline plus `@reply_slack` for the answer; a call that
+  # exits all the same - this process is restarting, or stuck in something
+  # no bound covers - is decision 7's failed write.
 
   use GenServer
 
   alias Encryptor.Error
   alias Encryptor.Vault.Config
   alias Encryptor.Vault.Suspension
+
+  # How long a caller's write may take, from the call to the store's answer.
+  @write_timeout 5_000
+
+  # How long past the deadline the caller still waits for this process's
+  # answer, which covers the view update and the event after the store's.
+  @reply_slack 1_000
 
   @doc false
   @spec name(module()) :: atom()
@@ -40,12 +58,21 @@ defmodule Encryptor.Vault.Suspension.Refresher do
   end
 
   @doc false
-  # One write, serialized with the refreshes. A call that exits - it timed
-  # out, or this process is restarting - is reported as a write the store did
-  # not accept (ADR-0010 decision 5).
-  @spec write(Config.t(), Suspension.action(), Error.selector()) :: :ok | {:error, Error.t()}
-  def write(%Config{vault: vault} = config, action, selector) do
-    GenServer.call(name(vault), {action, selector})
+  # One write, serialized with the refreshes, under a deadline `timeout`
+  # milliseconds from now. A request dropped at its deadline, and a call that
+  # exits - it timed out, or this process is restarting - are reported as a
+  # write the store did not accept (ADR-0010 decisions 5 and 7). Either way
+  # the one event is emitted here, on the caller's process, because the
+  # refresher emitted nothing for the write.
+  @spec write(Config.t(), Suspension.action(), Error.selector(), pos_integer()) ::
+          :ok | {:error, Error.t()}
+  def write(%Config{vault: vault} = config, action, selector, timeout \\ @write_timeout) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    case GenServer.call(name(vault), {action, selector, deadline}, timeout + @reply_slack) do
+      :expired -> Suspension.failed(config, action, {:timeout, timeout})
+      answer -> answer
+    end
   catch
     :exit, reason -> Suspension.failed(config, action, {:exit, reason})
   end
@@ -62,9 +89,12 @@ defmodule Encryptor.Vault.Suspension.Refresher do
   def handle_info(:refresh, state), do: {:noreply, refresh(state)}
 
   @impl GenServer
-  def handle_call({action, selector}, _from, %{config: config} = state)
+  def handle_call({action, selector, deadline}, _from, %{config: config} = state)
       when action in [:suspend, :reinstate] do
-    {:reply, Suspension.perform(config, action, selector), state}
+    case deadline - System.monotonic_time(:millisecond) do
+      left when left > 0 -> {:reply, Suspension.perform(config, action, selector, left), state}
+      _expired -> {:reply, :expired, state}
+    end
   end
 
   defp refresh(%{config: config} = state) do
