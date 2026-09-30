@@ -190,7 +190,7 @@ happens to be a good one - the record is what makes it reviewable.
 
 ```bash
 mix quality --profile loop   # inner loop: format, compile, credo, changed tests
-mix quality                  # full gate: + dialyzer, deps audit, coverage floor
+mix quality                  # full gate: every stage .quality.exs lists
 mix test                     # just the suite
 ```
 
