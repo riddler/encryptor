@@ -1178,3 +1178,42 @@ function here", now names the field and the default the same way.
 
 Decision 8's wording is left as written - a merged record's body is not
 rewritten by a Note - and this Note carries no status of its own.
+
+## Note (2026-09-29): two readings of the first 2026-09-14 Note's cites and scope
+
+Two precisions about the first Note of 2026-09-14 above (its heading at
+`:1044`, beginning "the worked example's"), neither of which changes a
+decision or a reading that Note gives. Every line cited below was read by
+anchor at enc `d667bb0`. The 2026-09-26 Note records the acceptance of
+Amendment A and addresses neither point.
+
+### 1. The A1 cite pairs a heading anchor with a body range
+
+That Note's section 1 quotes A1 and cites it as (anchor "### A1. Continuous
+traffic on a GCP-backed vault costs one `Decrypt` per encrypt, not one per
+cache lifetime", `:995-998`). In this file's other anchored cites the anchor
+string sits inside the line range cited beside it. Here it does not: it names
+A1's heading, at `:990`, and `:995-998` is where the quoted sentences sit,
+the tail of A1's first paragraph (`:992-998`).
+
+**Read the cite as: A1's heading at `:990`, the quoted text at `:995-998`.**
+Both numbers still hold at `d667bb0`, and the quote itself is unchanged.
+
+### 2. "Edits nothing" is true of that Note, and one re-wrap landed beside it
+
+That Note says "Amendment A above keeps every word it has and keeps its own
+status; this Note appends below it and edits nothing" (`:1046-1048`). The
+Note itself edits nothing. The change that landed it also carried one
+formatting-only commit, `9db312d`, which re-flowed the paragraph of
+Amendment A that begins "**Re-anchor the worked example's sentence.**"
+(`:1014`), replacing its last four lines with five (`:1019-1023` at
+`d667bb0`). `git diff --word-diff=porcelain 9db312d^ 9db312d -- docs/adr/`
+shows no added or removed word.
+
+**Read the Note's statement as holding modulo that one re-wrap commit:**
+Amendment A kept every word, but not every line break, in that change.
+
+Provenance: bead `enc-mae`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
