@@ -16,6 +16,14 @@ defmodule Encryptor.Vault.ShredDrainTest do
       written under the retired version is then found by its own cache id and
       serves until it expires or the cache is dropped.
 
+  The mint that opens the window has a cache question of its own, on the
+  write side. The encryption cache id is computed from the partition, the
+  suite and the context the caller passed - not from the key that wrapped
+  the entry's data key - so a warm encryption entry from before P2 step 1
+  keeps issuing data keys wrapped under version *n* after the provider has
+  started answering *n+1*, until the entry expires, reaches its message or
+  byte bound, or the cache is dropped.
+
   The store here is a host's key table reduced to an ETS row per scope, read
   on every call by a `Function` provider, which is the shape the claim is
   about: a provider that reads its store per call. The worked domain is
@@ -98,6 +106,14 @@ defmodule Encryptor.Vault.ShredDrainTest do
 
   defp put_versions(selector, versions), do: :ets.insert(@store, {selector, versions})
 
+  # The key names a message's header says wrapped its data key.
+  defp wrapped_under(ciphertext) do
+    {:ok, info} = Encryptor.Message.describe(ciphertext)
+    Enum.map(info.encrypted_data_keys, & &1.key_name)
+  end
+
+  defp key_name(selector, version), do: descriptor(selector, version).name
+
   defp delete_scope(selector), do: :ets.delete(@store, selector)
 
   defp start_vault do
@@ -163,6 +179,37 @@ defmodule Encryptor.Vault.ShredDrainTest do
 
       assert {:error, %Error{reason: :decrypt_failed}} =
                vault.decrypt(ciphertext, key: @branch, encryption_context: @columns)
+    end
+  end
+
+  describe "P2 step 1, the mint, on a warm encryption cache" do
+    # sabotage: made maybe_caching/3 in Encryptor.Vault.Encrypt return the
+    # uncached CMM for every vault - red on the write after the mint: with no
+    # materials cache the provider's newest answer wraps every data key, and
+    # the header names version 2 at once.
+    test "keeps writing under the old version from a warm entry until the cache is dropped" do
+      vault = start_vault()
+      put_versions(@branch, [1])
+
+      # The write that populates the encryption cache for this context.
+      before_mint = vault.encrypt!(@email, key: @branch, encryption_context: @columns)
+      assert wrapped_under(before_mint) == [key_name(@branch, 1)]
+
+      # P2 step 1: version 2 is minted and the provider now answers it first.
+      put_versions(@branch, [2, 1])
+      assert {:ok, %Aes{name: current}} = current(@branch)
+      assert current == key_name(@branch, 2)
+
+      # Before a drain: the same context finds the warm entry, and the new
+      # message's data key is still wrapped under version 1.
+      after_mint = vault.encrypt!(@email, key: @branch, encryption_context: @columns)
+      assert wrapped_under(after_mint) == [key_name(@branch, 1)]
+
+      # A drain, by restart: a fresh cache, and the write takes version 2.
+      vault = restart_vault()
+
+      after_drain = vault.encrypt!(@email, key: @branch, encryption_context: @columns)
+      assert wrapped_under(after_drain) == [key_name(@branch, 2)]
     end
   end
 end
