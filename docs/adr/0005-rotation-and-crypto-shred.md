@@ -1629,3 +1629,23 @@ Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
 Whether P3 step 3, the table row, the consequence and A5's paragraph are
 rewritten is an Amendment's question.
+
+## Note (2026-09-29): the 2026-09-14 Note's self-cite carries its SHA
+
+One cite completed, which changes nothing. The 2026-09-14 Note above (the
+security-section Note's ADR-0003 quotation carries its anchor) cites this
+record's own paragraph by anchor "**Not which tenant.**" at `:1473-1482` with
+no read-at SHA, where the ADR-0003 cite beside it carries one. That Note's
+rule names a quotation of another record; this Note applies it to the
+self-cite as well, so a reader can re-locate the paragraph after the line
+numbers move.
+
+The paragraph is at `:1473-1482`, anchor "**Not which tenant.**" at `:1473`,
+read at enc `d237bf3` (the commit that wrote the 2026-09-14 Note) and again at
+enc `75906cf`. The lines did not move between the two reads: every Note
+appended since sits below the paragraph.
+
+Provenance: bead `enc-c3o`.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
