@@ -6,9 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Entries for unreleased work are not written here directly. Each issue drops a
-fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/v0.5.0/changelog.d/README.md); the fragments are assembled
+fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/v0.6.0/changelog.d/README.md); the fragments are assembled
 into a version section at release. See that README for the format and for when a
 change warrants an entry at all.
+
+## [0.6.0] - 2026-09-30
+
+### **Breaking**
+
+- **Breaking:** a vault refuses to start on an option it does not read, where
+  it used to ignore it. The refusal is `{:invalid_config, layer,
+  {:unknown_options, keys}}`, naming the layer (`:use`, `:app_env`,
+  `:start_link` or `:init`) and the sorted unknown keys. Rename or remove each
+  listed option - the pre-rename `:telemetry_tenant_ref` is
+  `:telemetry_scope_ref` - and set `:otp_app` only in `use Encryptor.Vault`.
+- **Breaking:** `Encryptor.Provider.GcpKms` answers a `Decrypt` that Cloud
+  KMS refuses with HTTP 400 or 404 (an AAD mismatch, a key or version that is
+  not there) as `{:invalid_key_descriptor, {:kms_refused, status}}` from
+  `encryption_key/2` and `decryption_keys/2`, where it answered
+  `{:key_unavailable, selector}`; an IAM denial, a throttle, a server error
+  and a transport or token failure still answer `{:key_unavailable,
+  selector}`. Match the new term wherever a caller handled a refused row as
+  `:key_unavailable`, and stop retrying it.
+
+### Fixed
+
+- A write after a new key version is minted wraps its data key under that
+  version at once, even when the vault's materials cache is warm. The write
+  side's cache partition id now carries the resolved key as well as the
+  vault and the selector, so the entry from before the mint is no longer
+  found; `rekey/2`'s write half gets the same fix. Upgrading changes every
+  write-side partition id once: the first write per context after the deploy
+  is a cache miss (on the KMS path, one KMS call). Messages, stored rows and
+  the read side are unchanged.
+- Under a shared suspension store, a `suspend/2` or `reinstate/2` that
+  answered `{:suspension_store_unavailable, store}` on its five-second timeout
+  is no longer performed seconds later with a second
+  `[:encryptor, :suspension, :changed]` event, and a store whose `list/1`
+  hangs no longer blocks every write behind it: a refresh gives the store five
+  seconds.
 
 ## [0.5.0] - 2026-09-24
 
