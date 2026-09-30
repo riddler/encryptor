@@ -175,9 +175,18 @@ defmodule Encryptor.Provider.GcpKms do
         --location <location> --keyring <ring> --key t-<digest>
 
   This package ships no verb for it, for the reason ADR-0005 decision 10
-  declined to ship `shred/2`: the store delete is still the host's and the
-  destroy is still a call the host's runbook makes. ADR-0007 open question 5
-  leaves whether it should ever offer one open.
+  declined to ship `shred/2`: the key store is not this package's, so the
+  store delete is not a call it makes, and the destroy is still a call the
+  host's runbook makes. ADR-0007 open question 5 leaves whether it should
+  ever offer one open.
+
+  The store delete, P3 steps 2 and 3, is a separate call. A host that keeps
+  its key rows in `encryptor_ecto`'s Repo key store makes it through that
+  package's `Encryptor.Ecto.KeyStore.shred/3` (`version: :all`), which deletes
+  the scope's rows from the store the vault reads and, by default, returns
+  only once the vault's cache can no longer serve them. It does not touch
+  GCP: step 2a's destroy stays the host's, beside it in the same runbook. A
+  host with any other store still deletes the rows itself.
 
   Two things the destroy does not do. **It is not full erasure**: the scope's
   permanent pseudonym, the `scope_ref`, sits in every message header and
