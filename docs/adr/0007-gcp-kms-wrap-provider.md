@@ -1217,3 +1217,115 @@ Provenance: bead `enc-mae`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Amendment B (2026-09-30): a `Decrypt` 400 or 404 answers a permanent refusal
+
+Status: proposed (2026-09-30).
+
+This amendment only adds, and it removes no line. It answers open question 4
+for two statuses and leaves it open for the third, and it supersedes, for
+those two statuses only, two sentences of the typespec section. The term was
+ruled by the operator, 2026-09-30. Every cite below was read at enc `0bf205e`
+unless it names this change; a `lib/` cite names a function, which is the
+anchor.
+
+### Why now
+
+The provider's `Decrypt` failures reach it apart. The HTTP call returns
+`{:http_status, status}`, `{:transport, :request_failed}`, `{:token,
+:unavailable}` or `{:malformed_response, tag}` (`Encryptor.Provider.GcpKms.Api`,
+its `failure` type and `handle/2`). Before this amendment the provider's
+private `unwrap/3` folded all four into `{:key_unavailable, selector}`, which
+is the term ADR-0002 decision 6 names as the one "a caller retries this one
+and only this one" (`docs/adr/0002-key-providers.md:271-273`). An AAD mismatch
+is a row moved between scopes or versions, and a missing key or version is
+gone; a retry changes neither answer, and a caller that follows the vocabulary
+retries both forever. A key store that reads rows through this provider cannot
+tell a refused row from an outage either.
+
+### B1. The answer to a failed `Decrypt`
+
+| the `Decrypt` call | reason |
+|---|---|
+| HTTP 400 (an AAD mismatch, a wrapping that does not decrypt) | `{:invalid_key_descriptor, {:kms_refused, 400}}` |
+| HTTP 404 (a key or version that is not there) | `{:invalid_key_descriptor, {:kms_refused, 404}}` |
+| HTTP 403 (an IAM denial) | `{:key_unavailable, selector}`, unchanged |
+| HTTP 429, any 5xx, or any other status | `{:key_unavailable, selector}`, unchanged |
+| a transport failure, a token the server would not mint, a malformed response | `{:key_unavailable, selector}`, unchanged |
+
+The set of statuses a `{:kms_refused, status}` detail can carry is exactly
+400 and 404. The mapping is `decrypt_failure/2` in
+`Encryptor.Provider.GcpKms` (this change), called from `unwrap/3`.
+
+**Scope.** `unwrap/3` is the one `Decrypt` path, and both
+`encryption_key/2` and `decryption_keys/2` reach it, so both answer the table
+above: the same wrapping cannot answer a retry on the write path and a
+refusal on the read path. `provision/2` and its private `mint/4` are out of
+scope: a failed `CreateCryptoKey` or `Encrypt` there still answers
+`{:key_unavailable, selector}` whatever the status, and whether they follow is
+left open below.
+
+**The family, and why no new term.** `{:invalid_key_descriptor, term()}` is
+already a member of the closed vocabulary with an open detail
+(`lib/encryptor/provider.ex`, type `reason`; `lib/encryptor/error.ex`, type
+`reason`), and `Encryptor.Vault.Resolve` passes a provider's member through
+unrelabelled. This amendment adds a detail, not a term. It widens the
+family's meaning for this provider: ADR-0002 decision 6 describes it as "a
+bug in the provider, not in the caller" (`docs/adr/0002-key-providers.md:274-276`),
+and here it also carries a permanent refusal by the backing service. The
+provider behaviour's reason doc says so beside that sentence
+(`Encryptor.Provider`, type `reason`'s doc, this change), and a dated Note on
+ADR-0002 points here.
+
+**What an operator reads.** `Encryptor.Error`'s message renders the family
+only, "the provider returned a key descriptor this vault cannot use", because
+the detail of `{:invalid_key_descriptor, detail}` is never rendered
+(`Encryptor.Error`, `describe/1`). The status is in the reason's detail, so a
+`case` over the reason or a log line that inspects it reads it, and
+ADR-0006's `reason_tag` is `:invalid_key_descriptor`. The message is left as
+it is; the provider's moduledoc, section "What a failed `Decrypt` answers",
+says where the status is.
+
+**The reversible 400.** Cloud KMS also answers 400 to a `Decrypt` under a
+`CryptoKeyVersion` that is disabled, and enabling the version again makes the
+same call succeed. That refusal is reversible by an operator's act, not by a
+retry, which is the line this table draws: a caller that retries a disabled
+version's 400 still gets 400 until someone enables it. Disabling a version is
+not a verb of this package, and a host that uses it as a pause reads the
+permanent family until it is undone.
+
+### B2. What this supersedes, and what it leaves
+
+**Superseded, for 400 and 404 on the `Decrypt` path only:**
+
+- the typespec section's table row "GCP unreachable, throttled, or IAM-denied
+  | `{:key_unavailable, selector}`" (`:731`): a 400 or 404 is neither, and now
+  answers B1's refusal;
+- the paragraph beginning "`{:key_unavailable, selector}` covering IAM denial
+  alongside a network timeout" (`:736-741`), in its last sentence, "The GCP
+  status belongs in telemetry metadata [...] not in the closed vocabulary",
+  for these two statuses: the status now rides in the reason's detail. The
+  paragraph's argument about IAM stands as written, because B1 leaves 403
+  where it was.
+
+**Open question 4 (`:872-878`) is answered for 400 and 404 and left open for
+403.** An IAM denial stays `{:key_unavailable, selector}` because a revoked
+IAM binding on a scope's `CryptoKey` is the provider-level locus of a
+suspension, and ADR-0005 Amendment A (accepted) fixes that "both surface the
+same reason to the caller" (its A3) and gives the suspended state
+`{:key_unavailable, selector}` (its A4 table), which ADR-0010 repeats ("They
+compose as A3 says"). Whether that term should carry a cause is ADR-0005
+Amendment A's open question A-2, which asks for one decision "for both
+callers, or not at all"; this amendment decides nothing for the IAM caller
+and leaves it there.
+
+Nothing else changes. Decisions 1 to 10 keep their text, the typespec
+section's other rows stand, and no record's line is edited.
+
+### Open questions this amendment adds
+
+1. **Should `provision/2` and `mint/4` follow B1?** A `CreateCryptoKey` or
+   `Encrypt` refused with 400 or 404 is as permanent as a `Decrypt` one, but a
+   provision answers an operator's onboarding call rather than a read, and
+   what a caller does with the answer there is not the same question. Owner:
+   this repository.

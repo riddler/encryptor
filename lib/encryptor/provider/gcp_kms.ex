@@ -141,6 +141,40 @@ defmodule Encryptor.Provider.GcpKms do
       tracking - which is not what ADR-0005's runbook means by a rotation with
       a verifiable end.
 
+  ## What a failed `Decrypt` answers
+
+  ADR-0007 Amendment B. `c:Encryptor.Provider.encryption_key/2` and
+  `c:Encryptor.Provider.decryption_keys/2` unwrap through the same `Decrypt`
+  call, so they answer a failed one the same way:
+
+  | the `Decrypt` call | reason |
+  |---|---|
+  | HTTP 400 or 404 | `{:invalid_key_descriptor, {:kms_refused, status}}` |
+  | HTTP 403, 429, 5xx or any other status | `{:key_unavailable, selector}` |
+  | the transport failed, or no token could be had | `{:key_unavailable, selector}` |
+  | a response that is not a usable answer | `{:key_unavailable, selector}` |
+
+  A 400 is what Cloud KMS answers when the additional authenticated data does
+  not match the wrapping, which is a row moved between scopes or versions; a
+  404 is a key or version that is not there. Retrying either changes nothing,
+  so neither is reported as the term a caller retries. One 400 is reversible
+  all the same: a `CryptoKeyVersion` that an operator has disabled answers
+  400 until it is enabled again.
+
+  A 403, an IAM denial, stays `{:key_unavailable, selector}`: a revoked IAM
+  binding is the provider-level suspension of ADR-0005 Amendment A, and a
+  suspension answers that term at either locus.
+
+  `Encryptor.Error`'s message renders only the family, "the provider returned
+  a key descriptor this vault cannot use", because the detail of an
+  `{:invalid_key_descriptor, detail}` is never rendered. The status is in the
+  reason's detail and in the error's `:reason` field, where a `case` or a log
+  line that inspects the reason reads it.
+
+  `c:Encryptor.Provider.provision/2` is not covered by this table: a failed
+  `CreateCryptoKey` or `Encrypt` there answers `{:key_unavailable, selector}`
+  whatever the status.
+
   ## Two vocabularies of "version"
 
   ADR-0007 decision 7. Conflating them is the failure this table exists to
@@ -197,7 +231,8 @@ defmodule Encryptor.Provider.GcpKms do
   when the key is created; `provision/2` sets none, so a key it creates takes
   the Cloud KMS default, 30 days. The window exists; do not rely on it.
 
-  Records: ADR-0007 decisions 1 through 10; ADR-0002 decisions 1, 5 and 6;
+  Records: ADR-0007 decisions 1 through 10 and Amendment B; ADR-0002
+  decisions 1, 5 and 6;
   ADR-0003 decisions 1, 4, 5, 6 and 8; ADR-0004 decisions 3, 4 and 7;
   ADR-0005 decision 10 and procedure P3.
   """
@@ -226,6 +261,9 @@ defmodule Encryptor.Provider.GcpKms do
   @default_namespace "encryptor-tenant"
   @default_prefix "t-"
   @default_timeout 5_000
+
+  # ADR-0007 Amendment B: the `Decrypt` statuses answered as a refusal.
+  @refused_statuses [400, 404]
 
   @required [:project, :location, :key_ring, :reference_subkey, :http_client, :goth, :store]
   @reference_subkey_bytes 32
@@ -504,10 +542,20 @@ defmodule Encryptor.Provider.GcpKms do
       {:ok, _wrong_size} ->
         {:error, {:invalid_key_descriptor, :material_size}}
 
-      {:error, _failure} ->
-        {:error, {:key_unavailable, selector}}
+      {:error, failure} ->
+        {:error, decrypt_failure(failure, selector)}
     end
   end
+
+  # ADR-0007 Amendment B: the `Decrypt` statuses a retry cannot change - an
+  # AAD mismatch (400) and a key or version that is not there (404) - answer
+  # the permanent family; everything else, a 403 included, stays the term a
+  # caller retries.
+  @spec decrypt_failure(Api.failure(), Provider.selector()) :: Provider.reason()
+  defp decrypt_failure({:http_status, status}, _selector) when status in @refused_statuses,
+    do: {:invalid_key_descriptor, {:kms_refused, status}}
+
+  defp decrypt_failure(_failure, selector), do: {:key_unavailable, selector}
 
   @spec required(keyword()) :: :ok | {:error, Encryptor.Error.reason()}
   defp required(opts) do

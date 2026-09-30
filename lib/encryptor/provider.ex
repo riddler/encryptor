@@ -114,6 +114,9 @@ defmodule Encryptor.Provider do
       timeout, a throttle. This is the one a caller retries.
     * `{:invalid_key_descriptor, detail}` - answered with something the vault
       cannot build a keyring from. A bug in the provider, not in the caller.
+      A provider may also answer it for a backing service that refused the
+      key permanently, where a retry cannot change the answer: the GCP KMS
+      provider's `{:kms_refused, status}` detail (ADR-0007 Amendment B).
     * `{:provider_not_started, module}` - a provider with a `c:child_spec/1`
       whose process is not alive.
     * `{:missing_optional_dependency, dep}` - returned at start by adapters
