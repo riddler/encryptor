@@ -158,8 +158,13 @@ defmodule Encryptor.Vault.Docs do
   @doc false
   def derive do
     """
-    Derives labelled key bytes for a scope, without exporting the key
-    material they come from.
+    Derives labelled key bytes from the key a selector resolves to, without
+    exporting the key material they come from.
+
+    In these docs a scope is always the key's owner (ADR-0009), the thing a
+    `:scoped` vault's `:key` selector names. The derivation's own inputs -
+    the purpose, the `:info` string and the length - are never called a
+    scope here, although ADR-0003 amendment A uses that word for `:info`.
 
     This is ADR-0003 amendment A's surface, and its caller is another
     library rather than an application call site: `encryptor_ecto`'s blind
@@ -180,9 +185,9 @@ defmodule Encryptor.Vault.Docs do
         vault's profile exactly as `encrypt/2` types it. A `:scoped` vault
         refuses `:default` here too: a derivation that fell back to a
         default key would hand every scope the same subkey.
-      * `:info` - the caller's own scope string within the purpose, used
-        verbatim and opaque to this package. Defaults to `""`, which is a
-        legitimate scope rather than a missing argument.
+      * `:info` - the caller's own separation string within the purpose,
+        used verbatim and opaque to this package. Defaults to `""`, which is
+        a legitimate value rather than a missing argument.
       * `:length` - output bytes, defaulting to `32`.
 
     ## What the derivation is

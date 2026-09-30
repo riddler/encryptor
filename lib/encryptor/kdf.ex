@@ -376,8 +376,8 @@ defmodule Encryptor.Kdf do
       iex> byte_size(Encryptor.Kdf.salted_subkey(master, salt, "blind-index", "orders.email", 32))
       32
 
-  A different salt is a different deployment, and the same scope derives an
-  unrelated key under it:
+  A different salt is a different deployment, and the same master key,
+  purpose and info derive an unrelated key under it:
 
       iex> master = :binary.copy(<<0x0B>>, 32)
       iex> a = Encryptor.Kdf.salted_subkey(master, :binary.copy(<<0x5A>>, 32), "blind-index", "orders.email", 32)
@@ -385,7 +385,7 @@ defmodule Encryptor.Kdf do
       iex> a == b
       false
 
-  An empty `info` is a scope like any other, not a missing argument, and it
+  An empty `info` is a value like any other, not a missing argument, and it
   does not yield the intermediate purpose key:
 
       iex> master = :binary.copy(<<0x0B>>, 32)
