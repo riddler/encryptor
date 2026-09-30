@@ -140,8 +140,11 @@ defmodule Encryptor.Vault.Rekey do
              Resolve.encryption_key(config, selector, :rekey)
            end),
          {:ok, writer} <- Keyring.build(vault, :rekey, descriptor) do
+      # The write-side client, partitioned by the key it writes under as well
+      # as the selector, so a rewrite after a mint never finds a warm entry
+      # wrapped under the version before it (ADR-0001 Amendment B).
       config
-      |> Encrypt.client(writer, selector)
+      |> Encrypt.client(writer, selector, descriptor)
       |> Encrypt.engine_encrypt(config, plaintext, stored, :rekey)
     end
   end

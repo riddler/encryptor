@@ -1043,3 +1043,110 @@ The encrypt path follows it at `827c6d3`:
 
 The keyring therefore exists before any caching CMM does, which is the reading
 ADR-0002 Amendment A's A1 settled.
+
+## Amendment B (2026-09-30): the write side's partition id carries the resolved key
+
+Status: **proposed (2026-09-30)**. This amendment only adds: no line above is
+edited. It amends decision 7 for the write side and leaves decision 7's
+formula in force for the read side. The decision, to fold the resolved key
+into the write side's partition id in code rather than leave the gap to a
+runbook drain, was ruled by the operator, 2026-09-30. The lib/ cites below
+name functions this change adds or edits, so they are anchors, not line
+numbers; the engine cites are `aws_encryption_sdk` 1.0.0, the version
+`mix.lock` resolves.
+
+### Why now
+
+The engine's encryption cache id hashes the partition id, the suite and the
+request's context, and not the key that wrapped the entry's data key
+(`compute_encryption_cache_id/3`, `lib/aws_encryption_sdk/cmm/caching.ex:201`).
+Under decision 7 the partition id was the vault and the selector only, so a
+write after a key version was minted (ADR-0005 P2 step 1) found the warm entry
+from before the mint and wrapped its data key under the old version, until the
+entry expired or the cache was dropped. ADR-0005 Amendment B added a drain to
+P2 step 1 as the procedural remedy; this amendment removes the gap it drains.
+
+### B1. The write side's formula
+
+On the write side - an encrypt, and a rekey's write half - the vault derives
+the partition id from the vault, the selector and the key the provider's
+`encryption_key/2` resolved to:
+
+```
+lp(x)        = <<byte_size(x)::32-big>> <> x
+identity(key) = <<0>> <> lp(namespace) <> lp(name)      # an Encryptor.Key.Aes
+              | <<1>> <> lp(key_id)                     # an Encryptor.Key.Kms
+partition_id = binary_part(:crypto.hash(:sha256,
+                 lp(vault_namespace) <> lp(encoded_selector) <> identity(key)), 0, 16)
+```
+
+`encoded_selector` is decision 7's own tagged encoding. The key's fields are
+the ones the message header records for the key that wraps a data key: the
+provider id and key name of a raw AES keyring, the key id of a KMS keyring.
+`Encryptor.Key.Aes` already fixes that a name is bound to its bytes for good
+and that a rotation mints a new name, so a new version is a new partition and
+a write after a mint is a cold miss that wraps under the new version at once,
+with no drain. `Encryptor.Vault.Partition.encryption_id/3` computes it, and
+`Encryptor.Vault.Encrypt.stack/4` hands it to the caching CMM; it is
+`@doc false`, and no public function or option is added.
+
+Decision 7's two properties still hold. The id is 16 bytes, the engine's
+width, so the engine's own unprefixed concatenation stays unambiguous. It is
+a cache-key input only: it is not key material, it is not secret, and it
+never reaches the message, the telemetry metadata or any store. The
+partition id lives only in the in-memory cache table; nothing persisted and
+nothing on the wire carries it, and the ciphertext's shape is unchanged.
+
+### B2. Why the pre-image cannot collide
+
+Every field is length-prefixed, and the key identity opens with a tag that
+fixes how many prefixed fields follow. Reading a pre-image from the left
+therefore recovers exactly one (vault, selector, key) triple, so two different
+triples cannot produce one pre-image. The selector keeps decision 7's tag, so
+`:default` and the string `"default"` stay apart, and the key's tag keeps an
+AES name apart from a KMS key id of the same spelling. What is left is the
+truncation of SHA-256 to 128 bits, which is the bound decision 7 already
+accepted for the read side.
+
+A write-side id and a read-side id are never compared: the engine separates
+its encryption and decryption cache ids by their own leading bytes
+(`compute_encryption_cache_id/3` and `compute_decryption_cache_id/4`,
+`lib/aws_encryption_sdk/cmm/caching.ex:201` and `:224`), so the two formulas
+need no tag between them.
+
+### B3. The read side is unchanged
+
+The decryption cache id already hashes the message's encrypted data keys
+(`compute_decryption_cache_id/4`, `lib/aws_encryption_sdk/cmm/caching.ex:224`),
+and each one names the key that wrapped it, so a read entry is already keyed
+by the key. A read also has no single resolved key to fold in: its keyring is
+built from the provider's whole candidate list. `Encryptor.Vault.Decrypt` and a
+rekey's read half keep decision 7's formula through
+`Encryptor.Vault.Encrypt.stack/3`.
+
+### B4. A deploy is one cold cache
+
+Every write-side partition id changes once, when a node first runs this
+change, so every warm encryption entry on that node is a miss after the
+deploy; the next write for each context generates a fresh data key and, on
+the KMS path, pays one KMS call. A deploy that restarts the node starts with
+a cold cache anyway; a hot code upgrade does not, and pays this once. Read-side
+ids do not change.
+
+After a mint, the entries under the previous version's partition are no
+longer found by a write and stay resident until `max_age` or the recycler
+drops them (decision 6); that is residency, not a write under the old
+version.
+
+### What this amendment does not do
+
+It decides nothing cryptographic: no ciphertext shape, key derivation,
+algorithm or parameter changes, and no wire spelling (the EDK prefix, the
+context keys, the HKDF labels) moves. It does not supersede ADR-0005
+Amendment B's drain; what that drain still covers is ADR-0005's Note of
+2026-09-30. `test/encryptor/vault/shred_drain_test.exs`'s "writes under the
+new version at once, from a warm cache, with no drain" and "a rekey's write
+half rewrites under the new version at once, with no drain" pin B1, and
+`test/encryptor/vault/partition_test.exs` pins the derivation.
+
+Provenance: bead `enc-jwkn`.
