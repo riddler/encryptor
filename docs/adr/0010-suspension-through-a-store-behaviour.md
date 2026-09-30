@@ -595,8 +595,9 @@ answer have no bound (the view update, `CacheRecycler.recycle/2`, and any
 synchronous handler of the `:ok` event), so a write the store accepted
 whose answer reaches the caller later than the deadline plus the slack
 ends with the caller's call exiting. The caller's `Suspension.failed/3`
-then emits `:error` while `perform/4` has emitted its own outcome, and the
-write stands; a retry is safe (decision 7). A write that landed in the
+then emits `:error`, and `perform/4` emits its own outcome as well, before
+or after the caller's depending on which step ran long; the write stands,
+and a retry is safe (decision 7). A write that landed in the
 store after its caller was told it failed is announced, if it changed the
 view, by the refresh that reads it, as decision 8's second bullet already
 provides.
