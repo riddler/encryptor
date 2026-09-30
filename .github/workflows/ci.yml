@@ -68,10 +68,11 @@ jobs:
       - name: Fetch dependencies
         run: mix deps.get
 
-      # The gate is the whole job. It formats, compiles with warnings as
-      # errors, runs credo --strict, dialyzer, the deps audit, and the full
-      # suite with coverage, printing detail under any failing stage - so a
-      # red run is diagnosable from this log alone. Three stages report as
+      # The gate is the whole job. It runs every stage .quality.exs lists -
+      # the header of that file is the one stage list, kept there rather
+      # than copied here, where a copy drifts the first time a stage is
+      # added - printing detail under any failing stage, so a red run is
+      # diagnosable from this log alone. Three stages report as
       # skipped and always will: doctor, gettext, and sobelow, none installed
       # here (they are the manifest's not_applicable_skips).
       #
