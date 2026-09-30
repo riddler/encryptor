@@ -288,3 +288,25 @@ The 0.5.0 release kept no deprecated aliases. The profile validator refuses
 `Encryptor.Envelope` has no `tenant_ref/2`. The 0.5.0 changelog's first
 Breaking entry records it in the words "renamed with no deprecated aliases",
 which is where the question said the answer would be recorded.
+
+## Note (2026-09-29): the key store's reference is `scope_ref/2` of the selector
+
+One reading of the Consequences' fourth bullet, which changes no decision.
+The bullet says `encryptor_ecto`'s key store finds a wrapped key by "its
+reference, which its docs define as `Envelope.tenant_ref/2` of the host's
+selector". That was true when this record was written; the function it
+names was renamed by decision 3 and shipped in 0.5.0 with no alias (the
+2026-09-24 Note, section 5).
+
+**Read the bullet as naming `Envelope.scope_ref/2`.** In `encryptor_ecto`
+(read at `4722b05`), `Encryptor.Ecto.KeyStore`'s moduledoc, section "The
+table", defines the `tenant_ref` column as "`Encryptor.Envelope.scope_ref/2`
+of the host's selector", and the store's private `scope_ref/2` computes the
+lookup key by calling `Envelope.scope_ref/2`. That package's own record of
+the rename is its ADR-0006. The rest of the bullet holds as written: the
+column keeps the name `tenant_ref`, and the values it holds are still
+found, because decision 4 keeps `scope_ref/2`'s answer equal to what
+`tenant_ref/2` returned for the same subkey and selector.
+
+The bullet is left as written - a merged record's body is not rewritten by a
+Note - and this Note carries no status of its own.

@@ -93,14 +93,20 @@ defmodule Encryptor.Telemetry do
 
     * after every `Encryptor.Vault.suspend/2` or `Encryptor.Vault.reinstate/2`
       the vault performed, successful or not;
-    * under a shared `:suspension_store`, after a refresh that changed the
-      view's membership, after a refresh that failed, and after the first
-      refresh that succeeds following a failure.
+    * under a shared `:suspension_store`, after the refresh that loads the
+      view, after a refresh that changed the view's membership, after a
+      refresh that failed, and after the first refresh that succeeds
+      following a failure.
 
-  A refresh that changed nothing emits nothing, so a healthy vault is silent
-  between operator actions. The selector is never in it, whatever
-  `:telemetry_scope_ref` says: an operator who needs to know which scope was
-  suspended reads the store.
+  Until a shared store's view is loaded, the vault denies every scope, so
+  the refresh that loads it is a change even when the store's set is empty:
+  it emits `action: :refresh`, `outcome: :ok` and the loaded `count`. That is
+  the first successful refresh after the vault starts, and again the first
+  one after a restarted `Encryptor.Vault.Lifecycle` has recreated the view.
+  Any other refresh that changed nothing emits nothing, so a healthy vault is
+  silent between operator actions. The selector is never in the event,
+  whatever `:telemetry_scope_ref` says: an operator who needs to know which
+  scope was suspended reads the store.
 
   ## The opt-in scope dimension
 
