@@ -1170,3 +1170,53 @@ anywhere in either.
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-29): the failure table enumerates the `%Kms{}` rows, and the `%Aes{}` descriptor's terms are enumerated by the keyring tests
+
+This Note decides nothing. No decision is amended, no row is added to or
+removed from the failure table, no error term is added, and the code does not
+change; this Note carries the record's status rather than one of its own.
+Every cite was read by anchor at enc `2a92c3f`. Provenance: bead `enc-ur4`.
+
+`Encryptor.Vault.Keyring` emits two `{:invalid_key_field, field, detail}`
+terms the failure table (`:791-801`, anchor "| failure | what the caller sees
+| new? |") has no row for:
+
+- `{:invalid_key_field, :bits, :unsupported}`, from `validate_bits/1` when the
+  declared size is not 128, 192 or 256 (`lib/encryptor/vault/keyring.ex:250-251`,
+  anchor `defp validate_bits`);
+- `{:invalid_key_field, :material, :not_a_binary}`, from
+  `validate_material/2` when the material is not a binary
+  (`lib/encryptor/vault/keyring.ex:253-255`, anchor `defp validate_material`).
+
+**Read the table as written: it enumerates the failures of the `%Kms{}`
+descriptor's path, not every detail term the module emits.** Its lead-in says
+so: "The failure vocabulary gains **four detail terms**" (`:783`), and its
+rows are those four new `%Kms{}` terms followed by the pre-existing reasons a
+caller of `Encryptor.Provider.Kms` meets (`:803`, anchor "The five
+pre-existing rows are used unchanged."). Both terms above come from the
+`%Aes{}` clause of `checks/1` (`lib/encryptor/vault/keyring.ex:198-205`,
+anchor `defp checks(%Aes{} = key)`), which this record did not introduce and
+which no `%Kms{}` descriptor reaches: the `%Kms{}` clause runs only
+`validate_header_string/2` on `:key_id` and `validate_client/1`
+(`lib/encryptor/vault/keyring.ex:214-218`, anchor `defp checks(%Kms{} = key)`).
+The same holds for the `%Aes{}` descriptor's other failures - the
+`:namespace` and `:name` terms, `{:reserved_namespace, "aws-kms"}` and
+`{:key_length_mismatch, bits, actual}` - none of which the table lists either.
+
+**The enumeration of the `%Aes{}` descriptor's failures lives in the tests.**
+`describe "build/3 validation"` in `test/encryptor/vault/keyring_test.exs`
+(`:52`) asserts each of them as a literal term, and the two above by name:
+
+- "rejects a size outside the three the engine accepts" (`:90`) asserts
+  `{:invalid_key_descriptor, {:invalid_key_field, :bits, :unsupported}}` for
+  each unsupported size it tries, an atom among them;
+- "rejects material that is not a binary" (`:116`) asserts
+  `{:invalid_key_field, :material, :not_a_binary}`.
+
+A reviewer checking the table against `Encryptor.Vault.Keyring` reads the
+`%Kms{}` clauses against the table and the `%Aes{}` clause against that
+`describe` block, and expects neither `:bits` nor `:material` in the table.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
