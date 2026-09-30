@@ -1014,3 +1014,32 @@ Three things, all in this Note rather than in the record:
    states nothing about this record's amendment status, so it is not a flip
    site; it is an edit ADR-0005 owes, recorded here so it is not lost. ADR-0003
    already cured its parallel reference in its own Note.
+
+## Note (2026-09-30): where the vault's ordering rule is written down
+
+`Encryptor.Vault.Encrypt`'s comment section "Flagged, not settled: the
+provider is consulted on every call (settled 2026-09-13)" quotes the vault's
+ordering rule to explain why the provider is resolved before the materials
+cache is consulted. That sentence came from the encrypt path's implementation
+bead, `enc-50m`, and no record carried it, so this Note records it. It changes
+no decision and carries no status of its own.
+
+The rule, verbatim: per call the vault "resolves the selector through the
+provider, validates and maps the descriptor to a keyring, composes the
+context, derives the partition id, builds the CMM stack and the client".
+
+The encrypt path follows it at `827c6d3`:
+
+- The provider answers first, inside the provider span:
+  `Resolve.encryption_key/3` at `lib/encryptor/vault/encrypt.ex:141`.
+- The descriptor is validated and mapped to a keyring by `Keyring.build/3`
+  (`encrypt.ex:143`); a descriptor it does not know is refused at
+  `lib/encryptor/vault/keyring.ex:120`.
+- The context is composed by `Resolve.context/5` (`encrypt.ex:144`).
+- The partition id is derived as the caching CMM is built, in
+  `maybe_caching/3` (`encrypt.ex:192`), so only when the vault has a cache.
+- The CMM stack and the client are built by `client/3` (`encrypt.ex:173`),
+  through `stack/3` (`encrypt.ex:160`).
+
+The keyring therefore exists before any caching CMM does, which is the reading
+ADR-0002 Amendment A's A1 settled.

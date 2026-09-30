@@ -59,21 +59,21 @@ defmodule Encryptor.Vault.Encrypt do
   # Two accepted records once described provider resolution differently, and
   # this module was the first code that had to take a position.
   #
-  # * ADR-0001 decision 2: encrypt and decrypt "build the engine's keyring,
-  # CMM, and `Client` structs per call". A keyring needs a descriptor, and
-  # a descriptor comes from the provider, so read literally the provider
-  # answers once per call.
-  # * ADR-0002 decision 2 said the materials cache "collapses provider round
-  # trips to one per partition per `max_age`". Read literally, a warm
-  # partition did not reach the provider at all.
+  #   * ADR-0001 decision 2: encrypt and decrypt "build the engine's keyring,
+  #     CMM, and `Client` structs per call". A keyring needs a descriptor, and
+  #     a descriptor comes from the provider, so read literally the provider
+  #     answers once per call.
+  #   * ADR-0002 decision 2 said the materials cache "collapses provider round
+  #     trips to one per partition per `max_age`". Read literally, a warm
+  #     partition did not reach the provider at all.
   #
-  # The implementation followed the first, because the vault's own ordering
-  # rule fixes the order in its own words - the vault "resolves the selector
-  # through the provider, validates and maps the descriptor to a keyring,
-  # composes the context, derives the partition id, builds the CMM stack and
-  # the client". So the keyring is built before the caching CMM is consulted,
-  # and what a warm cache saves is the data key generation and the EDK wrap,
-  # not the provider lookup.
+  # The implementation followed the first, because the vault's ordering rule
+  # (recorded in ADR-0001's Note of 2026-09-30) fixes the order: the vault
+  # "resolves the selector through the provider, validates and maps the
+  # descriptor to a keyring, composes the context, derives the partition id,
+  # builds the CMM stack and the client". So the keyring is built before the
+  # caching CMM is consulted, and what a warm cache saves is the data key
+  # generation and the EDK wrap, not the provider lookup.
   #
   # ADR-0002 Amendment A's A1 (2026-09-13) settled it on that same reading and
   # withdrew decision 2's round-trip sentence: a provider is consulted on every
