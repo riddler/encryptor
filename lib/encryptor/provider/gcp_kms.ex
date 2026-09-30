@@ -39,8 +39,7 @@ defmodule Encryptor.Provider.GcpKms do
            http_client: MyApp.KmsHttp,
            goth: MyApp.Goth,
            store: &MyApp.ScopeKeys.live/1},
-        store: MyApp.ScopeKeys,
-        max_age: :timer.minutes(5)
+        cache: [max_age: 300]
 
     * `:project`, `:location`, `:key_ring` - required. The ring exists
       already: this package never creates one (see "What it never does").
