@@ -551,9 +551,13 @@ defmodule Encryptor.Vault do
 
   A store that refuses the write, exits or raises changes nothing on this
   node, and the call answers `{:suspension_store_unavailable, store}` with
-  the store's term in the error's `:engine` field (ADR-0010 decision 7). The
-  write is idempotent, so retrying it is always safe. Every call emits
-  `[:encryptor, :suspension, :changed]`, successful or not.
+  the store's term in the error's `:engine` field (ADR-0010 decision 7). Under
+  a shared store the write has five seconds from the call: one the vault has
+  not finished by then answers the same error, and a write still queued at
+  that deadline is dropped rather than performed later. A store that had
+  already begun the write may still hold it, which is why the write is
+  idempotent and retrying it is always safe. Every call emits
+  `[:encryptor, :suspension, :changed]` once, successful or not.
   """
   @spec suspend(module(), Error.selector()) :: :ok | {:error, Error.t()}
   def suspend(vault, selector) when is_atom(vault) do

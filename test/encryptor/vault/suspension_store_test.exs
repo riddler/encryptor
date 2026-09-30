@@ -345,6 +345,91 @@ defmodule Encryptor.Vault.SuspensionStoreTest do
     end
   end
 
+  describe "a write's deadline and a bounded list (decisions 7 and 8, the dated Note)" do
+    setup [:start_store, :capture]
+
+    # sabotage: called the store with no bound in perform/4 - red, because
+    # the write then lands 300 ms after the call and answers :ok past the
+    # deadline its caller set.
+    test "a write the store has not answered by its deadline fails, and never lands later" do
+      vault = start_shared()
+      await_first_refresh()
+      assert {:ok, config} = Vault.config(vault)
+
+      :ok = SuspensionStoreFakes.answer(@agent, :write, {:delay, 300})
+
+      assert {:error, %Error{reason: {:suspension_store_unavailable, Shared}} = error} =
+               Refresher.write(config, :suspend, "merchant_a", 100)
+
+      assert {:timeout, _milliseconds} = error.engine
+      assert_receive {:changed, _m, %{action: :suspend, outcome: :error}}
+
+      refute_receive {:changed, _m, %{action: :suspend}}, 500
+      assert SuspensionStoreFakes.members(@agent) == []
+      assert {:ok, _ciphertext} = encrypt(vault, "merchant_a")
+    end
+
+    # sabotage: answered an expired request with :ok instead of :expired -
+    # red, because the caller is then told a write that never ran succeeded.
+    test "a write taken up after its deadline is dropped, and its caller told so" do
+      vault = start_shared()
+      await_first_refresh()
+      assert {:ok, config} = Vault.config(vault)
+
+      :ok = SuspensionStoreFakes.answer(@agent, :write, {:delay, 300})
+      slow = Task.async(fn -> Refresher.write(config, :suspend, "merchant_a", 1_000) end)
+
+      # The slow write is in the store when the second one is queued.
+      receive do
+      after
+        50 -> :ok
+      end
+
+      assert {:error, %Error{reason: {:suspension_store_unavailable, Shared}} = error} =
+               Refresher.write(config, :suspend, "merchant_b", 100)
+
+      assert error.engine == {:timeout, 100}
+      assert :ok = Task.await(slow)
+
+      assert SuspensionStoreFakes.members(@agent) == ["merchant_a"]
+      assert {:ok, _ciphertext} = encrypt(vault, "merchant_b")
+    end
+
+    # sabotage: performed every request in handle_call/3 whatever its
+    # deadline - red, because the write queued behind the hung list then
+    # lands in the store once the list gives up, and emits a second event.
+    # sabotage: refreshed with no bound on list/1 - red, because the hung
+    # list then never ends and the failed refresh is never reported.
+    test "a hung list/1 is bounded, and a write queued behind it past its deadline is dropped" do
+      vault = start_shared()
+      await_first_refresh()
+      assert {:ok, config} = Vault.config(vault)
+
+      :ok = SuspensionStoreFakes.answer(@agent, :list, :hang)
+
+      # The next refresh starts within one poll interval and hangs in list/1.
+      receive do
+      after
+        @within -> :ok
+      end
+
+      assert {:error, %Error{reason: {:suspension_store_unavailable, Shared}} = error} =
+               Refresher.write(config, :suspend, "merchant_b", 100)
+
+      assert {:exit, {:timeout, _call}} = error.engine
+      assert_receive {:changed, _m, %{action: :suspend, outcome: :error}}
+
+      assert_receive {:changed, _m, %{action: :refresh, outcome: :error}}, 5_000 + @within
+
+      :ok = SuspensionStoreFakes.answer(@agent, :list, :ok)
+
+      assert_receive {:changed, %{count: 0}, %{action: :refresh, outcome: :ok}}, @within
+      refute_received {:changed, _m, %{action: :suspend}}
+      assert SuspensionStoreFakes.members(@agent) == []
+      assert {:ok, _ciphertext} = encrypt(vault, "merchant_b")
+    end
+  end
+
   describe "the view is loaded out of the gate's sight (decisions 3 and 7)" do
     setup [:start_store, :capture]
 

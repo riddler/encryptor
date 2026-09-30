@@ -5,7 +5,8 @@ defmodule Encryptor.SuspensionStoreFakes do
   `Shared` stands in for a store a host would build over its own database:
   its set lives in an `Agent` outside the vault, so a test can write to it
   "from another node" by writing to the agent directly, and can make any
-  callback fail by an `{:error, term}`, a raise or an exit.
+  callback fail by an `{:error, term}`, a raise or an exit, hang, or - a
+  write only - answer late.
   """
 
   alias Encryptor.Vault.Suspension.Store
@@ -39,14 +40,22 @@ defmodule Encryptor.SuspensionStoreFakes do
 
     defp write(agent, change) do
       case Agent.get(agent, & &1.write) do
-        :ok -> Agent.update(agent, fn state -> %{state | set: change.(state.set)} end)
-        mode -> fail(mode)
+        :ok ->
+          Agent.update(agent, fn state -> %{state | set: change.(state.set)} end)
+
+        {:delay, milliseconds} ->
+          Process.sleep(milliseconds)
+          Agent.update(agent, fn state -> %{state | set: change.(state.set)} end)
+
+        mode ->
+          fail(mode)
       end
     end
 
     defp fail(:error), do: {:error, :unreachable}
     defp fail(:raise), do: raise(RuntimeError, "store unreachable")
     defp fail(:exit), do: exit(:store_unreachable)
+    defp fail(:hang), do: Process.sleep(:infinity)
   end
 
   defmodule NotAStore do
@@ -73,8 +82,16 @@ defmodule Encryptor.SuspensionStoreFakes do
   @spec members(atom()) :: [String.t()]
   def members(agent), do: agent |> Agent.get(& &1.set) |> MapSet.to_list() |> Enum.sort()
 
-  @doc "Makes `:list` or `:write` answer `:ok`, `:error`, `:raise` or `:exit`."
-  @spec answer(atom(), :list | :write, :ok | :error | :raise | :exit) :: :ok
+  @doc """
+  Makes `:list` or `:write` answer `:ok`, `:error`, `:raise` or `:exit`, or
+  `:hang` without answering. A `:write` also takes `{:delay, milliseconds}`:
+  it sleeps that long and then writes, as a slow store would.
+  """
+  @spec answer(
+          atom(),
+          :list | :write,
+          :ok | :error | :raise | :exit | :hang | {:delay, non_neg_integer()}
+        ) :: :ok
   def answer(agent, callback, mode),
     do: Agent.update(agent, &Map.put(&1, callback, mode))
 end
