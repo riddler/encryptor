@@ -496,10 +496,15 @@ denied until the refresher has read the store again, which is what makes that st
 restart in fact and not only in storage (ADR-0010 decision 7). Between the
 crash and the restart there is a window in which the vault answers nothing at
 all, on either store: `Lifecycle`'s `terminate/2` erases the frozen
-configuration on its way down, so every entry point answers
-`{:vault_not_started, vault}` until the child is back and has frozen it again
-(`Encryptor.Vault.ensure_started/2`, through `Encryptor.Vault.Config.fetch/1`),
-and so do `suspend/2` and `reinstate/2`. The window is a restart long rather
+configuration on its way down, so every public entry point of the vault
+answers `{:vault_not_started, vault}` until the child is back and has frozen it
+again (`Encryptor.Vault.ensure_started/2`, through
+`Encryptor.Vault.Config.fetch/1`), and so do `suspend/2` and `reinstate/2`.
+The gate's own read is not an entry point and answers no error: a call that
+read the configuration before the crash and reaches the gate inside the window
+finds no table, so it passes the gate under the default store and is refused
+as suspended under a shared store
+(`Encryptor.Vault.Suspension.suspended?/2`). The window is a restart long rather
 than an outage, but a caller inside it sees a not-started error rather than a
 served selector. Under the default store step 1 therefore runs **on every
 node, and again after every deploy**, unless the provider locus of step 2 is
