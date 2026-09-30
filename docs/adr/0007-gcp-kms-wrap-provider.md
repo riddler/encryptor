@@ -1149,3 +1149,32 @@ The two Notes of 2026-09-14 above still read the worked example and the
 "Why now" wording as they say.
 
 No decision changes, and this Note carries no status of its own.
+
+## Note (2026-09-29): the scheduled destruction window defaults to 30 days, not 24 hours
+
+One correction of fact, which changes no decision. Decision 8's closing
+paragraph says a version is `DESTROY_SCHEDULED` "for the key's configured
+destroy-scheduled duration (24 hours by default, settable at key creation)"
+(anchor "GCP's scheduled destruction window is a delay", `:565-568`, read at
+enc `fb356ee`).
+
+**Read the default as 30 days.** The Cloud KMS REST reference for the
+`CryptoKey` resource describes `destroyScheduledDuration` as immutable, the
+period a version spends in `DESTROY_SCHEDULED` before `DESTROYED`, and says
+that when it is not specified at creation time the default duration is 30
+days. "Settable at key creation" stands: the field can be set only then.
+
+This package sets none. `Encryptor.Provider.GcpKms.Api.create_crypto_key/2`
+sends a body carrying `purpose` and `versionTemplate.protectionLevel` only
+(read at enc `fb356ee`), so a `CryptoKey` that
+`Encryptor.Provider.GcpKms.provision/2` creates takes the service default. A
+key created outside the package, which provisioning then finds as its own,
+keeps whatever duration it was created with.
+
+The paragraph's argument is unchanged: the window is a safety net for the
+operator who ran P3 against the wrong tenant, not a reprieve to design
+around. The provider's moduledoc, section "The shred, and why it is not a
+function here", now names the field and the default the same way.
+
+Decision 8's wording is left as written - a merged record's body is not
+rewritten by a Note - and this Note carries no status of its own.
