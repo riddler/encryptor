@@ -152,13 +152,28 @@ preconditions, and never as a side effect of anything else.
 
 ## Cache drainage
 
-Deleting a wrapping does not stop a running node from decrypting under it.
-A vault's materials cache holds resolved materials for up to `max_age` seconds,
-so for that long after the delete, every node that has recently served that
-scope can still read its data.
+A vault's materials cache holds resolved materials for up to `max_age` seconds.
+Every call asks the provider first, and a provider error ends the call before
+the cache is consulted, so what a warm cache can outlive depends on what the
+provider still answers:
 
-Draining has exactly two levers, and both are in every destructive procedure
-below as an explicit step:
+- **P3, the scope shred, does not wait on it** for a provider that reads its
+  store on every call, as `Encryptor.Provider.GcpKms` does and an
+  `Encryptor.Provider.Function` closure over your store does. Once the
+  wrappings are gone the provider answers `{:unknown_key, selector}`, and the
+  next call for the scope fails at once, warm cache or cold, on every node. A
+  provider that keeps its own bounded cache delays P3 by that bound instead.
+- **P4, the version retire, waits on it.** The provider still answers, with a
+  shorter list, and a warm entry for a message written under the retired
+  version keeps decrypting it until the entry expires or the cache is dropped.
+- **P2 step 1, the mint, waits on it too, on the write side.** A warm
+  encryption entry from before the mint keeps issuing data keys wrapped under
+  version *n* after `encryption_key/2` has started answering *n+1*, until the
+  entry expires, reaches its `max_messages` or `max_bytes` bound, or the cache
+  is dropped.
+
+Draining has exactly two levers, and every procedure that needs one names it
+as an explicit step:
 
 - **wait `max_age`** on every vault that serves the affected scope, or
 - **restart those vaults.**
@@ -168,8 +183,10 @@ cannot be enumerated, measured, or selectively invalidated from outside, so a
 targeted invalidation is not available to be shipped. If the upstream engine
 grows a bounded, inspectable cache, these steps get sharper.
 
-**Cache drainage is part of the procedure, not a follow-up.** A shred that
-stops at the delete is a shred that has not happened yet.
+**Cache drainage is part of the procedure, not a follow-up.** A retire that
+stops at the delete is a retire that has not happened yet, and a rotation
+whose rewrite starts before the drain can rewrite rows under the version it is
+about to retire.
 
 ---
 
@@ -326,6 +343,14 @@ Steps 1 and 4 are key-store operations and belong to this package; steps 2 and
    # v2 is "t/<scope_ref>/v2", v1 is "t/<scope_ref>/v1", newest first.
    ```
 
+   **[operator]** Then drain the caches before step 2: wait `max_age` on every
+   vault that serves the scope, counted from when the row is visible to every
+   node's provider, or restart those vaults. Until the drain completes, a write
+   whose encryption context finds a warm cache entry from before the mint is
+   still wrapped under *n*, and so is a migrator rewrite, because `rekey/2`'s
+   write half goes through the same cache. Those rows are ordinary rows under
+   *n*: step 2 rewrites them because it starts after the drain.
+
 2. **[encryptor_ecto]** Run the migrator over the scope's rows. Nothing in
    this package participates. Every row it rewrites is re-encrypted under
    whatever `encryption_key/2` now answers, which is *n+1*, without the
@@ -381,9 +406,15 @@ Destroys every version of one scope's master key. **Irreversible.**
    the rotate, per key shape"](#the-shred-and-the-rotate-per-key-shape) for
    the step that is, and ["The GCP operator runbook"](#the-gcp-operator-runbook)
    for step 2a on the GCP wrap-provider path.
-3. **[operator]** Drain the caches: wait `max_age` on every vault that serves
-   the scope, or restart those vaults. Until this completes, a running node
-   can still decrypt the scope's data from cached materials.
+3. **[operator]** Drain the caches. For a provider that reads its store on
+   every call, step 2 already made the next call for the scope fail with
+   `{:unknown_key, selector}`, warm cache or cold, and this step is residency
+   rather than readability: the scope's data keys stay in the cache table
+   until the table is dropped, by a restart of those vaults or by the
+   recycler's next drop (waiting `max_age` does not remove them, because an
+   entry is expired only when a read finds it). For a provider that keeps its
+   own bounded cache, wait that bound: until it elapses, the scope stays
+   readable on a node that cached it.
 4. **[your store]** Delete the scope's ciphertext rows. See "What a shred does
    not destroy" below: whether this step is optional depends on whether the
    scope's attribution is itself personal data in your jurisdiction.
@@ -420,9 +451,11 @@ procedure.
   rows, not a sample. **This is the fence.** There is no legitimate reason to retire
   a version whose rows have not been verifiably rewritten.
 - **[operator]** The verification is recent enough that no traffic since could
-  have written under the retired version. It cannot have -
-  `encryption_key/2` has answered *n+1* since P2 step 1 - so this precondition
-  is about your confidence in the plan's *coverage*, not about the mechanism.
+  have written under the retired version. It cannot have once P2 step 1's
+  drain completed before step 2 began: from the end of that drain every write
+  is wrapped under what `encryption_key/2` answers, which is *n+1* - so this
+  precondition is about your confidence in the plan's *coverage*, not about
+  the mechanism.
 - **[operator]** Cache drainage is understood to be part of this procedure, not
   a follow-up.
 
@@ -541,13 +574,14 @@ holder of credentials to the key material (ADR-0010 decision 9).
    this vault, it survives every restart, and it is the half that needs the
    change record.
 
-There is no cache-drainage step, and that asymmetry with P3 is deliberate. The
-deny gate sits at resolution, ahead of the materials cache, so the very next
-call fails on a warm cache as on a cold one (Amendment A decision 5). Suspending
-does drop this vault's materials cache as hygiene, because no partition-scoped
-eviction exists (decision 6), so every other selector on the vault takes one
-cold miss; a vault configured `cache: false` has no cache to drop and is
-unaffected.
+There is no cache-drainage step. The deny gate sits at resolution, ahead of the
+materials cache, so the very next call fails on a warm cache as on a cold one
+(Amendment A decision 5). P3 needs no drain for the same reason, for a provider
+that reads its store on every call; P4, whose provider still answers, is the
+procedure that waits on one. Suspending does drop this vault's materials cache
+as hygiene, because no partition-scoped eviction exists (decision 6), so every
+other selector on the vault takes one cold miss; a vault configured
+`cache: false` has no cache to drop and is unaffected.
 
 ### Verification
 
@@ -759,7 +793,7 @@ first, in particular the recorded human decision.
 | 1, enumerate the wrappings | unchanged |
 | 2, delete every wrapping from the key store | unchanged, and still your `DELETE` |
 | **2a, `DestroyCryptoKeyVersion` on every version of the scope's `CryptoKey`** | **new.** After the destroy-scheduled window elapses, the scope's data is unreadable from any backup of the key store, because the key that would unwrap those wrappings no longer exists anywhere |
-| 3, drain the caches | unchanged; `max_age` still bounds it |
+| 3, drain the caches | residency only: `GcpKms` reads the key store on every call, so step 2 already answers `{:unknown_key, selector}`; a restart drops the scope's cached data keys |
 | 4, delete the scope's ciphertext rows | unchanged in mechanism, and still compliance-mandatory wherever the scope's attribution is itself personal data - destroying the GCP key does not remove the scope reference from retained headers |
 
 P4 gains nothing: the scope's `CryptoKey` is shared across master-key versions,
@@ -815,9 +849,10 @@ before the step, without recourse to backups.
 | P1 | 4, drop outgoing entry | nothing yet | yes, by re-adding it | Dropped before the pass finishes: unrewrapped wrappings stop unwrapping, so their scopes stop resolving. Recoverable by re-adding the entry. |
 | P1 | 5, destroy old material | the ability to read pre-rotation backups | **no** | Backups taken before step 3 become unreadable. Bounded by backup retention. |
 | P2 | 1, mint | nothing | yes | Minting twice concurrently can produce two version *n+1* rows; the transaction that closes that race is your store's. |
+| P2 | 1, drain after the mint | nothing | yes | Skipped: writes on a warm cache entry keep going under version *n*, and a rewrite started before the drain can rewrite rows under *n*. Step 3's census finds them; a P4 run on a census taken before the drain can orphan them. |
 | P2 | 2, rewrite | nothing | yes | Downstream's compare-and-swap; a clobber is the failure it is designed against. |
 | P3 | 2, delete all wrappings | one scope's entire dataset, everywhere | **no** | Wrong scope: that scope's data is permanently unreadable. This is the largest destructive action in the package and the reason P3's first precondition is a recorded human decision. |
-| P3 | 3, drain caches | nothing | n/a | Skipped: the shred is incomplete for up to `max_age`, and the scope's data remains readable on running nodes. |
+| P3 | 3, drain caches | nothing | n/a | Skipped: for a provider that reads its store on every call nothing stays readable, because step 2 already answers `{:unknown_key, selector}`, but the scope's data keys stay resident in the cache table until a restart or the recycler's next drop. For a provider with its own bounded cache, the scope stays readable on running nodes until that bound elapses. |
 | P4 | 1, delete one wrapping | every row still written under that version | **no** | Run before verification: exactly the rows the pass missed become permanently unreadable, and they surface as `:decrypt_failed` indistinguishable from corruption. |
 | P5 | 1, suspend | nothing | yes, by `reinstate/2` | Wrong selector: that scope's reads and writes fail loudly, at once on the node that ran it and on every node the step or the shared store reached. No data is lost and no window opens. Reinstate. |
 | P5 | 2, revoke at the provider | nothing | yes, by restoring the binding | Wrong key: as above, durably, and it outlives a restart, so it is the half that needs the change record. |

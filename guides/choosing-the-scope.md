@@ -145,9 +145,11 @@ answer, which is exactly the gap the amendment was written to close.
 
 **Suspend is deliberately not a shred you can undo.** The deny
 gate sits at resolution, ahead of the cache, so a suspension takes effect on
-the very next call rather than after `max_age` drains - the opposite of P3
-step 3, which must wait for the caches. How far it reaches depends on the
-vault's `:suspension_store`. Under the default,
+the very next call rather than after `max_age` drains - and so does P3's
+shred for a provider that reads its store on every call, whose
+`{:unknown_key, selector}` arrives ahead of the cache too; it is P4's
+single-version retire that must wait for the caches. How far it reaches
+depends on the vault's `:suspension_store`. Under the default,
 `Encryptor.Vault.Suspension.Store.Ets`, it is per node and volatile: the
 suspended set lives in an ETS table owned by the vault's lifecycle process,
 so a restarted vault serves the scope again and a four-node host suspends
@@ -259,9 +261,12 @@ runbook's preconditions for P3 are not ceremony:
 - Partial destruction is the worst state in the system - some rows readable,
   some permanently not, indistinguishable to the application. If the deletion
   pass fails partway, complete it rather than reverting it.
-- After the wrappings are gone, a running node still decrypts from cached
-  materials until the caches drain. The shred is not observable until then;
-  suspend is.
+- After the wrappings are gone, a provider that reads its store on every call
+  answers `{:unknown_key, selector}` on the next call, warm cache or cold, so
+  the shred (P3) is observable at once, as a suspension is; a provider that
+  keeps its own bounded cache delays it by that bound. Retiring one version
+  (P4) is different: a running node still decrypts that version from cached
+  materials until the caches drain.
 
 ## Which verb
 

@@ -1649,3 +1649,112 @@ Provenance: bead `enc-c3o`.
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Amendment B (2026-09-30): P3 does not wait on the cache drain; P2 step 1 and P4 do
+
+Status: **proposed (2026-09-30)**. This amendment only adds: no line above is
+edited. It supersedes four passages for a provider that reads its store on
+every call (B1), keeps P4's drain as written (B2), adds a drain to P2 step 1
+(B3) and restates P4's second precondition on it (B4). The decision to amend,
+rather than leave the corrections in a Note, was ruled by the operator,
+2026-09-30. Every lib/ cite below was read at enc `9a399a0`; the engine cites
+are `aws_encryption_sdk` 1.0.0, the version `mix.lock` resolves.
+
+### Why now
+
+The Note above, "P4 depends on the cache drain and P3 does not" (2026-09-29),
+showed against the code that P3's drain step is not what makes a shred take
+effect, listed the sentences in this record that say otherwise, and left their
+rewriting to an amendment. Testing its P4 half from the write side found a
+third procedure that depends on the drain: the mint.
+
+### B1. P3 answers `{:unknown_key, selector}` at once for a provider that reads its store on every call
+
+After P3 step 2 such a provider answers `{:unknown_key, selector}`, and that
+answer ends the call before the caching CMM is built (`decrypt/7`,
+`lib/encryptor/vault/decrypt.ex:148`; `Encryptor.Provider.GcpKms`'s `rows/2`,
+`lib/encryptor/provider/gcp_kms.ex:456`). The next `encrypt/2`, `decrypt/2`,
+`rekey/2` or `derive/2` for the scope fails at once, warm cache or cold, on
+every node; `test/encryptor/vault/shred_drain_test.exs`, "answers unknown_key
+at once on a warm cache, with no drain", pins it. So, for such a provider:
+
+- P3 step 3 (anchor "3. Drain the caches", `:419-422`) is superseded. The step
+  stays, as residency rather than readability: the scope's data keys stay in
+  the cache table until a restart or the recycler's next drop, and waiting
+  `max_age` does not remove them (the Note above, "P3 does not depend on the
+  drain").
+- The blast radius table's P3 step 3 row (anchor "| P3 | 3, drain caches",
+  `:694`) is superseded: skipping the step leaves the keys resident, not the
+  scope readable.
+- The consequence "**Cache drainage is now a runbook step and an operator will
+  forget it.**" (`:602`) is superseded where it names P3 step 3; it stands for
+  P4 step 2, and B3 adds P2 step 1 to it.
+- Amendment A's A5 contrast paragraph (anchor "**P3 step 3 must drain
+  caches**", `:1095`) is superseded: a shred is immediate for the same reason a
+  suspension is. A5's own decision, that the suspend gate sits ahead of the
+  cache, is unaffected.
+
+A provider that keeps its own bounded cache, which `Encryptor.Provider`
+permits when the bound is documented, delays P3 by that bound, and P3 step 3
+then waits on that bound, not on `max_age`: for such a provider the four
+passages hold with that bound in place of `max_age`.
+
+### B2. P4 waits on the drain
+
+Unchanged, and now stated as the rule rather than as one of a pair. After P4
+step 1 the provider still answers, with a shorter list, and a warm decryption
+entry for a message written under the retired version keeps serving it until
+the entry expires or the cache is dropped. P4 step 2 (`:463`) is load-bearing;
+`shred_drain_test`'s "keeps serving a retired version from a warm cache until
+the cache is dropped" pins it.
+
+### B3. P2 step 1 needs a drain before step 2
+
+The engine's encryption cache id hashes the partition id, the suite and the
+request's context, not the key that wrapped the entry's data key
+(`compute_encryption_cache_id/3`,
+`lib/aws_encryption_sdk/cmm/caching.ex:201`), and the vault's partition id is
+the vault and the selector only (`maybe_caching/3`,
+`lib/encryptor/vault/encrypt.ex:187`). So a warm encryption entry from before
+the mint is found by a write after it, and the new message's data key is
+wrapped under version *n* although `encryption_key/2` answers *n+1*.
+`shred_drain_test`'s "keeps writing under the old version from a warm entry
+until the cache is dropped" pins it: the write after the mint names version 1
+in its header, and the write after a restart names version 2. `rekey/2`'s write
+half builds the same caching client (`lib/encryptor/vault/rekey.ex:144`), so a
+migrator rewrite whose context finds such an entry rewrites under *n* too; that
+is read from the code, and the test does not exercise it.
+
+An entry expires `max_age` after it was created (`CacheEntry.new/2`,
+`lib/aws_encryption_sdk/cache/cache_entry.ex:55`), so no entry from before the
+mint outlives `max_age` after it. P2 step 1 therefore gains a drain, after the
+host inserts the row and before step 2 starts: wait `max_age` on every vault
+that serves the scope, counted from when the row is visible to every node's
+provider, or restart those vaults. A write made between the mint and the end
+of the drain is an ordinary row under *n*, and step 2 rewrites it because step
+2 starts after the drain.
+
+This package does not drop the entry at the mint. `Encryptor.Envelope.provision/3`
+runs on the root vault and holds no handle on the scope's vault, and a drop
+there would bind one node; a code change that makes a mint take effect without
+a drain is not decided here.
+
+### B4. P4's second precondition, restated
+
+"It cannot have: `encryption_key/2` has answered *n+1* since P2 step 1"
+(`:455-456`) is superseded. It holds from the end of B3's drain, not from P2
+step 1: once the drain completed before step 2 began, every write since is
+wrapped under *n+1*, and a verification that is green after step 2 covers
+every row written under *n*. The rest of the precondition, that it is about the
+operator's confidence in the scope, not about the mechanism, stands.
+
+### What this amendment does not do
+
+It changes no code and no error vocabulary, and decides nothing cryptographic.
+Decision 2's lower-bound bullet (anchor "There is a lower bound", `:132`)
+stands: it speaks of the retired version, which is P4's case. The worked
+example's "then drain: wait max_age, or restart the tenant vault" (`:796`)
+stands for P4. `guides/rotation-runbook.md` carries B1 to B4 in the same
+change.
+
+Provenance: bead `enc-880r`, folding `enc-w0i1` and `enc-t6b0`.

@@ -1329,3 +1329,35 @@ section's other rows stand, and no record's line is edited.
    provision answers an operator's onboarding call rather than a read, and
    what a caller does with the answer there is not the same question. Owner:
    this repository.
+
+## Note (2026-09-30): P3 step 3's two rows here repeat a drain claim ADR-0005 now supersedes for this provider
+
+Two passages in this record restate ADR-0005's P3 step 3 as unchanged by this
+provider:
+
+- decision 8's mapping table, the row "| P3 step 3 (drain caches) | unchanged;
+  `max_age` still bounds it | n/a |" (`:559`);
+- the worked example's offboarding walk, step 3, "Drain the caches: wait
+  `max_age` on every vault serving the tenant, or restart them. Unchanged."
+  (`:837-838`).
+
+ADR-0005's Note "P4 depends on the cache drain and P3 does not" (2026-09-29)
+shows that claim false against the code for a provider that reads its store on
+every call, and names this provider as one: `Encryptor.Provider.GcpKms`'s
+`rows/2` calls the host's `:store` closure on every resolution and answers
+`{:unknown_key, selector}` for an empty result
+(`lib/encryptor/provider/gcp_kms.ex:456-461`, read at enc `9a399a0`). ADR-0005's
+Amendment B (2026-09-30, proposed), B1, supersedes P3 step 3 for such a
+provider: after step 2 the next call for the tenant fails at once, warm cache
+or cold, and step 3 is residency rather than readability.
+
+**Read both passages as:** on this provider, P3 step 3 is not what makes the
+shred take effect, and `max_age` does not bound it; the step remains a
+residency step (a restart drops the tenant's cached data keys). Step 2a, the
+`DestroyCryptoKeyVersion`, is unaffected, and so is P4, which still waits on
+the drain (ADR-0005 Amendment B, B2).
+
+Provenance: bead `enc-t6b0`, folded into `enc-880r`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.

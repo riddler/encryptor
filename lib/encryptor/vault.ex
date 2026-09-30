@@ -519,8 +519,11 @@ defmodule Encryptor.Vault do
 
     * **It is immediate.** The refusal is at resolution, ahead of the
       materials cache, so the very next call fails on a warm cache as on a
-      cold one. A shred is not immediate in the same way - its runbook has to
-      drain caches - and the asymmetry is the amendment's decision 5.
+      cold one. A whole-scope shred is immediate for the same reason when
+      the provider reads its store on every call: the provider's
+      `{:unknown_key, selector}` arrives ahead of the cache too. It is a
+      single-version retire whose runbook has to drain caches, because the
+      provider still answers (ADR-0005 amendment B).
     * **It destroys nothing**, so `reinstate/2` needs no backup and no escrow.
       It is not a backup either: reinstating a selector whose wrappings were
       shredded meanwhile restores the refusal and nothing else, and the
