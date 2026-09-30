@@ -1522,3 +1522,110 @@ Provenance: bead `enc-4hx`, folding `enc-j9v` (2).
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-09-29): P4 depends on the cache drain and P3 does not
+
+Which of the two destructive procedures waits on the materials cache, read
+against the code rather than against the drain step P3 and P4 share. The
+answer is P4 only. Every cite below was read at enc `ac34188`.
+
+### What the code does
+
+- **Every read asks the provider first, and on every call.**
+  `Encryptor.Vault.Decrypt`'s `decrypt/7` (`lib/encryptor/vault/decrypt.ex:148`)
+  calls `Resolve.decryption_keys/3` (`:151`) before it builds the client
+  (`Encrypt.client/3`, `:157`), and the caching CMM is built inside that client
+  (`maybe_caching/3`, `lib/encryptor/vault/encrypt.ex:187`). The write path is
+  in the same order (`Resolve.encryption_key/3`, `encrypt.ex:141`), and so are
+  `rekey/2` (`lib/encryptor/vault/rekey.ex:131`, `:140`) and `derive/2`
+  (`lib/encryptor/vault/derive.ex:71`). A warm cache never stands in for the
+  provider's answer; `Encryptor.Provider`'s obligation "A provider may not add
+  a second unbounded cache" (`lib/encryptor/provider.ex:59`) says the same
+  from the provider's side.
+- **A provider error ends the call before the cache is consulted.**
+  `Resolve.decryption_keys/3` (`lib/encryptor/vault/resolve.ex:86`) returns
+  the provider's `{:error, reason}` through the `with` in `decrypt/7`, so no
+  CMM is built.
+- **The decryption cache id does not include the candidate list.** The
+  engine's `compute_decryption_cache_id/4` (`aws_encryption_sdk` 1.0.0,
+  `lib/aws_encryption_sdk/cmm/caching.ex:224`) hashes the partition id, the
+  suite, the message's EDKs and its stored context, and the partition id is
+  `Partition.id(vault, selector)` (`encrypt.ex:192`): vault and selector, no
+  key names. A warm entry for a message is found whatever the provider
+  answered on this call, as long as the provider answered at all.
+- **The package's store-backed provider reads its store per call.**
+  `Encryptor.Provider.GcpKms`'s `rows/2`
+  (`lib/encryptor/provider/gcp_kms.ex:419`) calls the host's `:store` closure
+  on every resolution (`:422`) and answers `{:unknown_key, selector}` for an
+  empty result (`:424`). `Encryptor.Provider.Function` calls the host's
+  closure on every resolution (`lib/encryptor/provider/function.ex:116`);
+  whether that closure reads the store is the host's code.
+
+### P3 does not depend on the drain
+
+After P3 step 2 the store holds no row for the scope, the provider answers
+`{:unknown_key, selector}`, and that answer arrives ahead of the cache: the
+next `decrypt/2`, `encrypt/2`, `rekey/2` or `derive/2` for the scope fails at
+once, warm cache or cold, on every node. This holds for a provider that reads
+its store on every call, which `GcpKms` does and a `Function` closure over the
+store does. A provider that keeps its own bounded cache, which
+`Encryptor.Provider` permits when the bound is documented, delays P3 by that
+bound, and it is that bound, not `max_age`, which P3 then waits on.
+
+What the drain still does for P3 is residency, not readability. The scope's
+data keys stay in the materials cache table until the table is dropped: no
+read reaches them, and `LocalCache` expires an entry only when a read finds
+it (`lib/encryptor/vault/cache_recycler.ex:27`), so waiting `max_age` does
+not remove them. A restart does, and so does the recycler's next whole-table
+drop, which is Amendment A's A6 argument for a suspension (hygiene, not
+correctness) applied to the shred.
+
+### P4 depends on the drain
+
+After P4 step 1 the provider still answers, with a list that no longer names
+the retired version. The resolution step accepts it and the client is built;
+a warm decryption entry for a message written under the retired version is
+found by its own cache id and serves the plaintext until it expires or the
+cache is dropped. Only then does the keyring built from the shorter list
+refuse the message as `:decrypt_failed`. P4 step 2 ("Drain the caches, as P3
+step 3") is load-bearing, and so is the worked example's "then drain: wait
+max_age, or restart the tenant vault".
+
+`test/encryptor/vault/shred_drain_test.exs` pins both: a whole-scope delete
+answers `{:unknown_key, selector}` on the read after a warm one, and a
+single-version delete keeps decrypting from the warm entry until a restart,
+then answers `:decrypt_failed`.
+
+### The sentences in this record that say otherwise
+
+Each is left as written; this Note corrects none of them in place.
+
+- P3 step 3 (anchor "3. Drain the caches", `:419-422`): "Until this step
+  completes, a running node can still decrypt the tenant's data from cached
+  materials" is false for a provider that reads its store on every call.
+- The blast radius table's P3 step 3 row (anchor "| P3 | 3, drain caches",
+  `:694`): "the tenant's data remains readable on running nodes" is false for
+  the same provider.
+- Consequences, "**Cache drainage is now a runbook step and an operator will
+  forget it.**" (`:602`): it names P3 step 3 and P4 step 2 together; only P4
+  step 2 is needed for the key to stop serving.
+- Amendment A's A5 (anchor "**P3 step 3 must drain caches**", `:1095`):
+  "a vault holding resolved materials does not ask again for up to
+  `max_age`, so the tenant stays readable on a running node until the cache
+  turns over" is false against the code. The vault asks on every call, and the
+  shred is immediate for the same reason the suspension is. A5's own decision,
+  that the suspend gate sits ahead of the cache and a suspension is therefore
+  immediate, is true and is unaffected; the asymmetry the paragraph draws
+  between the two is not.
+
+Decision 2's lower-bound bullet (anchor "There is a lower bound", `:132`)
+speaks of "the retired version", which is P4's case, and stands as written.
+
+Provenance: bead `enc-epk4`. The comment above `allowed/3` in
+`lib/encryptor/vault/resolve.ex`, which repeated A5's contrast, is corrected
+in the same change.
+
+Nothing above changes. No decision is amended, no error vocabulary is added or
+removed, and this Note carries the record's status rather than one of its own.
+Whether P3 step 3, the table row, the consequence and A5's paragraph are
+rewritten is an Amendment's question.
