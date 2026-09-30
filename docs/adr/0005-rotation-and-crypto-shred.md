@@ -1758,3 +1758,37 @@ stands for P4. `guides/rotation-runbook.md` carries B1 to B4 in the same
 change.
 
 Provenance: bead `enc-880r`, folding `enc-w0i1` and `enc-t6b0`.
+
+## Note (2026-09-30): what Amendment B's P2 step 1 drain still covers
+
+This Note decides nothing and carries no status of its own. It re-reads
+Amendment B's B3 against ADR-0001 Amendment B (2026-09-30, proposed), which
+folds the resolved key into the write side's cache partition id, and says
+what the drain B3 adds to P2 step 1 still covers.
+
+With that change, a write after the mint builds its caching CMM under a
+partition that carries version *n+1*'s name, so it cannot find a warm entry
+from before the mint: an encrypt and a rekey's write half wrap under *n+1* as
+soon as the provider answers it, with no drain.
+`test/encryptor/vault/shred_drain_test.exs`'s "writes under the new version at
+once, from a warm cache, with no drain" and "a rekey's write half rewrites
+under the new version at once, with no drain" pin it.
+
+The drain still covers:
+
+- **A vault running a version of this package without that change.** Its
+  write-side partition is the vault and the selector only, B3 applies to it
+  word for word, and during a rolling deploy it applies to every node not yet
+  running the change.
+- **The provider's answer, not the cache.** The drain is counted "from when
+  the row is visible to every node's provider"; a write made before a node's
+  provider answers *n+1* is wrapped under *n* whatever the cache does, and a
+  provider that keeps its own bounded cache delays that by its bound. B4's
+  precondition then holds from the moment every node's provider answers
+  *n+1*, which the drain's own counting already waits for.
+
+It no longer covers the warm encryption entry on a node running the change;
+there, waiting `max_age` or restarting before step 2 costs time and changes
+no row. The read side was never part of B3: the decryption cache id hashes a
+message's encrypted data keys, and a mint adds a version without removing
+one. B2 (P4 waits on the drain) is unaffected.

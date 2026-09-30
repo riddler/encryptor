@@ -33,7 +33,10 @@ defmodule Encryptor.Vault.Encrypt do
   # the stack below, and the engine call.
   #   6. `Encryptor.Vault.Partition` derives the cache partition id from the
   #      same selector that chose the key, which is what keeps one scope's
-  #      data key out of another scope's cache lookup (ADR-0001 decision 7).
+  #      data key out of another scope's cache lookup (ADR-0001 decision 7),
+  #      and, on this write side, from the resolved key too, so a newly
+  #      minted version is a cold partition rather than a warm entry wrapped
+  #      under the version before it (ADR-0001 Amendment B).
   #   7. The CMM stack, then the client, then the engine call.
   #
   # ## The CMM stack order is a security property, not a style choice
@@ -99,6 +102,8 @@ defmodule Encryptor.Vault.Encrypt do
   alias AwsEncryptionSdk.Cmm.RequiredEncryptionContext
   alias Encryptor.Context
   alias Encryptor.Error
+  alias Encryptor.Key.Aes
+  alias Encryptor.Key.Kms
   alias Encryptor.Telemetry
   alias Encryptor.Vault
   alias Encryptor.Vault.Config
@@ -143,7 +148,7 @@ defmodule Encryptor.Vault.Encrypt do
          {:ok, keyring} <- Keyring.build(config.vault, :encrypt, descriptor),
          {:ok, context} <- Resolve.context(config, reference, opts, :encrypt, reserved) do
       config
-      |> client(keyring, selector)
+      |> client(keyring, selector, descriptor)
       |> engine_encrypt(config, plaintext, context, :encrypt)
     end
   end
@@ -151,16 +156,34 @@ defmodule Encryptor.Vault.Encrypt do
   @typedoc false
   @type cmm :: Default.t() | Caching.t() | RequiredEncryptionContext.t()
 
+  # Which side of the cache a stack serves, and what it partitions by.
+  @typep partition :: {:read, Error.selector()} | {:write, Error.selector(), Aes.t() | Kms.t()}
+
   @doc false
   # Public so the nesting can be asserted directly. The order below is the
   # security property this bead exists to fix, and a test that could only
   # observe it through a successful round trip would pass just as happily
   # with the unsafe arrangement.
+  #
+  # Two arities, one per side of the cache. `stack/3` is the read side's:
+  # `Encryptor.Vault.Decrypt` and `rekey/2`'s read half partition by the
+  # selector alone (ADR-0001 decision 7), because the decryption cache id
+  # already hashes the message's encrypted data keys. `stack/4` is the write
+  # side's: it also partitions by the key `encryption_key/2` resolved to, so a
+  # warm entry from before a mint is never found by a write after it
+  # (ADR-0001 Amendment B).
   @spec stack(Config.t(), Keyring.t(), Error.selector()) :: cmm()
-  def stack(config, keyring, selector) do
+  def stack(config, keyring, selector), do: build(config, keyring, {:read, selector})
+
+  @spec stack(Config.t(), Keyring.t(), Error.selector(), Aes.t() | Kms.t()) :: cmm()
+  def stack(config, keyring, selector, key),
+    do: build(config, keyring, {:write, selector, key})
+
+  @spec build(Config.t(), Keyring.t(), partition()) :: cmm()
+  defp build(config, keyring, partition) do
     keyring
     |> Default.new()
-    |> maybe_caching(config, selector)
+    |> maybe_caching(config, partition)
     |> maybe_required(config)
   end
 
@@ -169,29 +192,45 @@ defmodule Encryptor.Vault.Encrypt do
   # limit the client carries are configuration the vault is not allowed to
   # take from a caller, and a test that could only observe them through a
   # successful encrypt could not tell a dropped limit from a present one.
+  #
+  # The read side's client, and the write side's with the resolved key, for
+  # the reason `stack/3` and `stack/4` are two.
   @spec client(Config.t(), Keyring.t(), Error.selector()) :: Client.t()
-  def client(config, keyring, selector) do
-    config
-    |> stack(keyring, selector)
-    |> Client.new(
+  def client(config, keyring, selector),
+    do: config |> stack(keyring, selector) |> new_client(config)
+
+  @spec client(Config.t(), Keyring.t(), Error.selector(), Aes.t() | Kms.t()) :: Client.t()
+  def client(config, keyring, selector, key),
+    do: config |> stack(keyring, selector, key) |> new_client(config)
+
+  @spec new_client(cmm(), Config.t()) :: Client.t()
+  defp new_client(cmm, config) do
+    Client.new(cmm,
       commitment_policy: config.commitment_policy,
       max_encrypted_data_keys: config.max_encrypted_data_keys
     )
   end
 
   # A vault with `cache: false` runs a bare Default CMM and starts no cache
-  # process, so there is nothing to wrap (ADR-0001 decision 6).
-  @spec maybe_caching(Default.t(), Config.t(), Error.selector()) :: Default.t() | Caching.t()
-  defp maybe_caching(cmm, %Config{cache: false}, _selector), do: cmm
+  # process, so there is nothing to wrap (ADR-0001 decision 6), and no
+  # partition id is derived.
+  @spec maybe_caching(Default.t(), Config.t(), partition()) :: Default.t() | Caching.t()
+  defp maybe_caching(cmm, %Config{cache: false}, _partition), do: cmm
 
-  defp maybe_caching(cmm, %Config{vault: vault, cache: bounds}, selector) do
+  defp maybe_caching(cmm, %Config{vault: vault, cache: bounds}, partition) do
     Caching.new(cmm, Vault.cache_name(vault),
       max_age: bounds.max_age,
       max_messages: bounds.max_messages,
       max_bytes: bounds.max_bytes,
-      partition_id: Partition.id(vault, selector)
+      partition_id: partition_id(vault, partition)
     )
   end
+
+  @spec partition_id(module(), partition()) :: binary()
+  defp partition_id(vault, {:read, selector}), do: Partition.id(vault, selector)
+
+  defp partition_id(vault, {:write, selector, key}),
+    do: Partition.encryption_id(vault, selector, key)
 
   @spec maybe_required(Default.t() | Caching.t(), Config.t()) ::
           Default.t() | Caching.t() | RequiredEncryptionContext.t()

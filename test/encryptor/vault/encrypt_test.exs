@@ -8,6 +8,7 @@ defmodule Encryptor.Vault.EncryptTest do
   alias AwsEncryptionSdk.Keyring.RawAes
   alias Encryptor.EncryptVaults
   alias Encryptor.Error
+  alias Encryptor.Key.Aes
   alias Encryptor.TestVaults
   alias Encryptor.Vault
   alias Encryptor.Vault.Config
@@ -201,6 +202,33 @@ defmodule Encryptor.Vault.EncryptTest do
       assert a.partition_id == Partition.id(EncryptVaults.Merchant, "merchant_a")
       assert byte_size(a.partition_id) == 16
       refute a.partition_id == b.partition_id
+    end
+
+    # sabotage: made partition_id/2 answer Partition.id/2 for {:write, _, _} -
+    # red, because the write side's partition then ignores the key, and a
+    # write after a mint finds the warm entry from before it.
+    test "the write side's caching CMM is partitioned by the resolved key as well" do
+      vault = start_vault(EncryptVaults.Merchant)
+      config = config(vault)
+      {:ok, keyring} = RawAes.new("ns", "name", EncryptVaults.single_key(), :aes_256_gcm)
+      v1 = %Aes{namespace: "ns", name: "v1", material: EncryptVaults.single_key(), bits: 256}
+      v2 = %{v1 | name: "v2"}
+
+      %RequiredEncryptionContext{underlying_cmm: write} =
+        Encrypt.stack(config, keyring, "merchant_a", v1)
+
+      %RequiredEncryptionContext{underlying_cmm: next} =
+        Encrypt.stack(config, keyring, "merchant_a", v2)
+
+      %RequiredEncryptionContext{underlying_cmm: read} =
+        Encrypt.stack(config, keyring, "merchant_a")
+
+      assert write.partition_id ==
+               Partition.encryption_id(EncryptVaults.Merchant, "merchant_a", v1)
+
+      refute write.partition_id == next.partition_id
+      assert read.partition_id == Partition.id(EncryptVaults.Merchant, "merchant_a")
+      refute write.partition_id == read.partition_id
     end
 
     # sabotage: passed the engine's own ceilings instead of the resolved

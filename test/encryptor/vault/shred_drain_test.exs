@@ -17,12 +17,13 @@ defmodule Encryptor.Vault.ShredDrainTest do
       serves until it expires or the cache is dropped.
 
   The mint that opens the window has a cache question of its own, on the
-  write side. The encryption cache id is computed from the partition, the
-  suite and the context the caller passed - not from the key that wrapped
-  the entry's data key - so a warm encryption entry from before P2 step 1
-  keeps issuing data keys wrapped under version *n* after the provider has
-  started answering *n+1*, until the entry expires, reaches its message or
-  byte bound, or the cache is dropped.
+  write side. The engine's encryption cache id is computed from the
+  partition, the suite and the context the caller passed - not from the key
+  that wrapped the entry's data key - so the vault puts the key in the
+  partition: the write side's partition id carries the resolved key as well
+  as the selector (ADR-0001 Amendment B), and a write after P2 step 1 finds a
+  cold partition and wraps under version *n+1* at once, with no drain. So
+  does a rekey's write half.
 
   The store here is a host's key table reduced to an ETS row per scope, read
   on every call by a `Function` provider, which is the shape the claim is
@@ -32,6 +33,7 @@ defmodule Encryptor.Vault.ShredDrainTest do
 
   use ExUnit.Case, async: false
 
+  alias AwsEncryptionSdk.Format.Header
   alias Encryptor.Error
   alias Encryptor.Key.Aes
   alias Encryptor.Vault.Reference
@@ -114,6 +116,13 @@ defmodule Encryptor.Vault.ShredDrainTest do
 
   defp key_name(selector, version), do: descriptor(selector, version).name
 
+  # The wrapped data key bytes, which are equal across two messages only when
+  # the second reused the first's cached materials.
+  defp edk_bytes(ciphertext) do
+    {:ok, header, _body} = Header.deserialize(ciphertext)
+    Enum.map(header.encrypted_data_keys, & &1.ciphertext)
+  end
+
   defp delete_scope(selector), do: :ets.delete(@store, selector)
 
   defp start_vault do
@@ -183,11 +192,11 @@ defmodule Encryptor.Vault.ShredDrainTest do
   end
 
   describe "P2 step 1, the mint, on a warm encryption cache" do
-    # sabotage: made maybe_caching/3 in Encryptor.Vault.Encrypt return the
-    # uncached CMM for every vault - red on the write after the mint: with no
-    # materials cache the provider's newest answer wraps every data key, and
-    # the header names version 2 at once.
-    test "keeps writing under the old version from a warm entry until the cache is dropped" do
+    # sabotage: made partition_id/2 in Encryptor.Vault.Encrypt answer
+    # Partition.id(vault, selector) for the write side too, dropping the key
+    # from the partition - red on the write after the mint: the same context
+    # finds the warm entry from before it, and the header names version 1.
+    test "writes under the new version at once, from a warm cache, with no drain" do
       vault = start_vault()
       put_versions(@branch, [1])
 
@@ -195,21 +204,48 @@ defmodule Encryptor.Vault.ShredDrainTest do
       before_mint = vault.encrypt!(@email, key: @branch, encryption_context: @columns)
       assert wrapped_under(before_mint) == [key_name(@branch, 1)]
 
+      # The cache is warm: a second write before the mint reuses the entry,
+      # so the two messages share one data key and one encrypted data key.
+      warm = vault.encrypt!(@email, key: @branch, encryption_context: @columns)
+      assert edk_bytes(warm) == edk_bytes(before_mint)
+
       # P2 step 1: version 2 is minted and the provider now answers it first.
       put_versions(@branch, [2, 1])
       assert {:ok, %Aes{name: current}} = current(@branch)
       assert current == key_name(@branch, 2)
 
-      # Before a drain: the same context finds the warm entry, and the new
-      # message's data key is still wrapped under version 1.
+      # No drain: the write's partition carries version 2's name, so the warm
+      # entry from before the mint is not found, and the data key is wrapped
+      # under version 2.
       after_mint = vault.encrypt!(@email, key: @branch, encryption_context: @columns)
-      assert wrapped_under(after_mint) == [key_name(@branch, 1)]
+      assert wrapped_under(after_mint) == [key_name(@branch, 2)]
+      assert {:ok, @email} = vault.decrypt(after_mint, key: @branch, encryption_context: @columns)
+    end
 
-      # A drain, by restart: a fresh cache, and the write takes version 2.
-      vault = restart_vault()
+    # sabotage: made rekey/2's write half call Encrypt.client/3 (the read
+    # side's selector-only partition) instead of Encrypt.client/4 - red: the
+    # rekey before the mint leaves a warm entry under that partition, the
+    # rekey after it finds the entry, and the rewritten header still names
+    # version 1.
+    test "a rekey's write half rewrites under the new version at once, with no drain" do
+      vault = start_vault()
+      put_versions(@branch, [1])
 
-      after_drain = vault.encrypt!(@email, key: @branch, encryption_context: @columns)
-      assert wrapped_under(after_drain) == [key_name(@branch, 2)]
+      old = vault.encrypt!(@email, key: @branch, encryption_context: @columns)
+      assert wrapped_under(old) == [key_name(@branch, 1)]
+
+      # Two rewrites before the mint: the second reuses the materials the
+      # first cached, so the rekey's write half runs through a warm cache.
+      {:ok, first} = vault.rekey(old, key: @branch)
+      {:ok, second} = vault.rekey(old, key: @branch)
+      assert wrapped_under(second) == [key_name(@branch, 1)]
+      assert edk_bytes(second) == edk_bytes(first)
+
+      put_versions(@branch, [2, 1])
+
+      assert {:ok, rewritten} = vault.rekey(old, key: @branch)
+      assert wrapped_under(rewritten) == [key_name(@branch, 2)]
+      assert {:ok, @email} = vault.decrypt(rewritten, key: @branch, encryption_context: @columns)
     end
   end
 end
