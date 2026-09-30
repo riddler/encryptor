@@ -67,8 +67,9 @@ defmodule Encryptor.Vault.Suspension.Refresher do
   # call's one event. A write the refresher performed in time whose answer
   # still arrives past the deadline plus `@reply_slack` - the view update,
   # the cache drop or a synchronous event handler ran long - is the
-  # exception: `perform/4` has emitted its own outcome and the write stands,
-  # and this emits `:error` as well. A retry is safe (decision 7).
+  # exception: this emits `:error`, `perform/4` emits its own outcome too
+  # (not necessarily before this one), and the write stands. A retry is safe
+  # (decision 7).
   @spec write(Config.t(), Suspension.action(), Error.selector(), pos_integer()) ::
           :ok | {:error, Error.t()}
   def write(%Config{vault: vault} = config, action, selector, timeout \\ @write_timeout) do
