@@ -1220,7 +1220,7 @@ this Note carries no status of its own.
 
 ## Amendment B (2026-09-30): a `Decrypt` 400 or 404 answers a permanent refusal
 
-Status: proposed (2026-09-30).
+Status: accepted (2026-09-30), proposed 2026-09-30.
 
 This amendment only adds, and it removes no line. It answers open question 4
 for two statuses and leaves it open for the third, and it supersedes, for
@@ -1361,3 +1361,62 @@ Provenance: bead `enc-t6b0`, folded into `enc-880r`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Note (2026-09-30): Amendment B is accepted
+
+Amendment B's Status line now reads `accepted (2026-09-30)`. The record's own
+Status line, `accepted (2026-09-13)`, does not change, and its index row
+already reads `accepted (2026-09-13, amended)`. The amendment decides an error
+term, nothing cryptographic, so it takes this repository's flip rule rather
+than the operator's own reading.
+
+The code it describes shipped in encryptor 0.6.0, the commit tagged `v0.6.0`
+(`91e9643`) and published on Hex. Every claim was re-verified by anchor at
+`91e9643`:
+
+- **Why now.** `Encryptor.Provider.GcpKms.Api`'s `failure` type and
+  `handle/2` still return `{:http_status, status}`, `{:transport,
+  :request_failed}` and `{:malformed_response, tag}`, and the token path
+  `{:token, :unavailable}`. ADR-0002's quoted sentences are at
+  `docs/adr/0002-key-providers.md:271-273` and `:274-276`.
+- **B1.** `decrypt_failure/2` in `Encryptor.Provider.GcpKms` answers
+  `{:invalid_key_descriptor, {:kms_refused, status}}` for a status in
+  `@refused_statuses`, which is `[400, 404]`, and `{:key_unavailable,
+  selector}` for every other failure; `unwrap/3` calls it, and both
+  `encryption_key/2` and `decryption_keys/2` (through `unwrap_all/3`) reach
+  `unwrap/3`. `provision/2` and `mint/4` still answer `{:key_unavailable,
+  selector}` for any failed call. `gcp_kms_test`'s "reports a Decrypt 400 or
+  404 as a permanent kms_refused on both paths" and "names exactly the
+  statuses 400 and 404 in a kms_refused reason" are on main.
+- **The family.** `{:invalid_key_descriptor, term()}` is in the `reason` type
+  of `Encryptor.Provider` and of `Encryptor.Error`;
+  `Encryptor.Vault.Resolve` carries a provider's member of the vocabulary
+  through unchanged (`@provider_reasons`, `provider_reason?/1`); the
+  provider behaviour's reason doc names the `{:kms_refused, status}` detail
+  beside "A bug in the provider, not in the caller"; and ADR-0002's Note of
+  2026-09-30 points here.
+- **What an operator reads.** `Encryptor.Error`'s `describe/1` renders the
+  family's message only; `Encryptor.Telemetry.reason_tag/1` answers
+  `:invalid_key_descriptor` for it; the provider's moduledoc carries the
+  section "What a failed `Decrypt` answers".
+- **B2.** The superseded row is at `:731`, the paragraph at `:736-741`, and
+  open question 4 at `:872-878`. ADR-0005 Amendment A's A3 ("both surface the
+  same reason to the caller"), its A4 table row for the suspended state and
+  its open question A-2 ("for both callers, or not at all"), and ADR-0010's
+  "They compose as A3 says", read as the amendment quotes them.
+
+One claim is about Cloud KMS rather than this package: that a `Decrypt`
+under a disabled `CryptoKeyVersion` answers 400 and succeeds again once the
+version is enabled ("The reversible 400"). No code on main contradicts it,
+and it was not re-checked against the service for this flip.
+
+Two sentences elsewhere name the amendment's status as proposed. ADR-0002's
+Note of 2026-09-30 says "ADR-0007 Amendment B, proposed 2026-09-30", which
+still states the date it was proposed. This record's Note of 2026-09-30 above
+names ADR-0005's Amendment B as "(2026-09-30, proposed)"; that amendment is
+accepted in the same change as this one. Neither sentence is edited.
+
+Provenance: bead `enc-6pji`.
+
+No decision changes, no line above is edited other than Amendment B's Status
+line, and this Note carries no status of its own.

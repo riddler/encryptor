@@ -1652,7 +1652,7 @@ removed, and this Note carries the record's status rather than one of its own.
 
 ## Amendment B (2026-09-30): P3 does not wait on the cache drain; P2 step 1 and P4 do
 
-Status: **proposed (2026-09-30)**. This amendment only adds: no line above is
+Status: **accepted (2026-09-30)**, proposed 2026-09-30. This amendment only adds: no line above is
 edited. It supersedes four passages for a provider that reads its store on
 every call (B1), keeps P4's drain as written (B2), adds a drain to P2 step 1
 (B3) and restates P4's second precondition on it (B4). The decision to amend,
@@ -1792,3 +1792,66 @@ there, waiting `max_age` or restarting before step 2 costs time and changes
 no row. The read side was never part of B3: the decryption cache id hashes a
 message's encrypted data keys, and a mint adds a version without removing
 one. B2 (P4 waits on the drain) is unaffected.
+
+## Note (2026-09-30): Amendment B is accepted
+
+Amendment B's Status line now reads `accepted (2026-09-30)`. The record's own
+Status line, `accepted (2026-08-27, amended)`, and its index row do not
+change. The amendment decides nothing cryptographic (its "What this amendment
+does not do"), so it takes this repository's flip rule rather than the
+operator's own reading.
+
+The amendment and the code and tests it cites shipped in encryptor 0.6.0, the
+commit tagged `v0.6.0` (`91e9643`) and published on Hex. Every claim below was
+re-verified by anchor at `91e9643`; the engine cites against
+`aws_encryption_sdk` 1.0.0, which `mix.lock` still resolves.
+
+- **B1.** `decrypt/7` (`lib/encryptor/vault/decrypt.ex:148`) resolves the
+  selector with `Resolve.decryption_keys/3` before `Encrypt.client/3` builds
+  the caching client, so a provider's `{:unknown_key, selector}` ends the
+  call first. `Encryptor.Provider.GcpKms`'s `rows/2`
+  (`lib/encryptor/provider/gcp_kms.ex:456`) calls the host's `:store` on
+  every resolution and answers `{:unknown_key, selector}` for an empty result
+  (`:461`). `shred_drain_test`'s "answers unknown_key at once on a warm cache,
+  with no drain" is on main. `Encryptor.Provider`'s obligation that a
+  provider cache be bounded and its bound documented is at
+  `lib/encryptor/provider.ex:59-64`. The four superseded passages are where
+  B1 cites them: "3. Drain the caches" at `:419-422`, the "| P3 | 3, drain
+  caches" row at `:694`, the consequence at `:602`, and A5's "**P3 step 3
+  must drain caches**" at `:1095`.
+- **B2.** P4 step 2 is at `:463`, and `shred_drain_test`'s "keeps serving a
+  retired version from a warm cache until the cache is dropped" is on main.
+- **B3.** The engine's `compute_encryption_cache_id/3`
+  (`lib/aws_encryption_sdk/cmm/caching.ex:201`) hashes the partition id, the
+  suite and the context, and `CacheEntry.new/2`
+  (`lib/aws_encryption_sdk/cache/cache_entry.ex:55`) sets an entry's expiry
+  `max_age` after its creation. `Encryptor.Envelope.provision/3` runs on the
+  root vault, and no code drops a cache entry at the mint.
+- **B4.** The superseded precondition sentence is at `:455-456`.
+- **What it does not do.** "There is a lower bound" is at `:132` and the
+  worked example's drain line at `:796`. `guides/rotation-runbook.md` carries
+  the P2 step 1 drain, P3 step 3 as residency, and P4 step 2. The change that
+  landed the amendment touched no function body in `lib/`: its one `lib/`
+  edit is the prose of `Encryptor.Vault`'s `suspend/2` doc.
+
+**Superseded sentences.** B3's first two paragraphs, where they say a write
+after the mint finds a warm encryption entry from before it, no longer hold
+on main for a vault running this code. The Note above, "what Amendment B's
+P2 step 1 drain still covers" (2026-09-30), names the change that ended
+them: the write side's cache partition now carries the resolved key
+(`partition_id/2` and `Partition.encryption_id/3`,
+`lib/encryptor/vault/encrypt.ex:230-233`, reached from `maybe_caching/3` at
+`:220`; `rekey/2`'s write half builds its client with `Encrypt.client/4`,
+`lib/encryptor/vault/rekey.ex:147`). The sentences it covers include "the
+vault's partition id is the vault and the selector only", the test name
+"keeps writing under the old version from a warm entry until the cache is
+dropped" (`shred_drain_test` now carries "writes under the new version at
+once, from a warm cache, with no drain" in its place), and the sentence that
+a migrator rewrite finding such an entry rewrites under *n*. Each is read as
+that Note says. B3's decision, the drain in P2 step 1, stands for what that
+Note lists.
+
+Provenance: bead `enc-6pji`.
+
+No decision changes, no line above is edited other than Amendment B's Status
+line, and this Note carries no status of its own.
