@@ -99,8 +99,13 @@ defmodule Encryptor.Vault.Resolve do
   # be a refusal. Placing it here is also what makes a suspension *immediate*
   # (A5): every path resolves before it builds a caching CMM, so the deny is
   # ahead of the materials cache and the very next call fails, warm cache or
-  # cold. That is the opposite of the shred, whose P3 must drain caches before
-  # a running node stops serving a scope.
+  # cold. A whole-scope shred (ADR-0005 P3) is immediate for the same reason:
+  # the provider is asked here on every call, so a scope with no live row
+  # answers `{:unknown_key, selector}` before any cache is read. What does
+  # wait on the cache is a single retired version (P4): the provider's
+  # shorter list is accepted, and a warm entry for a message written under
+  # the dropped version serves until it expires or the cache is dropped
+  # (ADR-0005's 2026-09-29 Note).
   #
   # `encrypt/2`, `decrypt/2`, `rekey/2` and `derive/2` reach one of the two
   # callbacks above and are therefore all covered; `provision/3` is not, and
