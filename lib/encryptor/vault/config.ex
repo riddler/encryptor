@@ -69,6 +69,18 @@ defmodule Encryptor.Vault.Config do
   a reason from the closed vocabulary. None of them is deferred to the first
   encrypt: a vault that cannot be configured correctly does not start.
 
+    * Every layer after the first is a keyword list of known options: the
+      keys this section names and nothing else. An option outside that set
+      is refused rather than ignored, with `{:invalid_config, layer,
+      {:unknown_options, keys}}`, where `layer` is `:use`, `:app_env`,
+      `:start_link` or `:init` and `keys` is the sorted list of unknown
+      options that layer carried. A misspelled option, or one a rename
+      retired - `:telemetry_tenant_ref` is now `:telemetry_scope_ref` - would
+      otherwise start a vault configured differently from what its host
+      wrote. `:otp_app` belongs to `use Encryptor.Vault` alone and is refused
+      in every other layer, where it configures nothing.
+      `Encryptor.Error.message/1` names the layer and never the keys; the
+      keys ride in the error's `:reason`.
     * `:provider` is required, is a `{module, opts}` pair, and may not carry
       both `:key` and `:keys` (ADR-0005 decision 4). Its `c:Encryptor.Provider.init/1`
       runs here, once, and what it returns is frozen as `:provider_state` -
@@ -196,6 +208,30 @@ defmodule Encryptor.Vault.Config do
   @default_max_bytes 1_073_741_824
   @recycle_after_multiplier 20
   @cache_bounds [:max_age, :max_messages, :max_bytes, :recycle_after]
+
+  # The options a vault reads: every key `defaults/0` names, plus the ones
+  # `build/3` reads with no default. The set is closed, so an option outside
+  # it - a misspelling, or a spelling a rename retired - is refused at start
+  # rather than accepted and ignored. `:otp_app` is not on the list: it is
+  # read from `use` alone, where the macro strips it before layer 2 reaches
+  # this module, and in any later layer it would configure nothing.
+  @known_options [
+    :provider,
+    :cache,
+    :commitment_policy,
+    :algorithm_suite_id,
+    :max_encrypted_data_keys,
+    :static_encryption_context,
+    :context_profile,
+    :telemetry_scope_ref,
+    :required_context,
+    :reference_subkey,
+    :reference_check,
+    :derivation_salt,
+    :slow_hash,
+    :suspension_store,
+    :suspension_poll_interval
+  ]
 
   @key_material_options [:key, :keys, :root_key, :private_key, :passphrase, :reference_subkey]
   @reference_subkey_bytes 32
@@ -413,13 +449,34 @@ defmodule Encryptor.Vault.Config do
     ]
 
     Enum.reduce_while(layers, {:ok, defaults()}, fn {name, layer}, {:ok, merged} ->
-      if Keyword.keyword?(layer),
-        do: {:cont, {:ok, Keyword.merge(merged, layer)}},
-        else: {:halt, {:error, error(vault, {:invalid_config, name, :not_a_keyword_list})}}
+      case checked_layer(vault, name, layer) do
+        :ok -> {:cont, {:ok, Keyword.merge(merged, layer)}}
+        {:error, _error} = failure -> {:halt, failure}
+      end
     end)
     |> case do
       {:ok, merged} -> under_defaults(apply_init(merged, vault))
       {:error, _error} = failure -> failure
+    end
+  end
+
+  defp checked_layer(vault, name, layer) do
+    if Keyword.keyword?(layer),
+      do: known_options(vault, name, layer),
+      else: {:error, error(vault, {:invalid_config, name, :not_a_keyword_list})}
+  end
+
+  # Each layer is checked on its own, so the refusal names the layer the
+  # unknown option was written in, the way a layer that is not a keyword list
+  # is named. The layers merge by top-level key, so an unknown key checked
+  # only after the merge could not say which of them carried it.
+  defp known_options(vault, name, layer) do
+    case layer |> Keyword.keys() |> Enum.uniq() |> Enum.reject(&(&1 in @known_options)) do
+      [] ->
+        :ok
+
+      unknown ->
+        {:error, error(vault, {:invalid_config, name, {:unknown_options, Enum.sort(unknown)}})}
     end
   end
 
@@ -433,11 +490,20 @@ defmodule Encryptor.Vault.Config do
   defp apply_init(merged, vault) do
     if Code.ensure_loaded?(vault) and function_exported?(vault, :init, 1) do
       case vault.init(merged) do
-        {:ok, config} when is_list(config) -> {:ok, config}
+        {:ok, config} when is_list(config) -> init_return(vault, config)
         _other -> {:error, error(vault, {:invalid_config, :init, :bad_return})}
       end
     else
       {:ok, merged}
+    end
+  end
+
+  # Layer 5 is checked like the other four: what `init/1` returned replaces
+  # the merge, so an option it adds is one no earlier layer vouched for.
+  defp init_return(vault, config) do
+    case checked_layer(vault, :init, config) do
+      :ok -> {:ok, config}
+      {:error, _error} = failure -> failure
     end
   end
 

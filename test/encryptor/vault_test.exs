@@ -152,6 +152,19 @@ defmodule Encryptor.VaultTest do
       assert {:error, %Error{reason: {:vault_not_started, _}}} =
                Config.fetch(LifecycleVaults.Unconfigured)
     end
+
+    # sabotage: made known_options/3 return :ok unconditionally - red,
+    # because the vault then starts on an option it never reads.
+    test "an unknown option is refused at start, and the vault does not start" do
+      assert {:error,
+              %Error{
+                reason:
+                  {:invalid_config, :start_link, {:unknown_options, [:telemetry_tenant_ref]}},
+                operation: :start
+              }} = LifecycleVaults.Supervised.start_link(telemetry_tenant_ref: true)
+
+      refute LifecycleVaults.Supervised.started?()
+    end
   end
 
   describe "stopping a vault" do

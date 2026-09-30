@@ -176,6 +176,80 @@ defmodule Encryptor.Vault.ConfigTest do
     end
   end
 
+  describe "unknown options" do
+    # sabotage: made known_options/3 return :ok unconditionally - red, because
+    # the pre-rename spelling then starts a scoped vault with no dimension.
+    test "the pre-rename scope-dimension spelling is refused, named by layer" do
+      assert {:error,
+              %Error{
+                reason:
+                  {:invalid_config, :start_link, {:unknown_options, [:telemetry_tenant_ref]}}
+              }} = scope(telemetry_tenant_ref: true)
+    end
+
+    # sabotage: dropped the known_options/3 call from checked_layer/3 - red,
+    # because a single-profile vault then starts on an option it never reads.
+    test "is refused from the application environment on a single-profile vault" do
+      Application.put_env(:encryptor, TestVaults.NoInit, telemetry_tenant_ref: true)
+      on_exit(fn -> Application.delete_env(:encryptor, TestVaults.NoInit) end)
+
+      assert {:error,
+              %Error{
+                reason: {:invalid_config, :app_env, {:unknown_options, [:telemetry_tenant_ref]}}
+              }} = single()
+    end
+
+    # sabotage: removed Enum.sort/1 from the refusal - red, because the keys
+    # then arrive in the order the layer wrote them.
+    test "every unknown option in the use options is listed, sorted" do
+      assert {:error,
+              %Error{reason: {:invalid_config, :use, {:unknown_options, [:cache_ttl, :max_edks]}}}} =
+               Config.resolve(
+                 TestVaults.NoInit,
+                 :encryptor,
+                 [max_edks: 4, cache_ttl: 60, max_edks: 5],
+                 provider: @provider,
+                 context_profile: :single
+               )
+    end
+
+    # sabotage: made init_return/2 return {:ok, config} without the check -
+    # red, because an option init/1 adds then bypasses the refusal.
+    test "an option init/1 adds is refused as layer 5's" do
+      assert {:error,
+              %Error{
+                reason: {:invalid_config, :init, {:unknown_options, [:telemetry_tenant_ref]}}
+              }} =
+               Config.resolve(
+                 TestVaults.UnknownOptionInit,
+                 :encryptor,
+                 [],
+                 provider: @provider,
+                 context_profile: :scoped,
+                 reference_subkey: @subkey
+               )
+    end
+
+    # sabotage: added :otp_app to @known_options - red, because the
+    # application environment's :otp_app is then accepted and ignored.
+    test ":otp_app configures nothing after use, and is refused there" do
+      Application.put_env(:encryptor, TestVaults.NoInit, otp_app: :other_app)
+      on_exit(fn -> Application.delete_env(:encryptor, TestVaults.NoInit) end)
+
+      assert {:error, %Error{reason: {:invalid_config, :app_env, {:unknown_options, [:otp_app]}}}} =
+               single()
+    end
+
+    # sabotage: rendered the detail in Error's :invalid_config message clause -
+    # red on the refute, because the keys then reach the message.
+    test "the message names the layer and not the keys" do
+      assert {:error, %Error{} = error} = scope(telemetry_tenant_ref: true)
+
+      assert Exception.message(error) =~ "invalid configuration for :start_link"
+      refute Exception.message(error) =~ "telemetry_tenant_ref"
+    end
+  end
+
   describe "key material in use options" do
     # sabotage: emptied @key_material_options - red for every option in the
     # list, because nothing raises.

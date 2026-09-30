@@ -52,6 +52,13 @@ defmodule Encryptor.TestVaults do
     def init(_config), do: :not_ok
   end
 
+  defmodule UnknownOptionInit do
+    @moduledoc "A vault whose `init/1` adds an option the vault does not read."
+
+    @doc "Adds the pre-rename spelling of the scope dimension on top of the merge."
+    def init(config), do: {:ok, Keyword.put(config, :telemetry_tenant_ref, true)}
+  end
+
   defmodule Frozen do
     @moduledoc "A vault used only as a `:persistent_term` key."
   end
