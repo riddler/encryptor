@@ -1,4 +1,4 @@
-# Rotation runbook
+# How to rotate, retire, shred and suspend keys
 
 Five operator procedures, two of them irreversible. This is the operational
 half of ADR-0005 and its Amendment A; read the [getting-started
