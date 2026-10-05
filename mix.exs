@@ -65,7 +65,8 @@ defmodule Encryptor.MixProject do
         "guides/getting-started.md",
         "guides/secrets-at-start.md",
         "guides/rotation-runbook.md",
-        "guides/choosing-the-scope.md"
+        "guides/choosing-the-scope.md",
+        "docs/explanation/security-model.md"
       ],
       groups_for_extras: [
         Tutorials: ["guides/getting-started.md"],
@@ -73,7 +74,10 @@ defmodule Encryptor.MixProject do
           "guides/secrets-at-start.md",
           "guides/rotation-runbook.md"
         ],
-        Explanation: ["guides/choosing-the-scope.md"]
+        Explanation: [
+          "guides/choosing-the-scope.md",
+          "docs/explanation/security-model.md"
+        ]
       ],
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       # Names the guides and README print as code on purpose but that have
@@ -96,9 +100,10 @@ defmodule Encryptor.MixProject do
     [
       name: "encryptor",
       licenses: ["Apache-2.0"],
-      # The guides are here for the README, not for hexdocs: hex.pm renders
-      # the README from this tarball, so every file it links to relatively
-      # has to ship in it too, or the link answers 404 on the package page.
+      # The guides and the docs pages are here for the README, not for
+      # hexdocs: hex.pm renders the README from this tarball, so every file
+      # it links to relatively has to ship in it too, or the link answers
+      # 404 on the package page.
       files: ~w(
         lib
         mix.exs
@@ -109,6 +114,7 @@ defmodule Encryptor.MixProject do
         guides/secrets-at-start.md
         guides/choosing-the-scope.md
         guides/rotation-runbook.md
+        docs/explanation/security-model.md
       ),
       links: %{
         "GitHub" => @source_url,
