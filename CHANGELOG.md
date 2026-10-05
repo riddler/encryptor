@@ -6,9 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Entries for unreleased work are not written here directly. Each issue drops a
-fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/v0.6.0/changelog.d/README.md); the fragments are assembled
+fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/v0.6.1/changelog.d/README.md); the fragments are assembled
 into a version section at release. See that README for the format and for when a
 change warrants an entry at all.
+
+## [0.6.1] - 2026-10-05
+
+A documentation release. The library's code is unchanged from 0.6.0.
+
+### Changed
+
+- The README is now a short introduction: what the package is, why it
+  exists, how to install it and one basic-usage example, followed by a
+  Documentation section that lists the guides and the main reference pages
+  under the question each answers.
+- The hexdocs sidebar groups its pages by kind: Tutorials (Getting started),
+  How-to guides (sourcing secrets at start; rotating, retiring, shredding and
+  suspending keys) and Explanation (Choosing the scope; the security model).
+  The README and this changelog stay ungrouped at the top.
+- A new page, "The security model: keys, scopes and envelopes", explains the
+  three levels of keys, why a scope's key is random and stored rather than
+  derived, what the encryption context binds, why decrypt failures look
+  alike, and what the model does not protect against.
+- The two how-to guides are retitled "How to source secrets at start" and
+  "How to rotate, retire, shred and suspend keys"; their file names and links
+  are unchanged.
 
 ## [0.6.0] - 2026-09-30
 
