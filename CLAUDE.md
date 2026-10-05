@@ -60,7 +60,7 @@ should do the work, stop before the irreversible step, and report.
 | `bd close <id>` | never for a mirrored bead; otherwise the operator's call | always for a bead whose description carries a `mirrors:` line, campaign consent included |
 | `bd dolt push` | bead state changed locally **and** the git side of the same change has already reached `origin`; inside a campaign, the conductor pushes (atomically across the campaign's trackers) | as a way to publish beads for work that is not on `origin/main` yet |
 | a release prep (a version bump and a changelog promotion) and its tag | a release bead the operator has named (in the campaign plan or their own words); the tag once the operator has merged that prep to `origin/main`, naming its version at the merged commit | on any other bead or on `main`; the tag before the prep is on `origin/main` |
-| a release, `mix hex.publish` | never | always |
+| a release, `mix hex.publish` | never - an agent or a session never runs `mix hex.publish`; the release workflow (`.github/workflows/release.yml`) publishes on the tag push the release-prep row above already allows | always - a failed workflow is re-run from its Actions page, never worked round by a local publish |
 
 The organizing principle: the human gate belongs where an action stops being
 reversible. A commit on a per-bead branch is undone with
@@ -89,11 +89,15 @@ the operator has named (in the campaign plan or their own words), the prep -
 the version bump and the changelog promotion - lands through the rows above;
 once it is merged to `origin/main`, the conductor or the session that owns
 the release bead tags that merged commit with the new version and pushes the
-tag. Publishing (`mix hex.publish`, a docs republish included) is the
-operator's one release step, in every campaign, and no consent or relay
-delegates it. Merging the prep follows this file's merge row, and nothing
-else this file reserves for the operator changes. (Recorded 2026-09-25 by
-the operator.)
+tag. An agent or a session never runs `mix hex.publish`, a docs republish
+included: the release workflow (`.github/workflows/release.yml`) publishes
+on that tag push, and only when the tagged commit is on the default branch,
+the tag names the `@version` in `mix.exs` at that commit and the full gate is
+green there (ADR-0011). A failed workflow is re-run from its Actions page,
+never worked round by a local publish. Merging the prep follows this file's
+merge row, and nothing else this file reserves for the operator changes.
+(Recorded 2026-09-25 by the operator; the publish moved to the release
+workflow as ruled by the operator, 2026-10-04.)
 
 Widening this section is a decision for the operator to make and record here.
 An agent may draft the change; it does not adopt it.
