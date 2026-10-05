@@ -88,6 +88,17 @@
   doc_links: [
     enabled: :auto
   ],
+  # The README stage keeps README.md an introduction and a map: a What under
+  # the H1, a Why, an Install with the dependency line, one basic-usage
+  # block, and a Documentation section whose links sit under the reader's
+  # question. At :error a README that drifts back into a manual fails the
+  # gate. Its line ceiling is `readme_max_lines` in .claude/diataxis.md.
+  # The Diataxis stage, which reads the pages under the quadrant folders,
+  # stays off.
+  readme: [
+    enabled: :auto,
+    severity: :error
+  ],
   profiles: [
     loop: [
       stages: [:format, :compile, :credo, :test],
