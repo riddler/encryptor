@@ -56,16 +56,24 @@ defmodule Encryptor.MixProject do
       canonical: "https://hexdocs.pm/encryptor",
       source_url: @source_url,
       main: "readme",
+      # The README and the CHANGELOG stay ungrouped at the top; every other
+      # page sits in exactly one group, named by the kind of page it is. The
+      # guides/ folder keeps its name, so the groups list files, not folders.
       extras: [
         "README.md",
+        "CHANGELOG.md",
         "guides/getting-started.md",
         "guides/secrets-at-start.md",
-        "guides/choosing-the-scope.md",
         "guides/rotation-runbook.md",
-        "CHANGELOG.md"
+        "guides/choosing-the-scope.md"
       ],
       groups_for_extras: [
-        Guides: ~r{^guides/}
+        Tutorials: ["guides/getting-started.md"],
+        "How-to guides": [
+          "guides/secrets-at-start.md",
+          "guides/rotation-runbook.md"
+        ],
+        Explanation: ["guides/choosing-the-scope.md"]
       ],
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       # Names the guides and README print as code on purpose but that have

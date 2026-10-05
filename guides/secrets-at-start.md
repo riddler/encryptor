@@ -1,4 +1,4 @@
-# Secrets at start
+# How to source secrets at start
 
 Every vault in this package gets its key material from exactly one place: the
 return of your vault's own `init/1`. The [getting-started
