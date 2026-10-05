@@ -17,8 +17,9 @@ defmodule Encryptor.GuidesTest do
   executable - a section a record assigns to the guide, and a table a record
   asks the guide to reproduce rather than paraphrase - so they are asserted
   against the files themselves. The install pin `guides/getting-started.md`
-  and `README.md` must carry alike is asserted the same way, in the last
-  describe.
+  and `README.md` must carry alike is asserted the same way, in the
+  second-to-last describe. The last describe compiles and runs the one code
+  block in the README's Basic usage section, read from the README itself.
   """
 
   use ExUnit.Case, async: false
@@ -94,6 +95,16 @@ defmodule Encryptor.GuidesTest do
       [_whole, requirement] -> requirement
       nil -> nil
     end
+  end
+
+  # The one code block in the README's `## Basic usage` section, split where
+  # the vault module ends: the module source, and the calls printed after it.
+  defp readme_basic_usage do
+    [_before, section] = String.split(File.read!(@readme), "\n## Basic usage\n", parts: 2)
+    [section | _later] = String.split(section, "\n## ", parts: 2)
+    [_whole, block] = Regex.run(~r/^```elixir\n(.*?)^```$/ms, section)
+    [module, calls] = String.split(block, ~r/^end$/m, parts: 2)
+    {module <> "end\n", calls}
   end
 
   describe "getting started, part 1: the single-key vault" do
@@ -554,6 +565,34 @@ defmodule Encryptor.GuidesTest do
       assert guide_pin == readme_pin,
              "#{@getting_started} pins encryptor at #{inspect(guide_pin)} while #{@readme} " <>
                "pins it at #{inspect(readme_pin)}; the two install snippets move together"
+    end
+  end
+
+  describe "the README's basic usage runs as printed" do
+    setup do
+      System.put_env("MY_APP_VAULT_KEY", Base.encode64(:crypto.strong_rand_bytes(32)))
+      on_exit(fn -> System.delete_env("MY_APP_VAULT_KEY") end)
+      :ok
+    end
+
+    # sabotage: dropped the missing key from the encrypt path's required-context
+    # refusal; red. Changed the README's decrypt match to another plaintext; red.
+    test "the vault module compiles, starts, and every match in the block holds" do
+      {module, calls} = readme_basic_usage()
+      [{vault, _beam}] = Code.compile_string(module, @readme)
+
+      on_exit(fn ->
+        :code.purge(vault)
+        :code.delete(vault)
+      end)
+
+      start_vault(vault)
+
+      try do
+        Code.eval_string(calls, [], file: @readme)
+      rescue
+        MatchError -> flunk("a match in #{@readme}'s Basic usage block no longer holds")
+      end
     end
   end
 end
