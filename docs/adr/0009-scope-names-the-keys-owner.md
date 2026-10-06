@@ -2,6 +2,11 @@
 
 Status: accepted (2026-09-24)
 
+**Amendment A (2026-10-06) is proposed, not accepted.** It is appended at the
+end of this record, it replaces decisions 4 and 5, and decisions 1 to 3 and 6
+are unchanged. Read the decisions as accepted and the amendment as a proposal
+awaiting the operator's acceptance reading.
+
 ## Context
 
 The records call the thing a per-owner key belongs to a *tenant*, and the Elixir surface follows: the `:tenant` context profile
@@ -310,3 +315,251 @@ found, because decision 4 keeps `scope_ref/2`'s answer equal to what
 
 The bullet is left as written - a merged record's body is not rewritten by a
 Note - and this Note carries no status of its own.
+
+## Amendment A (2026-10-06): a v2 wire format spells the owner noun scope
+
+Status: proposed (2026-10-06). This amendment replaces decisions 4 and 5
+above. Decisions 1 to 3 and 6 are unchanged; A4 tables the reserved caller
+keys under the v2 spellings, and A5 restates which spellings decision 6's
+sentence now covers. No line above is edited except the header note under
+the record's Status line. Every `lib/`, `guides/` and `test/` cite in this
+amendment was read at `32880c7`.
+
+### Why now
+
+Decision 5 rests on one premise: a respelled wire constant forces a
+re-encrypt of every row already written under the old spelling, ADR-0005
+decision 1's R3 ("Format or context change | R3 | none in this package |
+every ciphertext in scope", `docs/adr/0005-rotation-and-crypto-shred.md`,
+decision 1). That premise is about stored rows, not about the strings, and
+today there are none to re-encrypt:
+
+- **No package depends on encryptor except encryptor_ecto.** Hex lists
+  encryptor_ecto as encryptor's only dependent, and encryptor_ecto pins an
+  exact version, so it moves when this package moves; its key-store column
+  follows in its own record.
+- **No host has stored a ciphertext or a wrapped key.** No host has run
+  encryptor_ecto's key-store migration, so no wrapped-key table holds a row,
+  and no ciphertext written by this package is held anywhere a host has to
+  read it back.
+
+The cost comparison follows from that. With zero stored rows, the
+respelling costs one minor release of each package and this amendment.
+After a host writes its first row, the same respelling costs that host an
+R3 re-encrypt rather than a rotation, and every later host the same. The
+original Consequences accepted the price of not respelling ("Two spellings
+of one noun sit side by side in the source indefinitely") only because the
+re-encrypt was assumed to be owed; with nothing stored, that price buys
+nothing.
+
+The v2 wire format, its spelling set, the label rule of A2, the absence of
+v1 compatibility (A3), the reserved keys of A4 and the respelled Cloud KMS
+defaults were ruled by the operator, 2026-10-06.
+
+"Wire format v2" names the spelling set in A1's table. It is not a label
+prefix: the HKDF label space stays `encryptor/v1/` (A2).
+
+### A1. Decision 4 is replaced: the v2 wire spellings
+
+Decision 4's rule stands with new values. Each spelling in the v2 column is
+a constant, written byte for byte by every build from encryptor 0.7.0 on,
+behind the Scope-named surface that reaches it. `Context.scope_ref_key/0`
+returns `"scope_ref"`. The anchors name where each spelling is written
+today, under its v1 value, at `32880c7`:
+
+| # | v1 (decision 4, through 0.6.x) | v2 (from 0.7.0) | What it is | Where it is written (anchor at `32880c7`) | Record |
+|---|---|---|---|---|---|
+| 1 | `"tenant_ref"` | `"scope_ref"` | the application-data context key the vault injects | `lib/encryptor/context.ex:120`, `@scope_ref`, returned by `scope_ref_key/0` (`:181`) | ADR-0004 decision 4 |
+| 2 | `"t/<ref>/v<n>"` | `"s/<ref>/v<n>"` | the key name: the EDK provider info in every message header | `lib/encryptor/envelope.ex:586`, `key_name/2` | ADR-0002 decision 4, ADR-0003 decision 5 |
+| 3 | `"encryptor-tenant-ref"` | `"encryptor-scope-ref"` | the wrapping-context key carrying the reference | `lib/encryptor/envelope.ex:191`, `@scope_ref_key`, applied by `binding/3` (`:594`) | ADR-0003 decision 4 |
+| 4 | `"tenant-key-wrap"` | `"scope-key-wrap"` | the wrapping-context value of `"encryptor-purpose"` | `lib/encryptor/envelope.ex:194`, `@wrap_purpose`, applied by `binding/3` (`:594`) | ADR-0003 decision 4 |
+| 5 | `"encryptor-tenant"` | `"encryptor-scope"` | the default key namespace, persisted in every wrapped key's binding and carried by the descriptor its keyring is built from | `lib/encryptor/envelope.ex:207`, `@default_namespace`; spelled a second time at `lib/encryptor/provider/gcp_kms.ex:261`, `@default_namespace` | ADR-0003 decision 5, ADR-0007 decision 4 |
+| 6 | `"tenant-ref"` | `"scope-ref"` | the root purpose the reference subkey is derived under | `lib/encryptor/envelope.ex:202`, `@scope_ref_purpose`, the refusal in `subkey/2` (`:569-574`); the host passes it to `root_subkey/2` (`guides/getting-started.md:415`, "Onboarding a merchant") | ADR-0003 decision 6 |
+| 7 | `"encryptor/v1/tenant-ref"` | `"encryptor/v1/scope-ref"` | the HKDF label of that subkey | `lib/encryptor/kdf.ex:243`, `label/1`, which composes `@label_namespace` and `@label_version` (`:187-188`) with the purpose; its moduledoc's label table (`:100`) | ADR-0003 decision 6, ADR-0005 decision 5 |
+| 8 | `"t-"` | `"s-"` | the default `:key_id_prefix`, the start of every default Cloud KMS `CryptoKey` id | `lib/encryptor/provider/gcp_kms.ex:262`, `@default_prefix`, the option's default (`:315`), used by `key_id/2` (`:433-436`) | ADR-0007 decision 4 |
+
+Each v2 spelling is its v1 spelling with the owner noun swapped and nothing
+else, so a reader maps one to the other on sight.
+
+Row 8 is new to the table. Decision 4 did not list it because it is not
+authenticated data, but a host lives with it all the same: `key_id/2` starts
+every default `CryptoKey` id with it, and a `CryptoKey` can be neither
+renamed nor deleted (`lib/encryptor/provider/gcp_kms.ex`, the moduledoc
+section "The `CryptoKey` id").
+
+Rows 6 and 7 are one choice: the purpose names the label. Row 7 is a new
+label, so a new reference subkey, so every reference value changes, and with
+it row 1's value, the `<ref>` in row 2 and row 3's value in every message
+and wrapped key written from 0.7.0 on. The derivation itself,
+`Encryptor.Vault.Reference.derive/2` (`lib/encryptor/vault/reference.ex:49`),
+carries no owner noun and does not change.
+
+**Second wires.** Three groups of these spellings leave the message:
+
+- Rows 3, 4 and 5 are `binding/3`'s map, which the GCP KMS provider encodes
+  as the Cloud KMS additional authenticated data
+  (`lib/encryptor/provider/gcp_kms.ex:448`, `aad/3`). A wrapping written
+  under the v1 spellings fails the Cloud KMS `Decrypt` under v2.
+- Row 1 is in the composed context, which on the AWS KMS keyring path the
+  engine passes to KMS as the KMS encryption context, recorded in
+  CloudTrail (ADR-0008 decision 7). From 0.7.0 the pair there is
+  `scope_ref`; a key policy or an audit query conditioned on the v1 key is
+  the host's to change.
+- Rows 5 and 8 together make the default `CryptoKey` id: `key_id/2` is the
+  prefix followed by the base32 digest of the namespace, a zero byte and the
+  selector (`lib/encryptor/provider/gcp_kms.ex:433-436`), so every default
+  id changes under v2. A deployment holding a `CryptoKey` created under the
+  v1 defaults could still name it by passing `namespace: "encryptor-tenant"`
+  and `key_id_prefix: "t-"` in its provider config, but the wrappings in it
+  would carry v1 bindings and would not unwrap (A3). The defaults are
+  respelled because no real `CryptoKey` was created through this provider
+  under them.
+
+The binding's other spellings, `"encryptor-purpose"`,
+`"encryptor-key-version"`, `"encryptor-key-namespace"`, the `"root-wrap"`
+purpose and the `"encryptor/v1/"` label prefix, carry no owner noun and are
+unchanged; they are wire constants as before.
+
+### A2. Decision 5 is replaced: a respelling is still a re-encrypt, and v2 is the one made while none is owed
+
+- A change to a spelling in A1's table changes what the engine, or Cloud
+  KMS, authenticates, so every ciphertext and wrapped key written under the
+  old spelling would have to be re-encrypted under the new one: ADR-0005
+  decision 1's R3, owned downstream, which `rekey/2` cannot express because
+  it preserves the context byte for byte. That half of decision 5 stands.
+- v2 is that respelling, made while no stored row exists to re-encrypt.
+- From 0.7.0 on, A1's table is pinned as decision 4's was. A later
+  respelling of any row is an R3 and is recorded as one.
+
+**The label rule.** The label version stays `v1`, and only the purpose
+changes. `"encryptor/v1/scope-ref"` is a new label in the existing label
+space, which is what the one-way reservation prescribes for a new key: "Any
+future purpose-separated key takes a *new* `"encryptor/v<n>/<purpose>"`
+label and never reuses an existing one" (`lib/encryptor/kdf.ex:103-105`;
+ADR-0003 decision 6). And `@label_version` "moves only when a record says a
+new version of the whole label space exists; it is never bumped to re-mint
+one purpose" (`lib/encryptor/kdf.ex:184-186`). A `v2` prefix on every label
+would re-key the root-wrap and blind-index trees for nothing.
+`"encryptor/v1/tenant-ref"` is retired and stays reserved: no later purpose
+takes it, and `subkey/2` refuses `"tenant-ref"` beside `"root-wrap"` and
+`"scope-ref"`.
+
+### A3. No v1 compatibility
+
+0.7.0 reads the v2 spellings only. No fallback decrypt, no dual-spelling
+binding, no alias and no migration helper for a v1 spelling enters `lib/`.
+A wrapped key written by 0.6.x or earlier does not unwrap under 0.7.0,
+because its binding spells rows 3, 4 and 5 in v1; a ciphertext written by
+0.6.x or earlier does not decrypt, because its context spells row 1 in v1
+and its reference was derived under the retired label.
+
+A host holding v1 rows would have two courses. It can stay on encryptor
+0.6.x (and encryptor_ecto 0.7.x). Or it can run an R3 re-encrypt, which this
+package does not ship (ADR-0005 decision 1: "none in this package"); one Mix
+build cannot load two encryptor versions, so that re-encrypt would need a v1
+read path, which 0.7.0 deliberately omits. If such a host appears, a v1 read
+path is its own record.
+
+### A4. Reserved caller context keys
+
+| Key | `:single` vault | `:scoped` vault | Why |
+|---|---|---|---|
+| `"scope_ref"` | refused | refused | A1 row 1: the vault injects it on a `:scoped` vault, and on a `:single` vault there is no scope for a caller to name |
+| `"tenant_ref"` | refused | refused | the retired v1 spelling of row 1: un-reserving it would let a caller put a pair spelled like the v1 scope reference into a v2 context, where support tooling reading `describe/1` could take it for the vault's |
+| `"scope_id"` | accepted | refused | decision 3 |
+| `"tenant_id"` | accepted | refused | decision 3: a host that followed older docs may still send it |
+
+At `32880c7`, `reserved_key?/2` refuses row 1's key on both profiles and
+`@owner_ids` on a `:scoped` vault (`lib/encryptor/context.ex:248-251`); the
+`aws-crypto-` and `encryptor-` prefixes stay refused on both
+(`@reserved_prefixes`, `:132`). Decision 3's rule that an error term quoting
+a wire key reports the string the host sent still holds: a caller sending
+`"tenant_ref"` gets `{:reserved_context_key, "tenant_ref"}`, and one sending
+`"scope_ref"` gets `{:reserved_context_key, "scope_ref"}`.
+
+### A5. Decision 6 now reads
+
+After the respelling, the only `tenant` spellings left in `lib/` are the
+retired, reserved keys `"tenant_ref"` and `"tenant_id"` and the retired
+purpose `"tenant-ref"` (with its label, where the label table lists it as
+retired), each beside a comment saying why it stays. Decision 6's rule, that
+a comment beside such a spelling says why it is there, is unchanged.
+
+### Consequences
+
+- The respelling is a **breaking** change to what the package writes and
+  reads. It ships in a minor release, 0.7.0, whose changelog carries a
+  **Breaking** entry naming every respelled string, saying that nothing
+  written by 0.6.x or earlier opens under 0.7.0, and saying that a later
+  respelling is an R3 re-encrypt rather than a rotation.
+- encryptor_ecto's key-store column and its index follow in that package's
+  own record, its ADR-0006 Amendment A. The reference values it stores
+  change with row 7.
+- The first Consequences bullet's "and nothing it has stored", the second
+  bullet (every 0.4.1 row opens under the renamed build), the third
+  (`describe/1` keeps reporting `"tenant_ref"`), the fifth (two spellings
+  side by side indefinitely) and the worked example "a 0.4.1 row read after
+  the rename" describe encryptor 0.5.0 through 0.6.x. They are left as
+  written, not edited, and read as history from 0.7.0 on; this amendment
+  records that reading.
+- The 0.4.1 wire fixture (`test/encryptor/wire_fixture_test.exs`) changes
+  role: from 0.7.0 it pins that a v1 row is refused, and a v2 fixture pins
+  A1's table, for the second Consequences bullet's reason: a suite that only
+  round-trips its own output cannot see a changed constant.
+- ADR-0003, ADR-0004, ADR-0005, ADR-0007 and ADR-0008 quote v1 spellings.
+  Each carries a dated Note pointing here; none of their decisions changes.
+
+### The contract as typespecs
+
+No signature changes. Two return values do:
+
+```elixir
+# Encryptor.Context
+@spec scope_ref_key() :: String.t()   # always "scope_ref", a v2 wire constant
+
+# Encryptor.Envelope
+@spec scope_ref(binary(), selector()) :: {:ok, String.t()} | {:error, Error.t()}
+@spec key_name(String.t(), pos_integer()) :: String.t()
+# key_name(ref, n) == "s/" <> ref <> "/v" <> Integer.to_string(n)
+
+# Encryptor.Kdf
+@spec label(purpose()) :: String.t()
+# label("scope-ref") == "encryptor/v1/scope-ref"
+```
+
+### Worked example: a fresh scoped vault on 0.7.0
+
+A host adopts encryptor 0.7.0 with nothing stored. Its root vault is
+`MyApp.RootVault` and its scoped vault `MyApp.ScopedVault`, built from the
+same reference subkey.
+
+```elixir
+reference_subkey = Encryptor.Envelope.root_subkey(reference_root, "scope-ref")
+# A1 rows 6 and 7: the purpose, and so the label "encryptor/v1/scope-ref"
+
+{:ok, wrapped} =
+  Encryptor.Envelope.provision(MyApp.RootVault, "workspace-7",
+    reference_subkey: reference_subkey
+  )
+
+{:ok, ref} = Encryptor.Envelope.scope_ref(reference_subkey, "workspace-7")
+wrapped.scope_ref == ref
+wrapped.namespace == "encryptor-scope"
+# A1 row 5: the default namespace
+wrapped.name == "s/" <> ref <> "/v1"
+# A1 row 2: the key name starts s/
+
+{:ok, ciphertext} = MyApp.ScopedVault.encrypt("a value", key: "workspace-7")
+{:ok, info} = Encryptor.Message.describe(ciphertext)
+info.encryption_context["scope_ref"] == ref
+# A1 row 1: describe/1 shows "scope_ref", and no "tenant_ref" pair
+
+{:error, _} = Encryptor.Envelope.unwrap(MyApp.RootVault, row_written_by_0_4_1)
+# A3: the 0.4.1 fixture row's binding spells rows 3, 4 and 5 in v1, so it is refused
+```
+
+### Open questions
+
+None.
+
+Provenance: bead `enc-q9ke`.

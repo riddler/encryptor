@@ -1420,3 +1420,34 @@ Provenance: bead `enc-6pji`.
 
 No decision changes, no line above is edited other than Amendment B's Status
 line, and this Note carries no status of its own.
+
+## Note (2026-10-06): the AAD fields, the worked encoding and the default `CryptoKey` id are v1 bytes, and ADR-0009 Amendment A respells them
+
+One reading, which changes no decision. All line cites are read at enc
+`32880c7`.
+
+- Decision 5's four AAD fields (`:362-363`) and its worked vector
+  (`:396-410`, the namespace `"encryptor-tenant"` in hex at `:404`) are the v1
+  wire spellings ADR-0009 decision 4 pinned.
+- The default `key_id_prefix` `"t-"` (`:758`) and the default key id
+  `t-<digest>` the worked example names (`:833`, `:844`) are v1 too: decision
+  4's digest is taken over the namespace, so the default id follows the
+  default namespace and the prefix.
+
+ADR-0009 Amendment A (2026-10-06, proposed) respells them from encryptor
+0.7.0: the AAD's purpose value is `"scope-key-wrap"`, its reference key
+`"encryptor-scope-ref"`, the default namespace `"encryptor-scope"`, and the
+default prefix `"s-"`. The worked vector is therefore a v1 vector; under v2
+the key and value lengths change with the strings, and so does the total.
+Every default `CryptoKey` id changes with the namespace and the prefix,
+which Amendment A's A1 states with the "Second wires" paragraph. The ring
+name `"encryptor-tenant-keys"` in the option block and the worked example
+(`:749`, `:781`, `:789`) is an example the host chooses, not a default, and
+is not respelled. Decisions 4 and 5 themselves stand: an unkeyed full
+digest under a prefix, and an AAD that is the binding, field for field, in
+the fixed encoding.
+
+Provenance: bead `enc-q9ke`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
