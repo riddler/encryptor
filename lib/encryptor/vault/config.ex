@@ -825,9 +825,26 @@ defmodule Encryptor.Vault.Config do
            {:invalid_config, :required_context, {:reserved_key, Context.scope_ref_key()}}
          )}
 
+      retired = Enum.find(keys, &retired_scope_ref_key?/1) ->
+        # ADR-0009 Amendment A, A4: the retired v1 spelling of the reference
+        # key is reserved on both profiles and never injected, so requiring
+        # it is a vault that can never encrypt, on either profile.
+        {:error, error(vault, {:invalid_config, :required_context, {:reserved_key, retired}})}
+
       true ->
         {:ok, keys}
     end
+  end
+
+  # On a `:single` vault `Context.reserved_key?/2` refuses the reserved
+  # prefixes, the vault's own reference key and the retired v1 spelling of
+  # it (ADR-0009 Amendment A, A4). Taking away the first two leaves the
+  # retired key, read from `Encryptor.Context` rather than from a second copy
+  # of the literal.
+  @spec retired_scope_ref_key?(String.t()) :: boolean()
+  defp retired_scope_ref_key?(key) do
+    Context.reserved_key?(key, :single) and key != Context.scope_ref_key() and
+      not Enum.any?(Context.reserved_prefixes(), &String.starts_with?(key, &1))
   end
 
   defp static_encryption_context(vault, profile, opts) do
