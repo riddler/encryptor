@@ -145,8 +145,8 @@ layer that does:
 `encrypt`/`decrypt`/`rekey` and their bang forms, plus `derive/3`,
 `provision/2`, `suspend/2` and `reinstate/2`. `Encryptor.Envelope` holds the
 per-scope wrap, unwrap, rewrap and scope-reference derivation
-(`scope_ref/2`; the reference still travels under its v1 wire spelling,
-`tenant_ref`, per ADR-0009 decision 4);
+(`scope_ref/2`; from 0.7.0 the reference travels under the v2 wire
+spelling `scope_ref`, per ADR-0009 Amendment A);
 `Encryptor.Kdf` holds the HKDF trees and the optional Argon2id slow hash;
 `Encryptor.Provider` holds the behaviour, its conformance suite and the
 `Static`, `Function` and `GcpKms` adapters; the vault's config, cache,

@@ -9,7 +9,7 @@ defmodule Encryptor.ErrorTest do
   # context-mismatch term (ADR-0004 decision 8 moves that check above the
   # engine and shapes the term the same way).
   @message_dependent_failures [
-    {:encryption_context_mismatch, "tenant_ref"},
+    {:encryption_context_mismatch, "scope_ref"},
     {:encryption_context_mismatch, "column"},
     {:required_keys_not_in_decryption_context, ["table", "column"]},
     :authentication_failed,
@@ -110,8 +110,8 @@ defmodule Encryptor.ErrorTest do
          "the provider returned a key descriptor this vault cannot use"},
         {{:provider_not_started, MyApp.Provider}, "provider MyApp.Provider is not started"},
         {{:missing_optional_dependency, :ecto}, "missing optional dependency :ecto"},
-        {{:missing_required_context_keys, ["tenant_ref"]},
-         ~s(missing required encryption context keys ["tenant_ref"])},
+        {{:missing_required_context_keys, ["scope_ref"]},
+         ~s(missing required encryption context keys ["scope_ref"])},
         {{:invalid_context_value, :count}, "the encryption context has too many entries"},
         {{:invalid_context_value, :too_large}, "the encryption context is too large"},
         {{:invalid_context_value, "column"}, ~s(invalid encryption context value for "column")},

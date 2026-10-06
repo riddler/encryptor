@@ -1,7 +1,7 @@
 defmodule Encryptor.WireFixtureVaults do
   @moduledoc """
   A wrapped-key row and a ciphertext written by encryptor 0.4.1, and the two
-  vaults that read them back under the current build.
+  vaults the current build refuses them with.
 
   The bytes below were produced once, from a checkout of the `v0.4.1` tag, by
   a throwaway script run with `MIX_ENV=test mix run`. It started a root vault
@@ -15,9 +15,12 @@ defmodule Encryptor.WireFixtureVaults do
   bytes, and a script that regenerated them under the current build would
   only round-trip its own output.
 
-  They exist because a suite that only round-trips what the current build
-  writes cannot see a changed wire constant (ADR-0009, "Consequences"). Every
-  spelling in ADR-0009 decision 4's table is inside these bytes.
+  Every v1 spelling of ADR-0009 Amendment A's table except the Cloud KMS
+  prefix is inside these bytes. Until 0.7.0 they pinned that the Scope
+  rename left the wire alone; from 0.7.0 they pin the clean cut of the
+  amendment's A3 instead: a v1 row does not unwrap and a v1 ciphertext does
+  not decrypt under the current build. The v2 bytes are
+  `Encryptor.WireFixtureV2Vaults`'.
   """
 
   alias Encryptor.Envelope
@@ -70,9 +73,12 @@ defmodule Encryptor.WireFixtureVaults do
   @spec reference() :: String.t()
   def reference, do: @reference
 
-  @doc "The reference subkey, derived from the root as a host derives it."
+  @doc """
+  The reference subkey a host on the current build derives from the same
+  root: under the v2 purpose, `"scope-ref"`, as the guides tell it to.
+  """
   @spec reference_subkey() :: binary()
-  def reference_subkey, do: Envelope.root_subkey(@root, "tenant-ref")
+  def reference_subkey, do: Envelope.root_subkey(@root, "scope-ref")
 
   @doc "The ciphertext 0.4.1 wrote."
   @spec ciphertext() :: binary()
@@ -119,7 +125,17 @@ defmodule Encryptor.WireFixtureVaults do
   end
 
   defmodule ScopedVault do
-    @moduledoc "The per-owner vault, under the renamed profile, reading the fixture row."
+    @moduledoc """
+    A per-owner vault on the current build, handed the very key the fixture
+    ciphertext was written under.
+
+    Its provider does not unwrap the row - the current build refuses that,
+    which is its own test - but reads the material out of the wrapping
+    through the root vault's plain decrypt, and names it with the row's
+    stored namespace and name. So a decrypt that fails here fails on what
+    the ciphertext itself carries: its context pair spelled in v1 and its
+    reference derived under the retired label.
+    """
 
     use Encryptor.Vault,
       otp_app: :encryptor,
@@ -146,9 +162,20 @@ defmodule Encryptor.WireFixtureVaults do
     end
 
     defp unwrap(selector) do
-      case Encryptor.Envelope.unwrap(WireFixtureVaults.RootVault, WireFixtureVaults.row()) do
-        {:ok, key} -> {:ok, key}
-        {:error, _error} -> {:error, {:key_unavailable, selector}}
+      row = WireFixtureVaults.row()
+
+      case WireFixtureVaults.RootVault.decrypt(row.wrapped) do
+        {:ok, material} ->
+          {:ok,
+           %Encryptor.Key.Aes{
+             namespace: row.namespace,
+             name: row.name,
+             material: material,
+             bits: row.bits
+           }}
+
+        {:error, _error} ->
+          {:error, {:key_unavailable, selector}}
       end
     end
   end

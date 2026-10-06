@@ -75,8 +75,8 @@ defmodule Encryptor.Vault.Config do
       {:unknown_options, keys}}`, where `layer` is `:use`, `:app_env`,
       `:start_link` or `:init` and `keys` is the sorted list of unknown
       options that layer carried. A misspelled option, or one a rename
-      retired - `:telemetry_tenant_ref` is now `:telemetry_scope_ref` - would
-      otherwise start a vault configured differently from what its host
+      retired (ADR-0009 renamed the telemetry reference option
+      `:telemetry_scope_ref`), would otherwise start a vault configured differently from what its host
       wrote. `:otp_app` belongs to `use Encryptor.Vault` alone and is refused
       in every other layer, where it configures nothing.
       `Encryptor.Error.message/1` names the layer and never the keys; the
@@ -817,7 +817,7 @@ defmodule Encryptor.Vault.Config do
         {:error, error(vault, {:invalid_config, :required_context, {:invalid_key, invalid}})}
 
       profile == :single and Context.scope_ref_key() in keys ->
-        # ADR-0004 decision 2: `"tenant_ref"` is refused on a `:single` vault, so
+        # ADR-0004 decision 2: `"scope_ref"` is refused on a `:single` vault, so
         # requiring it there is a vault that can never encrypt.
         {:error,
          error(

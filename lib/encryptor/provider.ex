@@ -74,7 +74,7 @@ defmodule Encryptor.Provider do
       the keyring's. Reusing a name for different material therefore makes
       previously written messages undecryptable, silently, at some later date.
       A provider that rotates a key mints a new name. The recommended grammar
-      is an opaque reference plus a monotonic version - `"t/<derived>/v<n>"` -
+      is an opaque reference plus a monotonic version - `"s/<derived>/v<n>"` -
       recommended, not enforced.
     * **A name travels in the clear.** It lands in the encrypted data key's
       provider info, inside a header that is authenticated but not encrypted.

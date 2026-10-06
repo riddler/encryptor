@@ -23,7 +23,7 @@ defmodule Encryptor.Vault.Reference do
   #
   # Three call sites want the same bytes: the vault's start-time known-answer
   # check (`Encryptor.Vault.Config.known_answer/1`), the encrypt path's
-  # injection of the reference into the context under `"tenant_ref"`, and -
+  # injection of the reference into the context under `"scope_ref"`, and -
   # when it lands - `Encryptor.Envelope.scope_ref/2`, whose public signature
   # ADR-0003 fixes.
   # A derivation spelled three times is a derivation that can drift in two of

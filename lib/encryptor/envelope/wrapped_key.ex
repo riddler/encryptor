@@ -11,8 +11,8 @@ defmodule Encryptor.Envelope.WrappedKey do
       %Encryptor.Envelope.WrappedKey{
         scope_ref: "9f2cQ1n5Zk8mMvJ0Yl3xRg",
         version: 1,
-        namespace: "encryptor-tenant",
-        name: "t/9f2cQ1n5Zk8mMvJ0Yl3xRg/v1",
+        namespace: "encryptor-scope",
+        name: "s/9f2cQ1n5Zk8mMvJ0Yl3xRg/v1",
         bits: 256,
         wrapped: wrapped
       }

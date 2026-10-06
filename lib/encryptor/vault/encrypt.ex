@@ -23,7 +23,7 @@ defmodule Encryptor.Vault.Encrypt do
   #   3. The provider resolves the selector to one descriptor.
   #   4. `Encryptor.Vault.Keyring` validates the descriptor and maps it to an
   #      engine keyring. Only the vault does this (ADR-0002 decision 3).
-  #   5. `Encryptor.Context` composes the four layers, with `"tenant_ref"`
+  #   5. `Encryptor.Context` composes the four layers, with `"scope_ref"`
   #      injected by the vault on a `:scoped` vault and refused from a caller
   #      (ADR-0004 decision 4).
   #

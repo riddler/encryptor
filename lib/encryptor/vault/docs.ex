@@ -44,8 +44,9 @@ defmodule Encryptor.Vault.Docs do
         **nothing that varies per row** may go in a context - a row id
         multiplies the materials cache by the size of the table - and on a
         `:scoped` vault the scope pair is the vault's, derived from `:key`,
-        so `"tenant_ref"`, `"scope_id"` and `"tenant_id"` are refused from
-        a caller.
+        so `"scope_ref"`, `"scope_id"` and `"tenant_id"` are refused from
+        a caller, as is `"tenant_ref"`, the retired v1 spelling of the
+        reference key.
 
     `:algorithm_suite`, `:commitment_policy`, `:frame_length` and
     `:max_encrypted_data_keys` are deliberately not options. All four are
@@ -90,9 +91,10 @@ defmodule Encryptor.Vault.Docs do
         the vault's configured `:required_context`: omitting one of those is
         `{:missing_required_context_keys, keys}`, which is the one context
         failure a caller can act on. On a `:scoped` vault the scope pair is
-        the vault's, derived from `:key`, so `"tenant_ref"`, `"scope_id"`
+        the vault's, derived from `:key`, so `"scope_ref"`, `"scope_id"`
         and `"tenant_id"` are refused from a caller here as they are at
-        encrypt.
+        encrypt, as is `"tenant_ref"`, the retired v1 spelling of the
+        reference key.
     """
   end
 
@@ -173,8 +175,8 @@ defmodule Encryptor.Vault.Docs do
 
     `purpose` is the label purpose of ADR-0003 decision 6 - `"blind-index"`,
     or a new one a later record adds. It may not be `"root-wrap"` or
-    `"tenant-ref"`, which name the trees this package derives for itself,
-    and it may not contain `"/"`.
+    `"scope-ref"`, which name the trees this package derives for itself, or
+    the retired `"tenant-ref"`, and it may not contain `"/"`.
 
     Returns `{:ok, bytes}`. The key material the bytes were derived from is
     never returned, never carried in an error, and never rendered.

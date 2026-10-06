@@ -15,12 +15,13 @@ defmodule Encryptor.EnvelopeTest do
 
   # ADR-0003 decision 4's four keys and its one fixed value, written out here
   # independently of the module under test. A test that read them from
-  # `Encryptor.Envelope` would agree with any typo the module made.
+  # `Encryptor.Envelope` would agree with any typo the module made. Two are
+  # v2 spellings: ADR-0009 Amendment A, A1 rows 3 and 4.
   @purpose_key "encryptor-purpose"
-  @scope_ref_key "encryptor-tenant-ref"
+  @scope_ref_key "encryptor-scope-ref"
   @version_key "encryptor-key-version"
   @namespace_key "encryptor-key-namespace"
-  @wrap_purpose "tenant-key-wrap"
+  @wrap_purpose "scope-key-wrap"
 
   defp start_vault(vault) do
     start_supervised!(Supervisor.child_spec({vault, []}, restart: :temporary))
@@ -65,7 +66,7 @@ defmodule Encryptor.EnvelopeTest do
       start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(EnvelopeVaults.Root)
 
-      assert %WrappedKey{version: 1, namespace: "encryptor-tenant", bits: 256} = wrapped
+      assert %WrappedKey{version: 1, namespace: "encryptor-scope", bits: 256} = wrapped
 
       assert wrapped |> Map.keys() |> Enum.sort() ==
                [:__struct__, :bits, :name, :namespace, :scope_ref, :version, :wrapped]
@@ -91,7 +92,10 @@ defmodule Encryptor.EnvelopeTest do
 
     # sabotage: dropped the "encryptor-purpose" pair from the binding - red,
     # because the pair is what stops an unrelated Encryptor message being read
-    # as a scope key.
+    # as a scope key. A1 rows 3 and 4 (v2 `"encryptor-scope-ref"`,
+    # `"scope-key-wrap"`): respelled @scope_ref_key in `Encryptor.Envelope` to
+    # "encryptor-tenant-ref" - red; respelled @wrap_purpose to
+    # "tenant-key-wrap" - red.
     test "writes exactly ADR-0003 decision 4's four pairs into the wrapping" do
       start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(EnvelopeVaults.Root, @merchant, version: 3, namespace: "acme-scope")
@@ -117,6 +121,8 @@ defmodule Encryptor.EnvelopeTest do
     # sabotage: derived the reference with :crypto.hash(:sha256, selector) -
     # red. An unkeyed hash of a short identifier is reversible by anyone who
     # can guess the identifier space, which is the delta decision 5 states.
+    # A1 row 2 (v2 `"s/<ref>/v<n>"`): respelled key_name/2's prefix to "t/" -
+    # red.
     test "the scope reference is the keyed derivation, and the name follows the grammar" do
       start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(EnvelopeVaults.Root, @merchant, version: 2)
@@ -124,18 +130,20 @@ defmodule Encryptor.EnvelopeTest do
       ref = expected_ref(EnvelopeVaults.reference_subkey(), @merchant)
 
       assert wrapped.scope_ref == ref
-      assert wrapped.name == "t/" <> ref <> "/v2"
+      assert wrapped.name == "s/" <> ref <> "/v2"
     end
 
     # sabotage: defaulted the namespace to "" and the version to 0 - red on
     # both, and the defaults are the record's own worked example, which
-    # provisions with neither named.
+    # provisions with neither named. A1 row 5 (v2 `"encryptor-scope"`):
+    # respelled `Encryptor.Envelope`'s @default_namespace to
+    # "encryptor-tenant" - red.
     test "defaults are version 1 and the record's namespace" do
       start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(EnvelopeVaults.Root)
 
       assert wrapped.version == 1
-      assert wrapped.namespace == "encryptor-tenant"
+      assert wrapped.namespace == "encryptor-scope"
       assert String.ends_with?(wrapped.name, "/v1")
     end
 
@@ -506,7 +514,7 @@ defmodule Encryptor.EnvelopeTest do
     # unstable reference is a row nobody can find again.
     test "is stable per selector and unrelated across selectors and subkeys" do
       subkey = EnvelopeVaults.reference_subkey()
-      other = Envelope.root_subkey(EnvelopeVaults.root_key(), "tenant-ref")
+      other = Envelope.root_subkey(EnvelopeVaults.root_key(), "scope-ref")
 
       assert Envelope.scope_ref(subkey, @merchant) == Envelope.scope_ref(subkey, @merchant)
       refute Envelope.scope_ref(subkey, @merchant) == Envelope.scope_ref(subkey, "merchant-43")
@@ -515,7 +523,9 @@ defmodule Encryptor.EnvelopeTest do
 
     # sabotage: had the encrypt path derive the reference with its own copy of
     # the formula - red. Three call sites, one derivation: a drifted reference
-    # is discovered at decrypt time against a permanent subkey.
+    # is discovered at decrypt time against a permanent subkey. A1 row 1 (v2
+    # `"scope_ref"`): respelled `Encryptor.Context`'s @scope_ref to
+    # "tenant_ref" - red, the pair is then absent under its v2 key.
     test "agrees with what a scoped vault writes into a message header" do
       merchant = start_vault(EncryptVaults.Merchant)
 
@@ -527,7 +537,7 @@ defmodule Encryptor.EnvelopeTest do
 
       {:ok, ref} = Envelope.scope_ref(EncryptVaults.reference_subkey(), "merchant_a")
 
-      assert context(ciphertext)["tenant_ref"] == ref
+      assert context(ciphertext)["scope_ref"] == ref
     end
 
     # sabotage: accepted a short subkey - red. A 16-byte reference subkey is
@@ -559,14 +569,18 @@ defmodule Encryptor.EnvelopeTest do
     # sabotage: passed the purpose to Kdf.expand/3 as the info string, without
     # label/1 - red. The label is "encryptor/v1/root-wrap", and an expansion
     # under a bare "root-wrap" is a different key for every stored wrapping.
+    # A1 rows 6 and 7 (v2 `"scope-ref"`, `"encryptor/v1/scope-ref"`): the
+    # label is written here as the record spells it, so a respelled
+    # `Kdf.label/1` namespace or version - "encryptor/v2/" for "encryptor/v1/"
+    # - is red.
     test "root_subkey/2 expands under decision 6's full labels" do
       root = EnvelopeVaults.root_key()
 
       assert Envelope.root_subkey(root, "root-wrap") ==
                Kdf.expand(root, "encryptor/v1/root-wrap", 32)
 
-      assert Envelope.root_subkey(root, "tenant-ref") ==
-               Kdf.expand(root, "encryptor/v1/tenant-ref", 32)
+      assert Envelope.root_subkey(root, "scope-ref") ==
+               Kdf.expand(root, "encryptor/v1/scope-ref", 32)
     end
 
     # sabotage: made root_subkey/2 ignore its purpose - red, and decision 6's
@@ -575,7 +589,7 @@ defmodule Encryptor.EnvelopeTest do
       root = EnvelopeVaults.root_key()
       rotated = EnvelopeVaults.rotated_root_key()
 
-      refute Envelope.root_subkey(root, "root-wrap") == Envelope.root_subkey(root, "tenant-ref")
+      refute Envelope.root_subkey(root, "root-wrap") == Envelope.root_subkey(root, "scope-ref")
       refute Envelope.root_subkey(root, "root-wrap") == Envelope.root_subkey(rotated, "root-wrap")
       assert byte_size(Envelope.root_subkey(root, "root-wrap")) == 32
     end
@@ -596,16 +610,19 @@ defmodule Encryptor.EnvelopeTest do
 
     # sabotage: dropped the root-purpose guard - red. Reusing a label to mean
     # a second thing silently collapses two keys the design says are
-    # independent, and decision 6's reservation is one-way.
-    test "subkey/2 refuses the root's two purposes" do
+    # independent, and decision 6's reservation is one-way. A1 row 6 and A2:
+    # respelled `Encryptor.Envelope`'s @scope_ref_purpose to "tenant-ref" -
+    # red on "scope-ref"; dropped @retired_scope_ref_purpose from the guard -
+    # red on the retired "tenant-ref".
+    test "subkey/2 refuses the root's two purposes and the retired one" do
       descriptor = %Aes{
         namespace: "acme-scope",
-        name: "t/ref/v1",
+        name: "s/ref/v1",
         material: :binary.copy(<<7>>, 32),
         bits: 256
       }
 
-      for purpose <- ["root-wrap", "tenant-ref"] do
+      for purpose <- ["root-wrap", "scope-ref", "tenant-ref"] do
         assert_raise ArgumentError, fn -> Envelope.subkey(descriptor, purpose) end
       end
 

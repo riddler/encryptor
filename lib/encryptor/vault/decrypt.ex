@@ -26,7 +26,7 @@ defmodule Encryptor.Vault.Decrypt do
   #      a name dropped from the list is a message nobody can read again
   #      (ADR-0002 decision 7).
   #   5. `Encryptor.Context` composes the reproduced context, from the same
-  #      four layers the writer composed the stored one from, with `"tenant_ref"`
+  #      four layers the writer composed the stored one from, with `"scope_ref"`
   #      injected by the vault on a `:scoped` vault and refused from a caller
   #      (ADR-0004 decision 4).
   #   6. **The value comparison** (ADR-0004 decision 6), below.
@@ -67,7 +67,7 @@ defmodule Encryptor.Vault.Decrypt do
   # context to cover the stored one would make every message unreadable the
   # moment a host added an advisory key to a vault's static configuration.
   # Required keys are what close the gap for the keys that matter, and on a
-  # `:scoped` vault `"tenant_ref"` is always in the required set.
+  # `:scoped` vault `"scope_ref"` is always in the required set.
   #
   # ## The reader's stack is the writer's stack
   #

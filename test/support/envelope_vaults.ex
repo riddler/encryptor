@@ -51,7 +51,7 @@ defmodule Encryptor.EnvelopeVaults do
 
   @doc "The `\"encryptor/v1/scope-ref\"` expansion every `scope_ref` derives under."
   @spec reference_subkey() :: binary()
-  def reference_subkey, do: Envelope.root_subkey(@reference_root, "tenant-ref")
+  def reference_subkey, do: Envelope.root_subkey(@reference_root, "scope-ref")
 
   @doc "Generation `n`'s wrapping subkey, as a `Static` provider entry."
   @spec entry(1 | 2) :: keyword()

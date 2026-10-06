@@ -30,9 +30,9 @@ defmodule Encryptor.MessageTest do
   # reader of these tests sees the pseudonym the record actually puts in a
   # header.
   @provider_id "acme-scope"
-  @key_name "t/6Qk2_1xZaR8/v3"
+  @key_name "s/6Qk2_1xZaR8/v3"
   @context %{
-    "tenant_ref" => "6Qk2_1xZaR8",
+    "scope_ref" => "6Qk2_1xZaR8",
     "table" => "payments",
     "column" => "card_last_four",
     "app" => "my_app"
@@ -72,7 +72,7 @@ defmodule Encryptor.MessageTest do
       assert %Info{
                encrypted_data_keys: [
                  %{provider_id: @provider_id, key_name: @key_name},
-                 %{provider_id: @provider_id, key_name: "t/6Qk2_1xZaR8/v2"}
+                 %{provider_id: @provider_id, key_name: "s/6Qk2_1xZaR8/v2"}
                ]
              } = info
     end
@@ -155,7 +155,7 @@ defmodule Encryptor.MessageTest do
       assert is_binary(public_key)
 
       assert info.encryption_context == %{
-               "tenant_ref" => "6Qk2_1xZaR8",
+               "scope_ref" => "6Qk2_1xZaR8",
                "table" => "payments",
                "column" => "card_last_four",
                "app" => "my_app",
@@ -244,7 +244,7 @@ defmodule Encryptor.MessageTest do
   # Two key versions on one message: what a rekey pass reads mid-rotation.
   defp two_keyring_message do
     {:ok, generator} = raw_keyring(@key_name)
-    {:ok, child} = raw_keyring("t/6Qk2_1xZaR8/v2")
+    {:ok, child} = raw_keyring("s/6Qk2_1xZaR8/v2")
     {:ok, multi} = Multi.new(generator: generator, children: [child])
 
     encrypt(multi, [])

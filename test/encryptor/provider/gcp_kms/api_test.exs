@@ -19,7 +19,7 @@ defmodule Encryptor.Provider.GcpKms.ApiTest do
   alias Encryptor.GcpKmsCase
   alias Encryptor.Provider.GcpKms.Api
 
-  @key_id "t-abcdef"
+  @key_id "s-abcdef"
   @aad "binding"
 
   # mutation: return `{:ok, decoded}` for any status - a 403 body then becomes
