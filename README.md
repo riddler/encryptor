@@ -108,10 +108,11 @@ and there is no second column to keep in step with it.
 
 The package needs Elixir 1.18 or later (`elixir: "~> 1.18"` in `mix.exs`). Its
 runtime dependencies are `aws_encryption_sdk ~> 1.0` and `telemetry ~> 1.3`;
-`argon2_elixir ~> 4.0` and `goth ~> 1.4` are optional. Ciphertexts are
-interoperable with the official AWS Encryption SDKs: data written from Elixir
-is readable from Java, Python, JavaScript or the AWS CLI, and the other way
-round.
+`argon2_elixir ~> 4.0` and `goth ~> 1.4` are optional. CI runs the full
+gate on Erlang/OTP 27 and the test suite on Erlang/OTP 26, both with Elixir
+1.18. Ciphertexts are interoperable with the official AWS Encryption SDKs:
+data written from Elixir is readable from Java, Python, JavaScript or the AWS
+CLI, and the other way round.
 
 Two open engine issues are worked round here until they move:
 [#95](https://github.com/riddler/aws-encryption-sdk-elixir/issues/95), an
