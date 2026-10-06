@@ -1855,3 +1855,30 @@ Provenance: bead `enc-6pji`.
 
 No decision changes, no line above is edited other than Amendment B's Status
 line, and this Note carries no status of its own.
+
+## Note (2026-10-06): the reference root's label and "never rotated", read against ADR-0009 Amendment A
+
+One reading, which changes no decision. Decision 5's table pins "the
+reference root | `"encryptor/v1/tenant-ref"` | pinned at generation 1, never
+rotated" (`:226`, read at enc `32880c7`).
+
+ADR-0009 Amendment A (2026-10-06, proposed) moves the reference subkey to a
+new label, `"encryptor/v1/scope-ref"`, from encryptor 0.7.0, and retires
+`"encryptor/v1/tenant-ref"`, which stays reserved and is never reused. That
+is not a rotation of the reference root: the root input and its lifecycle
+are unchanged, and the new label is expanded from the same reference root.
+It is a change of wire format, made while no stored row carried a
+reference, and Amendment A's A2 records that any later respelling is
+decision 1's R3. Read the table's label cell as the v1 label up to 0.6.x and
+`"encryptor/v1/scope-ref"` from 0.7.0, and "never rotated" as holding for
+the reference root under either label.
+
+The other v1 spellings this record quotes, the key names in the second
+worked example (`:784`) and the wrap purpose and default namespace in the
+2026-09-13 security Note (`:1460`, `:1462`), are the v1 values of Amendment
+A's A1 rows 2, 4 and 5.
+
+Provenance: bead `enc-q9ke`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.

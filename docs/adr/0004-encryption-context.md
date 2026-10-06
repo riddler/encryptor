@@ -1793,3 +1793,29 @@ signed assertion the section describes is the test "surfaces the engine's
 reserved pair beside the host's keys under the default signing suite"
 (`:150`). The same sentence's "the test the Note above unblocked" is the
 describe block section 1 of this Note names.
+
+## Note (2026-10-06): decision 4's context key is spelled `"tenant_ref"` under the v1 wire format, and ADR-0009 Amendment A respells it
+
+One reading, which changes no decision. Decision 4 has the vault inject
+`"tenant_ref" => tenant_ref(reference_subkey, selector)` (`:230`) and refuse
+a caller's `"tenant_ref"` or `"tenant_id"` (`:231-232`); the vocabulary
+table (`:169`), the profile table (`:205`), the typespec module attribute
+(`:656`) and the worked examples (`:699`, `:723`, `:756`, `:760`) spell the
+same key. All line cites are read at enc `32880c7`. That spelling is the v1
+wire constant ADR-0009 decision 4 pinned as its row 1.
+
+ADR-0009 Amendment A (2026-10-06, proposed) respells it: from encryptor
+0.7.0 the injected key is `"scope_ref"`, and `Context.scope_ref_key/0`
+returns it. Amendment A's A4 keeps `"tenant_ref"` refused on both profiles
+beside `"scope_ref"`, and `"tenant_id"` refused beside `"scope_id"` on a
+`:scoped` vault, so a caller sending `"tenant_ref"` still gets
+`{:reserved_context_key, "tenant_ref"}`. The reference value changes too,
+because it is derived under the new label `"encryptor/v1/scope-ref"`, and
+the key names in the worked examples take the `"s/"` prefix. Decision 4
+itself stands: the vault supplies the scope pair from the `:key` selector,
+and a caller that supplies one is refused.
+
+Provenance: bead `enc-q9ke`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.

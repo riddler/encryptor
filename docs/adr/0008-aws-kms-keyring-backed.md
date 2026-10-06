@@ -1220,3 +1220,25 @@ A reviewer checking the table against `Encryptor.Vault.Keyring` reads the
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-10-06): the KMS encryption context carries `tenant_ref` under the v1 wire format, and ADR-0009 Amendment A respells it
+
+One reading, which changes no decision. Decision 7 says the KMS encryption
+context is ADR-0004's composed context, "`tenant_ref` included" (`:612`,
+read at enc `32880c7`), recorded in CloudTrail. That key is the v1 spelling
+ADR-0009 decision 4 pinned as its row 1, and the key names in the worked
+example (`:835-862`, `t/9f2c/v3` and `t/9f2c/v2`) follow the v1 key-name
+grammar.
+
+ADR-0009 Amendment A (2026-10-06, proposed) respells the key `"scope_ref"`
+and the key-name prefix `"s/"` from encryptor 0.7.0. From that version the
+pair KMS receives on `GenerateDataKey`, `Encrypt` and `Decrypt`, and
+CloudTrail records, is `scope_ref`; a key policy or an audit query a host
+wrote against the v1 key is the host's to change, as Amendment A's A1 says.
+Decision 7 itself stands: the context travels to KMS unchanged, and it must
+match byte for byte on `Decrypt`.
+
+Provenance: bead `enc-q9ke`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.

@@ -1443,3 +1443,32 @@ Provenance: bead `enc-4hx`, folding `enc-83l` (a).
 
 Nothing above changes. No decision is amended, no error vocabulary is added or
 removed, and this Note carries the record's status rather than one of its own.
+
+## Note (2026-10-06): decisions 4 to 6 state the v1 wire spellings, and ADR-0009 Amendment A respells them
+
+One reading, which changes no decision. Decision 4's wrapping context
+(`"encryptor-purpose" => "tenant-key-wrap"`, `"encryptor-tenant-ref" =>
+tenant_ref`, `:196-197`), decision 5's label, key-name grammar and default
+namespace (`"encryptor/v1/tenant-ref"`, `"t/<tenant_ref>/v<n>"`,
+`"encryptor-tenant"`, `:242`, `:246`, `:258`), decision 6's label table
+(`:268`) and decision 7's refused purpose `"tenant-ref"` (`:297`) are the v1
+wire spellings, which ADR-0009 decision 4 pinned. All line cites are read at
+enc `32880c7`.
+
+ADR-0009 Amendment A (2026-10-06, proposed) replaces that pinning with a v2
+wire format: from encryptor 0.7.0 the wrapping-context key is
+`"encryptor-scope-ref"`, the wrap purpose `"scope-key-wrap"`, the reference
+label `"encryptor/v1/scope-ref"` with root purpose `"scope-ref"`, the key
+name `"s/<ref>/v<n>"` and the default namespace `"encryptor-scope"`; the
+`"tenant-ref"` purpose and its label are retired and stay reserved, and
+`subkey/2` refuses `"root-wrap"`, `"scope-ref"` and `"tenant-ref"`. Read each
+spelling above as the v1 value of the row Amendment A's A1 table gives it.
+The decisions themselves stand: a package-owned four-pair binding, a keyed
+reference under its own root subkey, two root labels with separate
+lifetimes, and the one-way label reservation, which Amendment A's A2 follows
+rather than changes.
+
+Provenance: bead `enc-q9ke`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
