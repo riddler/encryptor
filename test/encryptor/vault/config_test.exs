@@ -503,6 +503,20 @@ defmodule Encryptor.Vault.ConfigTest do
       assert {:invalid_config, :required_context, {:reserved_key, "scope_ref"}} =
                reason(single(required_context: ["scope_ref"]))
     end
+
+    # sabotage: removed the retired_scope_ref_key?/1 branch of
+    # required_context_keys/3 - red on both profiles, because each vault then
+    # starts requiring a key it never injects and a caller may not send
+    # (ADR-0009 Amendment A, A4).
+    test "may not require the retired tenant_ref on either profile" do
+      assert {:error,
+              %Error{reason: {:invalid_config, :required_context, {:reserved_key, "tenant_ref"}}}} =
+               single(required_context: ["tenant_ref"])
+
+      assert {:error,
+              %Error{reason: {:invalid_config, :required_context, {:reserved_key, "tenant_ref"}}}} =
+               scope(required_context: ["table", "tenant_ref"])
+    end
   end
 
   describe "the static encryption context" do
