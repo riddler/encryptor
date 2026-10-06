@@ -227,7 +227,7 @@ story is erasure has to chase one key.
 
 1. **It destroys plaintext, not attribution.** Every message header carries
    the scope's permanent pseudonym - its scope reference, under the context
-   key `"tenant_ref"` and inside the key name - and deleting a
+   key `"scope_ref"` and inside the key name - and deleting a
    wrapping does not touch it. The holder of the reference subkey can confirm
    a candidate identifier against a header by guess-and-confirm, forever, in
    every retained backup, and the reference subkey is never rotated. Deleting
@@ -284,36 +284,51 @@ offboarding flow has a "provisional" state, do not implement it with P3.
 
 ## Scope, and the spellings that stay
 
-The owner of a key was called a *tenant* until ADR-0009 renamed it. The
-Elixir names changed; the strings the package writes into every ciphertext
-and every wrapped key did not, because they are authenticated data and a
-build that spelled any of them differently could not open what an earlier
-build wrote (ADR-0009 decision 4). Renaming one of them would be a
-re-encrypt of every stored row (ADR-0009 decision 5), so these are constants
-and you will keep seeing them in headers, in `Encryptor.Message.describe/1`,
-and in your key store:
+The owner of a key was called a *tenant* until ADR-0009 renamed it. From
+0.7.0 the strings the package writes into every ciphertext, every wrapped
+key and every default Cloud KMS resource name say *scope* too: ADR-0009
+Amendment A respelled them while no stored row existed to re-encrypt. They
+are authenticated data, so each one is now a constant. Respelling any of
+them again would be a re-encrypt of every stored row, not a rotation, and
+you will keep seeing them in headers, in `Encryptor.Message.describe/1`, and
+in your key store:
 
 | Spelling | What it is |
 |---|---|
-| `"tenant_ref"` | the context key a `:scoped` vault injects, carrying the scope reference; `Encryptor.Context.scope_ref_key/0` returns it |
-| `"t/<ref>/v<n>"` | the key name in every message header |
-| `"encryptor-tenant-ref"` | the wrapping-context key carrying the scope reference |
-| `"tenant-key-wrap"` | the wrapping-context value of `"encryptor-purpose"` |
-| `"encryptor-tenant"` | the default key namespace |
-| `"tenant-ref"` | the root purpose the reference subkey is derived under, passed to `Encryptor.Envelope.root_subkey/2` |
-| `"encryptor/v1/tenant-ref"` | the HKDF label of that subkey |
+| `"scope_ref"` | the context key a `:scoped` vault injects, carrying the scope reference; `Encryptor.Context.scope_ref_key/0` returns it |
+| `"s/<ref>/v<n>"` | the key name in every message header |
+| `"encryptor-scope-ref"` | the wrapping-context key carrying the scope reference |
+| `"scope-key-wrap"` | the wrapping-context value of `"encryptor-purpose"` |
+| `"encryptor-scope"` | the default key namespace, for `Encryptor.Envelope` and for the Cloud KMS provider |
+| `"scope-ref"` | the root purpose the reference subkey is derived under, passed to `Encryptor.Envelope.root_subkey/2` |
+| `"encryptor/v1/scope-ref"` | the HKDF label of that subkey |
+| `"s-"` | the Cloud KMS provider's default `:key_id_prefix`, the start of every default `CryptoKey` id |
+
+The label keeps its `encryptor/v1/` prefix: only the purpose is new. The
+v1 spellings are retired, and some stay reserved so nothing can reuse them:
+a caller may not send `"tenant_ref"` in a context on either profile (nor
+`"tenant_id"` on a `:scoped` vault), and `"tenant-ref"` is never a
+derivation purpose again.
 
 The decision records written before ADR-0009 still say *tenant* where this
-guide says *scope*; read one for the other.
+guide says *scope*; read one for the other. The strings they quote are the
+v1 spellings, and the amendment's table maps each one to its v2 spelling.
 
-**Upgrading from 0.4.** Change `context_profile: :tenant` to
+**Upgrading from 0.6 or earlier.** Nothing written by encryptor 0.6.x or
+earlier opens under 0.7.0: a wrapped key's binding and a ciphertext's
+context spell the owner noun in v1, and the reference was derived under the
+retired label. There is no fallback read and no migration helper. A host
+holding rows written by an earlier release either stays on encryptor 0.6.x
+or re-encrypts every row under 0.7.0 itself, which needs a v1 read path
+this package does not ship. A host with nothing stored upgrades by changing
+its dependency. From 0.4, also change `context_profile: :tenant` to
 `context_profile: :scoped` in every vault's configuration, and rename the
 Elixir names the changelog's **Breaking** entries list: among them
-`Encryptor.Envelope.tenant_ref/2` to `scope_ref/2`, the `:tenant_ref` field of
-`%Encryptor.Envelope.WrappedKey{}` to `:scope_ref`, and the vault option
+`Encryptor.Envelope.tenant_ref/2` to `scope_ref/2`, the `:tenant_ref` field
+of `%Encryptor.Envelope.WrappedKey{}` to `:scope_ref`, and the vault option
 `:telemetry_tenant_ref` to `:telemetry_scope_ref` along with the telemetry
-metadata key it adds. Nothing you have stored changes: every ciphertext and
-wrapped key 0.4.1 wrote decrypts and unwraps unmigrated.
+metadata key it adds. Pass `"scope-ref"`, not `"tenant-ref"`, to
+`Encryptor.Envelope.root_subkey/2`.
 
 ## Records
 
@@ -329,8 +344,9 @@ wrapped key 0.4.1 wrote decrypts and unwraps unmigrated.
 - **ADR-0008** decision 4 - rotation, the shred and suspend per key shape; the
   table the runbook reproduces, and the reason the Shred row above is not one
   sentence for every provider.
-- **ADR-0009** - *scope* names the key's owner, and the v1 wire spellings stay
-  constants behind it (proposed).
+- **ADR-0009** - *scope* names the key's owner (accepted). **Amendment A** -
+  the v2 wire format, which spells the owner noun *scope* in every string
+  the package writes (proposed).
 - **ADR-0010** - suspension through a store behaviour: where the suspended set
   is agreed, and what each store's suspension reaches (proposed).
 

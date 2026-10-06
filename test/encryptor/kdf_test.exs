@@ -297,10 +297,13 @@ defmodule Encryptor.KdfTest do
   describe "label/1" do
     # sabotage: changed @label_version to "v2" - red on every label below,
     # which is the point: the version is not a value an edit gets to move
-    # quietly (ADR-0003 decision 6).
+    # quietly (ADR-0003 decision 6). The reference label is ADR-0009
+    # Amendment A's A1 row 7 (v2 `"encryptor/v1/scope-ref"`): A2 keeps the
+    # `v1` version and mints only the purpose, so the same sabotage is red on
+    # it too.
     test "composes ADR-0003 decision 6's two fixed labels" do
       assert Kdf.label("root-wrap") == "encryptor/v1/root-wrap"
-      assert Kdf.label("tenant-ref") == "encryptor/v1/tenant-ref"
+      assert Kdf.label("scope-ref") == "encryptor/v1/scope-ref"
     end
 
     # sabotage: same version change - red. ADR-0003 decision 7 names this
@@ -336,7 +339,7 @@ defmodule Encryptor.KdfTest do
 
     # sabotage: made the default length 16 - red.
     test "defaults to 32 bytes, as both decisions specify", %{material: material} do
-      assert byte_size(Kdf.derive_subkey(material, "tenant-ref")) == 32
+      assert byte_size(Kdf.derive_subkey(material, "scope-ref")) == 32
     end
 
     # sabotage: collapsed the info argument in okm/3 to a constant - red, and
@@ -344,7 +347,7 @@ defmodule Encryptor.KdfTest do
     # split rests on these two subkeys being independent.
     test "separates the two root subkeys of decision 6", %{material: material} do
       refute Kdf.derive_subkey(material, "root-wrap") ==
-               Kdf.derive_subkey(material, "tenant-ref")
+               Kdf.derive_subkey(material, "scope-ref")
     end
 
     # sabotage: seeded okm/3 with :crypto.strong_rand_bytes/1 instead of <<>>

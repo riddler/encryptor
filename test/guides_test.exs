@@ -214,7 +214,8 @@ defmodule Encryptor.GuidesTest do
     end
 
     # sabotage: replaced the derived key name with a constant in `mint/4`;
-    # red.
+    # red. ADR-0009 Amendment A, A1 row 2: respelled `Envelope.key_name/2`'s
+    # prefix to "t/"; red.
     test "onboarding returns a wrapping and never a bare key", %{wrapped: wrapped} do
       assert %WrappedKey{
                scope_ref: ref,
@@ -225,7 +226,7 @@ defmodule Encryptor.GuidesTest do
              } = wrapped
 
       assert is_binary(blob)
-      assert wrapped.name == "t/" <> ref <> "/v1"
+      assert wrapped.name == "s/" <> ref <> "/v1"
       refute Map.has_key?(wrapped, :material)
     end
 
@@ -249,8 +250,9 @@ defmodule Encryptor.GuidesTest do
                )
     end
 
-    # sabotage: dropped the vault-supplied `"tenant_ref"` pair in
-    # `Resolve.vault_supplied/2`; red.
+    # sabotage: dropped the vault-supplied `"scope_ref"` pair in
+    # `Resolve.vault_supplied/2`; red. ADR-0009 Amendment A, A1 row 1:
+    # respelled `Encryptor.Context`'s @scope_ref to "tenant_ref"; red.
     test "the vault supplies the scope reference pair and the caller may not" do
       {:ok, ciphertext} =
         MerchantVault.encrypt(@pan, key: @merchant, encryption_context: @column_context)
@@ -258,15 +260,15 @@ defmodule Encryptor.GuidesTest do
       {:ok, info} = Message.describe(ciphertext)
       {:ok, expected} = Envelope.scope_ref(GuideVaults.reference_subkey(), @merchant)
 
-      assert info.encryption_context["tenant_ref"] == expected
+      assert info.encryption_context["scope_ref"] == expected
 
       result =
         MerchantVault.encrypt(@pan,
           key: @merchant,
-          encryption_context: Map.put(@column_context, "tenant_ref", "mine")
+          encryption_context: Map.put(@column_context, "scope_ref", "mine")
         )
 
-      assert {:reserved_context_key, "tenant_ref"} = reason(result)
+      assert {:reserved_context_key, "scope_ref"} = reason(result)
     end
 
     # sabotage: made a `:scoped` vault default an absent `key:` to a scope;
@@ -315,7 +317,7 @@ defmodule Encryptor.GuidesTest do
       # And they still expand to different subkeys, which is the whole reason
       # the two labels exist: rotating one leaves the other alone.
       assert Envelope.root_subkey(wrapping, "root-wrap") !=
-               Envelope.root_subkey(reference, "tenant-ref")
+               Envelope.root_subkey(reference, "scope-ref")
     end
 
     # sabotage: made the known-answer comparison trivially true; red.
@@ -455,7 +457,7 @@ defmodule Encryptor.GuidesTest do
       # New writes are under v2, and the header says so in the clear.
       {:ok, info} = Message.describe(new_ciphertext)
       assert [%{key_name: name}] = info.encrypted_data_keys
-      assert name == "t/" <> v1.scope_ref <> "/v2"
+      assert name == "s/" <> v1.scope_ref <> "/v2"
     end
 
     # sabotage: changed the collapsed reason in `Error.decrypt_failed/3`; red.
@@ -501,7 +503,7 @@ defmodule Encryptor.GuidesTest do
                )
     end
 
-    # sabotage: dropped the `"encryptor-tenant-ref"` pair from `Envelope.binding/3`; red.
+    # sabotage: dropped the `"encryptor-scope-ref"` pair from `Envelope.binding/3`; red.
     # (Removing `require_binding/4` alone is NOT red - the vault-side
     # comparison catches it too, which is the double defence being confirmed.)
     test "a wrapping copied into another merchant's row does not unwrap", %{v1: v1} do

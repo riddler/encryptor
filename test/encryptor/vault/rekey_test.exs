@@ -33,7 +33,7 @@ defmodule Encryptor.Vault.RekeyTest do
   defp merchant_context(selector) do
     Map.put(
       @columns,
-      "tenant_ref",
+      "scope_ref",
       Reference.derive(EncryptVaults.reference_subkey(), selector)
     )
   end
@@ -200,7 +200,7 @@ defmodule Encryptor.Vault.RekeyTest do
       result = vault.rekey(old, key: "merchant_b")
 
       assert reason(result) == :decrypt_failed
-      assert engine(result) == {:encryption_context_mismatch, "tenant_ref"}
+      assert engine(result) == {:encryption_context_mismatch, "scope_ref"}
     end
   end
 

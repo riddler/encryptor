@@ -67,7 +67,7 @@ defmodule Encryptor.Vault.EncryptTest do
   defp merchant_context(selector) do
     Map.put(
       @columns,
-      "tenant_ref",
+      "scope_ref",
       Reference.derive(EncryptVaults.reference_subkey(), selector)
     )
   end
@@ -76,7 +76,7 @@ defmodule Encryptor.Vault.EncryptTest do
     descriptor = EncryptVaults.merchant_descriptor(selector)
 
     read(ciphertext, descriptor.material, descriptor.namespace, descriptor.name,
-      required: ["tenant_ref", "table", "column"],
+      required: ["scope_ref", "table", "column"],
       encryption_context: merchant_context(selector)
     )
   end
@@ -149,7 +149,7 @@ defmodule Encryptor.Vault.EncryptTest do
       {:ok, keyring} = RawAes.new("ns", "name", EncryptVaults.single_key(), :aes_256_gcm)
 
       assert %RequiredEncryptionContext{
-               required_encryption_context_keys: ["tenant_ref", "table", "column"],
+               required_encryption_context_keys: ["scope_ref", "table", "column"],
                underlying_cmm: %Caching{underlying_cmm: %Default{}}
              } = Encrypt.stack(config, keyring, "merchant_a")
     end
@@ -303,7 +303,11 @@ defmodule Encryptor.Vault.EncryptTest do
   describe "the encryption context" do
     # sabotage: dropped the `supplied:` option from context/3 - red, because
     # the scope pair then has to come from a caller, which is the one place
-    # ADR-0004 decision 4 refuses to let it come from.
+    # ADR-0004 decision 4 refuses to let it come from. ADR-0009 Amendment A,
+    # A1 row 1: the pair is written under its v2 key and nothing is written
+    # under the v1 one. sabotage: respelled `Encryptor.Context`'s @scope_ref
+    # to "tenant_ref" - red on both the `"scope_ref"` and the `"tenant_ref"`
+    # lines.
     test "the vault injects scope_ref, derived from the :key selector" do
       vault = start_vault(EncryptVaults.Merchant)
       expected = Reference.derive(EncryptVaults.reference_subkey(), "merchant_a")
@@ -313,8 +317,9 @@ defmodule Encryptor.Vault.EncryptTest do
 
       assert {:ok, %{encryption_context: context}} = read_merchant(ciphertext, "merchant_a")
 
-      assert context["tenant_ref"] == expected
+      assert context["scope_ref"] == expected
       assert context["table"] == "payment_methods"
+      refute Map.has_key?(context, "tenant_ref")
       refute Map.has_key?(context, "tenant_id")
     end
 
@@ -327,10 +332,10 @@ defmodule Encryptor.Vault.EncryptTest do
       assert {:ok, a} = vault.encrypt(@pan, key: "merchant_a", encryption_context: @columns)
       assert {:ok, b} = vault.encrypt(@pan, key: "merchant_b", encryption_context: @columns)
 
-      assert {:ok, %{encryption_context: %{"tenant_ref" => ref_a}}} =
+      assert {:ok, %{encryption_context: %{"scope_ref" => ref_a}}} =
                read_merchant(a, "merchant_a")
 
-      assert {:ok, %{encryption_context: %{"tenant_ref" => ref_b}}} =
+      assert {:ok, %{encryption_context: %{"scope_ref" => ref_b}}} =
                read_merchant(b, "merchant_b")
 
       refute ref_a == ref_b
@@ -339,9 +344,20 @@ defmodule Encryptor.Vault.EncryptTest do
     # sabotage: passed `%{}` to Context.compose/3 in place of the caller's
     # own context - red, because a refusal that never sees the caller's map
     # is a refusal that cannot fire, and a merchant named twice can disagree
-    # with itself.
+    # with itself. Second sabotage: dropped the `@retired_scope_ref` arm of
+    # `Encryptor.Context.reserved_key?/2` - red on the `"tenant_ref"` call,
+    # which would otherwise plant a pair spelled like the v1 reference
+    # (ADR-0009 Amendment A, A4).
     test "a caller may not name the merchant a second time" do
       vault = start_vault(EncryptVaults.Merchant)
+
+      assert {:reserved_context_key, "scope_ref"} =
+               reason(
+                 vault.encrypt(@pan,
+                   key: "merchant_a",
+                   encryption_context: %{"scope_ref" => "mine"}
+                 )
+               )
 
       assert {:reserved_context_key, "tenant_ref"} =
                reason(
@@ -412,7 +428,7 @@ defmodule Encryptor.Vault.EncryptTest do
     test "a scoped vault requires scope_ref, which it supplies itself" do
       vault = start_vault(EncryptVaults.Merchant)
 
-      assert config(vault).required_keys == ["tenant_ref", "table", "column"]
+      assert config(vault).required_keys == ["scope_ref", "table", "column"]
 
       assert {:missing_required_context_keys, ["column"]} =
                reason(

@@ -26,10 +26,17 @@ defmodule Encryptor.ContextTest do
 
   describe "the canonical vocabulary" do
     # sabotage: dropped "blob" from @canonical_keys - red, because the list is
-    # asserted whole rather than by membership.
+    # asserted whole rather than by membership. Second sabotage (ADR-0009
+    # Amendment A, A1 row 1): respelled @scope_ref back to "tenant_ref" - red.
     test "is the six host-facing keys of ADR-0004 decision 2, in table order" do
-      assert ["tenant_ref", "table", "column", "blob", "purpose", "app"] =
+      assert ["scope_ref", "table", "column", "blob", "purpose", "app"] =
                Context.canonical_keys()
+    end
+
+    # A1 row 1 (v2 `"scope_ref"`). sabotage: respelled @scope_ref to
+    # "tenant_ref" - red; respelled it to "scope-ref" - red.
+    test "the reference key is the v2 wire constant scope_ref" do
+      assert Context.scope_ref_key() == "scope_ref"
     end
 
     # sabotage: dropped "aws-crypto-" from @reserved_prefixes - red.
@@ -48,12 +55,16 @@ defmodule Encryptor.ContextTest do
       end
     end
 
-    # sabotage: made the `"tenant_ref"` arm profile-sensitive - red on the
+    # sabotage: made the `@scope_ref` arm profile-sensitive - red on the
     # `:single` half, which is the half ADR-0004 decision 2's class column
-    # ("refused on :single") fixes. Second sabotage: dropped `"scope_id"`
-    # from the owner ids - red on its `:scoped` line; dropped `"tenant_id"` -
-    # red on its line (ADR-0009 decision 3 keeps both).
+    # ("refused on :single") fixes. Second sabotage: dropped the
+    # `@retired_scope_ref` arm - red on both `"tenant_ref"` lines (ADR-0009
+    # Amendment A, A4). Third sabotage: dropped `"scope_id"` from the owner
+    # ids - red on its `:scoped` line; dropped `"tenant_id"` - red on its line
+    # (ADR-0009 decision 3 keeps both).
     test "refuses the reference key on either profile and the owner ids only where a scope exists" do
+      assert Context.reserved_key?("scope_ref", :scoped)
+      assert Context.reserved_key?("scope_ref", :single)
       assert Context.reserved_key?("tenant_ref", :scoped)
       assert Context.reserved_key?("tenant_ref", :single)
       assert Context.reserved_key?("scope_id", :scoped)
@@ -93,11 +104,11 @@ defmodule Encryptor.ContextTest do
 
       assert {:ok, composed} =
                Context.compose(config, %{"table" => "customers", "column" => "tax_id"},
-                 supplied: %{"tenant_ref" => "6Qk2_1xZ"}
+                 supplied: %{"scope_ref" => "6Qk2_1xZ"}
                )
 
       assert %{
-               "tenant_ref" => "6Qk2_1xZ",
+               "scope_ref" => "6Qk2_1xZ",
                "table" => "customers",
                "column" => "tax_id",
                "app" => "my_app"
@@ -187,9 +198,14 @@ defmodule Encryptor.ContextTest do
     # sabotage: removed the scope arms of reserved_key?/2 - red, and the
     # failure it prevents is the silent one: a row encrypted under scope A's
     # key carrying scope B's context decrypts for nobody and looks like
-    # corruption a year later.
+    # corruption a year later. Second sabotage: dropped the
+    # `@retired_scope_ref` arm - red on both `"tenant_ref"` assertions
+    # (ADR-0009 Amendment A, A4: the error names the string the caller sent).
     test "a caller naming a scope, which is `:key`'s job alone" do
       scope = config(:scoped)
+
+      assert {:reserved_context_key, "scope_ref"} =
+               reason(Context.compose(scope, %{"scope_ref" => "6Qk2_1xZ"}))
 
       assert {:reserved_context_key, "tenant_ref"} =
                reason(Context.compose(scope, %{"tenant_ref" => "6Qk2_1xZ"}))
@@ -199,6 +215,9 @@ defmodule Encryptor.ContextTest do
 
       assert {:reserved_context_key, "tenant_id"} =
                reason(Context.compose(scope, %{"tenant_id" => "acct_A"}))
+
+      assert {:reserved_context_key, "scope_ref"} =
+               reason(Context.compose(config(:single), %{"scope_ref" => "6Qk2_1xZ"}))
 
       assert {:reserved_context_key, "tenant_ref"} =
                reason(Context.compose(config(:single), %{"tenant_ref" => "6Qk2_1xZ"}))

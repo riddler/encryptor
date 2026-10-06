@@ -71,7 +71,7 @@ defmodule Encryptor.GuideVaults do
     "MY_APP_REFERENCE_ROOT_KEY"
     |> System.fetch_env!()
     |> Base.decode64!()
-    |> Envelope.root_subkey("tenant-ref")
+    |> Envelope.root_subkey("scope-ref")
   end
 
   defmodule Vault do
@@ -306,7 +306,7 @@ defmodule Encryptor.GuideVaults do
     @impl true
     def init(config) do
       reference_root = Base.decode64!(System.fetch_env!("MY_APP_REFERENCE_ROOT_KEY"))
-      reference_subkey = Encryptor.Envelope.root_subkey(reference_root, "tenant-ref")
+      reference_subkey = Encryptor.Envelope.root_subkey(reference_root, "scope-ref")
 
       {:ok,
        config

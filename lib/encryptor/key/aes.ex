@@ -9,7 +9,7 @@ defmodule Encryptor.Key.Aes do
 
       %Encryptor.Key.Aes{
         namespace: "myapp",
-        name: "t/9f2c/v3",
+        name: "s/9f2c/v3",
         material: material,
         bits: 256
       }
@@ -39,7 +39,7 @@ defmodule Encryptor.Key.Aes do
       material makes previously written messages undecryptable, silently, at
       some later date. A provider that rotates a key mints a new name. The
       recommended grammar is an opaque reference plus a monotonic version -
-      `"t/<derived>/v<n>"` - recommended, not enforced.
+      `"s/<derived>/v<n>"` - recommended, not enforced.
     * **A name travels in the clear.** It lands in the encrypted data key's
       provider info, inside a header that is authenticated but not encrypted.
       Anyone holding a ciphertext can read it. A provider that puts a raw

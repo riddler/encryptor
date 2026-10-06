@@ -96,8 +96,8 @@ defmodule Encryptor.Vault.ShredDrainTest do
     reference = Reference.derive(@reference_subkey, selector)
 
     %Aes{
-      namespace: "encryptor-tenant",
-      name: "t/" <> reference <> "/v" <> Integer.to_string(version),
+      namespace: "encryptor-scope",
+      name: "s/" <> reference <> "/v" <> Integer.to_string(version),
       material: material(version),
       bits: 256
     }

@@ -12,7 +12,7 @@ defmodule Encryptor.Vault.Resolve do
   #
   # A `:scoped` vault that refused `:default` at encrypt and accepted it at
   # decrypt would accept a read no write could have produced. A caller-supplied
-  # `"tenant_ref"` refused on the way in and honoured on the way out would be a
+  # `"scope_ref"` refused on the way in and honoured on the way out would be a
   # second place to claim a scope, which is exactly what ADR-0004 decision 4
   # removes. So these live here rather than once per path, and `rekey/2`
   # (`enc-gsd`) inherits them by calling the same three functions.
@@ -263,7 +263,8 @@ defmodule Encryptor.Vault.Resolve do
   # ADR-0004 decision 4: on a `:scoped` vault the pair is derived from the
   # `:key` selector rather than accepted from the caller, so the routing
   # argument and the context pair are incapable of disagreeing. A caller that
-  # supplies `"tenant_ref"`, `"scope_id"` or `"tenant_id"` is refused by
+  # supplies `"scope_ref"`, its retired v1 spelling `"tenant_ref"`,
+  # `"scope_id"` or `"tenant_id"` is refused by
   # `Encryptor.Context`, which is where the reserved vocabulary lives.
   @spec vault_supplied(String.t() | nil) :: Context.context()
   defp vault_supplied(reference) when is_binary(reference),

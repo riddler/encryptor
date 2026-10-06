@@ -118,16 +118,19 @@ defmodule Encryptor.Provider.GcpKmsTest do
 
     test "refuses a key_id_fun that is not a one-argument closure" do
       assert {:error, {:invalid_config, :provider, {:not_a_closure, :key_id_fun}}} =
-               GcpKms.init(GcpKmsCase.opts(key_id_fun: fn -> "t-x" end))
+               GcpKms.init(GcpKmsCase.opts(key_id_fun: fn -> "s-x" end))
     end
 
     # mutation: change a default - the namespace default is ADR-0003 decision
     # 5's and the prefix and timeout are ADR-0007 decision 4's and 10's.
+    # ADR-0009 Amendment A, A1 rows 5 and 8 (v2 `"encryptor-scope"`, `"s-"`):
+    # respelled the provider's @default_namespace to "encryptor-tenant" - red;
+    # respelled @default_prefix to "t-" - red.
     test "defaults the namespace, the id prefix, the protection level and the timeout" do
       assert {:ok, state} = GcpKms.init(GcpKmsCase.opts())
 
-      assert state.namespace == "encryptor-tenant"
-      assert state.key_id_prefix == "t-"
+      assert state.namespace == "encryptor-scope"
+      assert state.key_id_prefix == "s-"
       assert state.protection_level == :software
       assert state.timeout == 5_000
       assert state.key_id_fun == nil
@@ -142,8 +145,8 @@ defmodule Encryptor.Provider.GcpKmsTest do
       state = GcpKmsCase.state()
 
       expected =
-        "t-" <>
-          Base.encode32(:crypto.hash(:sha256, ["encryptor-tenant", 0, @selector]),
+        "s-" <>
+          Base.encode32(:crypto.hash(:sha256, ["encryptor-scope", 0, @selector]),
             case: :lower,
             padding: false
           )
@@ -151,6 +154,19 @@ defmodule Encryptor.Provider.GcpKmsTest do
       assert GcpKms.crypto_key_name(state, @selector) ==
                "projects/myapp-test/locations/us-east1/keyRings/scope-keys/cryptoKeys/" <>
                  expected
+    end
+
+    # ADR-0009 Amendment A, A1 rows 5 and 8 together: the default id under
+    # the v2 namespace and prefix, written as bytes rather than recomputed,
+    # recorded once from this build. sabotage: respelled the provider's
+    # @default_namespace to "encryptor-tenant" - red; respelled
+    # @default_prefix to "t-" - red.
+    test "is, under the v2 defaults, the recorded id" do
+      state = GcpKmsCase.state()
+
+      assert GcpKms.crypto_key_name(state, @selector) ==
+               "projects/myapp-test/locations/us-east1/keyRings/scope-keys/cryptoKeys/" <>
+                 "s-22vace25ff5utle65n6vhw3e5iyuntnsgrpkmmuurm4ysbotro2q"
     end
 
     # mutation: encode base64 instead - `=` and `+` are outside GCP's
@@ -187,13 +203,35 @@ defmodule Encryptor.Provider.GcpKmsTest do
     # sort differently - each one is a format change that makes every stored
     # wrapping permanently undecryptable, against a key GCP will not delete.
     test "encodes the record's worked vector to the byte" do
-      aad = Aad.encode(Envelope.binding("abc", 1, "encryptor-tenant"))
+      aad = Aad.encode(Envelope.binding("abc", 1, "encryptor-scope"))
 
-      assert byte_size(aad) == 140
+      assert byte_size(aad) == 137
 
-      assert binary_part(aad, 0, 45) ==
+      assert binary_part(aad, 0, 44) ==
                <<0, 23>> <>
-                 "encryptor-key-namespace" <> <<0, 0, 0, 16>> <> "encryptor-tenant"
+                 "encryptor-key-namespace" <> <<0, 0, 0, 15>> <> "encryptor-scope"
+    end
+
+    # ADR-0009 Amendment A's second wire: A1 rows 3, 4 and 5 are what Cloud
+    # KMS authenticates, so the whole v2 AAD is written out here, pair by
+    # pair in bytewise key order. sabotage: respelled `Encryptor.Envelope`'s
+    # @scope_ref_key to "encryptor-tenant-ref" - red; respelled @wrap_purpose
+    # to "tenant-key-wrap" - red.
+    test "is, for the v2 binding, the recorded bytes" do
+      assert Aad.encode(Envelope.binding("abc", 1, "encryptor-scope")) ==
+               <<0, 23>> <>
+                 "encryptor-key-namespace" <>
+                 <<0, 0, 0, 15>> <>
+                 "encryptor-scope" <>
+                 <<0, 21>> <>
+                 "encryptor-key-version" <>
+                 <<0, 0, 0, 1>> <>
+                 "1" <>
+                 <<0, 17>> <>
+                 "encryptor-purpose" <>
+                 <<0, 0, 0, 14>> <>
+                 "scope-key-wrap" <>
+                 <<0, 19>> <> "encryptor-scope-ref" <> <<0, 0, 0, 3>> <> "abc"
     end
 
     test "sorts bytewise by key and length-delimits both halves of every pair" do
@@ -214,8 +252,8 @@ defmodule Encryptor.Provider.GcpKmsTest do
 
       assert row.scope_ref == Reference.derive(GcpKmsCase.subkey(), @selector)
       assert row.version == 1
-      assert row.namespace == "encryptor-tenant"
-      assert row.name == "t/" <> row.scope_ref <> "/v1"
+      assert row.namespace == "encryptor-scope"
+      assert row.name == "s/" <> row.scope_ref <> "/v1"
       assert row.bits == 256
       assert is_binary(row.wrapped)
       assert row.key_id == key_id(state, @selector)
@@ -233,7 +271,7 @@ defmodule Encryptor.Provider.GcpKmsTest do
       assert {:ok, _row} = GcpKms.provision(state, @selector)
 
       assert_received {:kms_request, url, body, opts}
-      assert url =~ "/keyRings/scope-keys/cryptoKeys?cryptoKeyId=t-"
+      assert url =~ "/keyRings/scope-keys/cryptoKeys?cryptoKeyId=s-"
       assert body["purpose"] == "ENCRYPT_DECRYPT"
       assert body["versionTemplate"] == %{"protectionLevel" => "HSM"}
       refute Map.has_key?(body, "rotationPeriod")

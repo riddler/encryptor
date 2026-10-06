@@ -73,7 +73,7 @@ defmodule Encryptor.Provider.Kms do
   this path there is one context object and it serves the message header and
   the API call both: `GenerateDataKey`, `Encrypt` and `Decrypt` each carry it,
   and a KMS encryption context is recorded *unencrypted* in CloudTrail. Every
-  key ADR-0004 decision 2's table names - `tenant_ref` included, along with
+  key ADR-0004 decision 2's table names - `scope_ref` included, along with
   whatever `:static_encryption_context` and a per-call `:encryption_context`
   add - is therefore readable by whoever holds CloudTrail read in the host's
   AWS account, and not only by whoever holds the ciphertext bytes. ADR-0004

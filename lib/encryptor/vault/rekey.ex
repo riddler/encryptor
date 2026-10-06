@@ -48,7 +48,7 @@ defmodule Encryptor.Vault.Rekey do
   # Reproducing the context from the message would make a comparison of the two
   # trivially true, so this module does not compare the stored context against
   # itself. It compares the stored context against the one **the vault composes
-  # from the call's own arguments** - the static layer, plus `"tenant_ref"`
+  # from the call's own arguments** - the static layer, plus `"scope_ref"`
   # derived from the `:key` selector on a `:scoped` vault - through the same
   # `Encryptor.Vault.Decrypt.agree/4` a read goes through, reporting `:rekey`.
   #

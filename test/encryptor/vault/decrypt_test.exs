@@ -19,7 +19,7 @@ defmodule Encryptor.Vault.DecryptTest do
   defp merchant_context(selector) do
     Map.put(
       @columns,
-      "tenant_ref",
+      "scope_ref",
       Reference.derive(EncryptVaults.reference_subkey(), selector)
     )
   end
@@ -300,7 +300,7 @@ defmodule Encryptor.Vault.DecryptTest do
           encryption_context: merchant_context("merchant_b")
         )
 
-      assert reason(result) == {:reserved_context_key, "tenant_ref"}
+      assert reason(result) == {:reserved_context_key, "scope_ref"}
     end
 
     # sabotage: gave Resolve.selector/3's :scoped clause a `:default` arm - red,

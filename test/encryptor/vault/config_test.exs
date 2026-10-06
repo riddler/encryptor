@@ -469,7 +469,7 @@ defmodule Encryptor.Vault.ConfigTest do
     # sabotage: made required_keys/2 return the configured list on :scoped -
     # red, because scope_ref is then absent from the effective set.
     test "the profile contributes its own required keys, ahead of the host's" do
-      assert {:ok, %Config{required_keys: ["tenant_ref", "table", "column"]}} =
+      assert {:ok, %Config{required_keys: ["scope_ref", "table", "column"]}} =
                scope(required_context: ["table", "column"])
 
       assert {:ok, %Config{required_keys: ["purpose"]}} = single(required_context: ["purpose"])
@@ -478,8 +478,8 @@ defmodule Encryptor.Vault.ConfigTest do
     # sabotage: dropped the Enum.uniq/1 in required_keys/2 - red on the
     # duplicated entry.
     test "the effective required set carries no duplicates" do
-      assert {:ok, %Config{required_keys: ["tenant_ref", "table"]}} =
-               scope(required_context: ["tenant_ref", "table"])
+      assert {:ok, %Config{required_keys: ["scope_ref", "table"]}} =
+               scope(required_context: ["scope_ref", "table"])
     end
   end
 
@@ -500,8 +500,8 @@ defmodule Encryptor.Vault.ConfigTest do
     # sabotage: removed the profile == :single branch of
     # required_context_keys/3 - red, because the vault then resolves.
     test "may not require scope_ref on a single-profile vault" do
-      assert {:invalid_config, :required_context, {:reserved_key, "tenant_ref"}} =
-               reason(single(required_context: ["tenant_ref"]))
+      assert {:invalid_config, :required_context, {:reserved_key, "scope_ref"}} =
+               reason(single(required_context: ["scope_ref"]))
     end
   end
 
@@ -529,10 +529,18 @@ defmodule Encryptor.Vault.ConfigTest do
     end
 
     # sabotage: made reserved_context_key?/2 ignore the profile - red, because
-    # the single-profile vault is then refused too.
+    # the single-profile vault is then refused too. Second sabotage: dropped
+    # the `@retired_scope_ref` arm of `Encryptor.Context.reserved_key?/2` -
+    # red on both `"tenant_ref"` lines (ADR-0009 Amendment A, A4).
     test "refuses a scope pair on a scoped vault, and allows it nowhere else to matter" do
+      assert {:reserved_context_key, "scope_ref"} =
+               reason(scope(static_encryption_context: %{"scope_ref" => "x"}))
+
       assert {:reserved_context_key, "tenant_ref"} =
                reason(scope(static_encryption_context: %{"tenant_ref" => "x"}))
+
+      assert {:reserved_context_key, "tenant_ref"} =
+               reason(single(static_encryption_context: %{"tenant_ref" => "x"}))
 
       assert {:reserved_context_key, "tenant_id"} =
                reason(scope(static_encryption_context: %{"tenant_id" => "x"}))

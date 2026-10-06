@@ -258,9 +258,9 @@ MyApp.Vault.encrypt(card_number, encryption_context: %{"table" => "payment_metho
 #=> {:error, %Encryptor.Error{reason: {:missing_required_context_keys, ["column"]}}}
 ```
 
-The canonical context keys are `tenant_ref`, `table`, `column`, `blob`,
-`purpose` and `app` (ADR-0004 decision 2); `tenant_ref` carries the scope
-reference under its pinned v1 spelling, and part 2 is where it appears. `table` and `column` are yours;
+The canonical context keys are `scope_ref`, `table`, `column`, `blob`,
+`purpose` and `app` (ADR-0004 decision 2); `scope_ref` carries the scope
+reference under its pinned v2 spelling, and part 2 is where it appears. `table` and `column` are yours;
 `purpose` and `app` are typically vault configuration; `blob` is the name for a
 payload with no table. A signup flow storing a wizard payload, on a vault whose
 `:required_context` does not name `table` and `column`, might use:
@@ -324,7 +324,7 @@ A deployment holds **two** root secrets:
 
 | Secret | Expands the label | Lifecycle |
 |---|---|---|
-| the **reference root** | `"encryptor/v1/tenant-ref"` | pinned at generation 1, **never rotated** |
+| the **reference root** | `"encryptor/v1/scope-ref"` | pinned at generation 1, **never rotated** |
 | the **wrapping root** | `"encryptor/v1/root-wrap"` | rotated by procedure P1 |
 
 At install, generate one 32-byte value and write it into **both** secrets:
@@ -410,9 +410,9 @@ Two constraints on a root vault, and both are load-bearing:
 
 ```elixir
 reference_root = Base.decode64!(System.fetch_env!("MY_APP_REFERENCE_ROOT_KEY"))
-# "tenant-ref" is a pinned v1 wire constant: the purpose the reference subkey
-# has always been derived under (ADR-0009 decision 4).
-reference_subkey = Encryptor.Envelope.root_subkey(reference_root, "tenant-ref")
+# "scope-ref" is a pinned v2 wire constant: the purpose the reference subkey
+# is derived under (ADR-0009 Amendment A).
+reference_subkey = Encryptor.Envelope.root_subkey(reference_root, "scope-ref")
 
 {:ok, wrapped} =
   Encryptor.Envelope.provision(MyApp.RootVault, merchant.id,
@@ -471,7 +471,7 @@ defmodule MyApp.MerchantVault do
     {:ok,
      config
      |> Keyword.put(:reference_subkey,
-       Encryptor.Envelope.root_subkey(reference_root, "tenant-ref"))
+       Encryptor.Envelope.root_subkey(reference_root, "scope-ref"))
      |> Keyword.put(:provider, {MyApp.MerchantKeyProvider, root_vault: MyApp.RootVault})}
   end
 end
@@ -500,19 +500,19 @@ scope reference and its context pair itself:
   )
 ```
 
-The pair's key is `"tenant_ref"`, the v1 spelling from before the owner was
-called a scope. It is authenticated data written into every message, so it is
-a constant rather than a name that follows the API: `describe/1` and your
-support tooling will always read `"tenant_ref"`, and
+The pair's key is `"scope_ref"`. It is authenticated data written into
+every message, so it is a constant rather than a name that follows the API:
+`describe/1` and your support tooling will always read `"scope_ref"`, and
 `Encryptor.Context.scope_ref_key/0` returns it. [Choosing the
 scope](choosing-the-scope.md#scope-and-the-spellings-that-stay) tables every
 spelling pinned the same way.
 
-You never pass the reference yourself. `"tenant_ref"`, `"scope_id"` and
+You never pass the reference yourself. `"scope_ref"`, `"scope_id"` and
 `"tenant_id"` are all refused from a caller on a scoped vault: `key:` is the
 whole of per-scope routing, and a scope named twice is a scope that can
 disagree with itself. (`"tenant_id"` stays refused because a host that
-followed the 0.4 docs may still send it.)
+followed the 0.4 docs may still send it, and `"tenant_ref"`, the retired
+spelling of the reference key, is refused on every vault.)
 
 The reference is a **keyed** derivation, not a hash:
 
@@ -577,7 +577,7 @@ package never rescues an exception into an error tuple.
 | set `max_encrypted_data_keys: nil` | `{:invalid_config, :max_encrypted_data_keys, :unlimited}` |
 | call a `:scoped` vault without `key:` | `{:invalid_selector, :default}` |
 | pass `key:` to a `:single` vault | `{:invalid_selector, "..."}` |
-| pass `"tenant_ref"` in `:encryption_context`, or `"scope_id"` on a `:scoped` vault | `{:reserved_context_key, "tenant_ref"}` or `{:reserved_context_key, "scope_id"}` |
+| pass `"scope_ref"` in `:encryption_context`, or `"scope_id"` on a `:scoped` vault | `{:reserved_context_key, "scope_ref"}` or `{:reserved_context_key, "scope_id"}` |
 | omit a key named in `:required_context` | `{:missing_required_context_keys, [...]}` |
 | call a vault that is not running | `{:vault_not_started, MyApp.Vault}` |
 | anything at all on the decrypt side that depends on the message | `:decrypt_failed` |
@@ -598,14 +598,14 @@ vault:
 info.encryption_context     #=> %{"table" => "payment_methods", ...}
 info.algorithm_suite_id     #=> 1144
 info.committed?             #=> true
-info.encrypted_data_keys    #=> [%{provider_id: "acme-merchant", key_name: "t/<ref>/v1"}]
+info.encrypted_data_keys    #=> [%{provider_id: "acme-merchant", key_name: "s/<ref>/v1"}]
 ```
 
 **The return is an unverified claim.** The header authentication tag is not
 checked - checking it needs the data key - so every field is what whoever wrote
 the bytes says. Use it for support tooling and for a migration that needs to
 know which key version wrote a row. Never make an authorization or routing
-decision on it: a host that reads the `"tenant_ref"` pair out of a header and
+decision on it: a host that reads the `"scope_ref"` pair out of a header and
 shows the row to that scope has built an access check out of an attacker-editable field.
 
 ## Where to go next
@@ -624,7 +624,8 @@ shows the row to that scope has built an access check out of an attacker-editabl
   ADR-0002 (key providers), ADR-0003 (the per-scope envelope), ADR-0004 (the
   encryption context), ADR-0005 (rotation and crypto-shred, amended with
   suspend), ADR-0007 (the GCP wrap-provider), ADR-0008 (AWS KMS as the
-  keyring-backed shape), ADR-0009 (the scope, and the v1 spellings it keeps).
+  keyring-backed shape), ADR-0009 (the scope, and with its Amendment A the v2
+  spellings the package writes).
 - **[`encryptor_ecto`](https://github.com/riddler/encryptor_ecto)** - the Ecto
   types, the wrapped-key schema and its migration, and the re-encryption
   migrator. It supplies `table` and `column` from its declared values and

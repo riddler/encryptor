@@ -39,9 +39,9 @@ defmodule Encryptor.Provider.FunctionTest do
     # with :default - the merchant assertion goes red. The selector is the
     # only thing the vault gives a provider to answer with.
     test "hands the selector to the host's closure" do
-      state = provider(fn selector -> {:ok, aes(name: "t/#{selector}/v1")} end, &live/1)
+      state = provider(fn selector -> {:ok, aes(name: "s/#{selector}/v1")} end, &live/1)
 
-      assert {:ok, %Aes{name: "t/merchant-42/v1"}} =
+      assert {:ok, %Aes{name: "s/merchant-42/v1"}} =
                FunctionProvider.encryption_key(state, "merchant-42")
     end
 
@@ -228,7 +228,7 @@ defmodule Encryptor.Provider.FunctionConformanceTest do
 
     %Aes{
       namespace: "myapp",
-      name: "t/#{reference}/v#{version}",
+      name: "s/#{reference}/v#{version}",
       material: :crypto.mac(:hmac, :sha256, root, "#{selector}/#{version}"),
       bits: 256
     }

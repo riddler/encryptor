@@ -44,7 +44,7 @@ defmodule Encryptor.Provider.GcpKms do
     * `:project`, `:location`, `:key_ring` - required. The ring exists
       already: this package never creates one (see "What it never does").
     * `:reference_subkey` - required, 32 bytes. ADR-0003 decision 6's
-      `"encryptor/v1/tenant-ref"` subkey, local and not replaced by GCP.
+      `"encryptor/v1/scope-ref"` subkey, local and not replaced by GCP.
     * `:http_client` - required. The host's module, described below.
     * `:goth` - required. A running `Goth` server's name, or `{module, name}`
       for any token server exporting `fetch/1` with Goth's return shape.
@@ -53,10 +53,12 @@ defmodule Encryptor.Provider.GcpKms do
       `c:Encryptor.Provider.provision/2` returned. This package owns no
       storage (ADR-0003 decision 9), so the read is the host's.
     * `:namespace` - the key namespace carried in the binding and in every
-      row. Defaults to `"encryptor-tenant"`, ADR-0003 decision 5's default.
+      row. Defaults to `"encryptor-scope"`, ADR-0003 decision 5's default
+      as ADR-0009 Amendment A respells it (A1 row 5).
     * `:protection_level` - `:software` (default) or `:hsm`. A configuration
       change, never a code change.
-    * `:key_id_prefix` - defaults to `"t-"`.
+    * `:key_id_prefix` - defaults to `"s-"` (ADR-0009 Amendment A, A1
+      row 8).
     * `:key_id_fun` - a one-argument escape hatch replacing the derivation
       below, with the same warning `Encryptor.Provider.Function` carries:
       everything the derivation guarantees becomes the host's obligation.
@@ -201,11 +203,11 @@ defmodule Encryptor.Provider.GcpKms do
   undecryptable **including every backup copy of the store**, because the
   wrapping key is not in the backup. That is ADR-0005 P3 step 2a, and it runs
   as the operator's own call against `projects/<project>/locations/<location>/
-  keyRings/<ring>/cryptoKeys/t-<digest>/cryptoKeyVersions/<n>`, once per live
+  keyRings/<ring>/cryptoKeys/s-<digest>/cryptoKeyVersions/<n>`, once per live
   version:
 
       gcloud kms keys versions destroy <n> \\
-        --location <location> --keyring <ring> --key t-<digest>
+        --location <location> --keyring <ring> --key s-<digest>
 
   This package ships no verb for it, for the reason ADR-0005 decision 10
   declined to ship `shred/2`: the key store is not this package's, so the
@@ -255,11 +257,14 @@ defmodule Encryptor.Provider.GcpKms do
   # than a second call to this one.
   @mint_version 1
 
-  # A second spelling of `Encryptor.Envelope`'s default namespace. The tenant
-  # spelling is a pinned v1 wire constant: it is bound into every wrapping's
-  # AAD and carried by every descriptor (ADR-0009 decision 4, row 5).
-  @default_namespace "encryptor-tenant"
-  @default_prefix "t-"
+  # A second spelling of `Encryptor.Envelope`'s default namespace. It is a
+  # pinned v2 wire constant: it is bound into every wrapping's AAD and
+  # carried by every descriptor (ADR-0009 Amendment A, A1 row 5).
+  @default_namespace "encryptor-scope"
+  # The start of every default `CryptoKey` id, a pinned v2 constant
+  # (ADR-0009 Amendment A, A1 row 8). With the namespace above it names
+  # every default key, and a `CryptoKey` can be neither renamed nor deleted.
+  @default_prefix "s-"
   @default_timeout 5_000
 
   # ADR-0007 Amendment B: the `Decrypt` statuses answered as a refusal.
@@ -419,7 +424,7 @@ defmodule Encryptor.Provider.GcpKms do
   `DestroyCryptoKeyVersion` to the host's runbook, so what this package owes
   an operator running ADR-0005 P3 step 2a is the name to run it against:
 
-      projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/t-<digest>
+      projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/s-<digest>
 
   """
   @spec crypto_key_name(state(), Provider.selector()) :: String.t()

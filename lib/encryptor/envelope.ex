@@ -56,8 +56,8 @@ defmodule Encryptor.Envelope do
   four pairs ADR-0003 decision 4 spells:
 
       %{
-        "encryptor-purpose" => "tenant-key-wrap",
-        "encryptor-tenant-ref" => scope_ref,
+        "encryptor-purpose" => "scope-key-wrap",
+        "encryptor-scope-ref" => scope_ref,
         "encryptor-key-version" => Integer.to_string(version),
         "encryptor-key-namespace" => namespace
       }
@@ -67,11 +67,12 @@ defmodule Encryptor.Envelope do
   host on every path. It is not a host option here either: passing
   `:encryption_context` to `provision/3` is `{:reserved_context_key, key}`.
 
-  Three of those spellings still say *tenant*: `"encryptor-tenant-ref"`,
-  `"tenant-key-wrap"`, and the default namespace `"encryptor-tenant"`.
-  They are v1 wire constants, authenticated in every wrapped key, so the
-  Scope rename leaves them byte for byte as earlier releases wrote them
-  (ADR-0009 decision 4, rows 3 to 5).
+  Three of those spellings name the owner: `"encryptor-scope-ref"`,
+  `"scope-key-wrap"`, and the default namespace `"encryptor-scope"`. They
+  are v2 wire constants, authenticated in every wrapped key, so respelling
+  any of them again would leave every stored wrapping unable to unwrap
+  (ADR-0009 Amendment A, A1 rows 3 to 5). A wrapping written by 0.6.x or
+  earlier spells all three in v1 and does not unwrap under this build (A3).
 
   What it buys is the confused-deputy defence. A blob copied from one scope's
   row into another's does not unwrap; a blob copied from version 2 to
@@ -95,7 +96,7 @@ defmodule Encryptor.Envelope do
   | Label | Use | Rotates with |
   |---|---|---|
   | `"encryptor/v1/root-wrap"` | the root vault's `Static` provider material | a rewrap pass over every wrapped key |
-  | `"encryptor/v1/tenant-ref"` | the reference derivation in decision 5 | a re-index pass over every stored row |
+  | `"encryptor/v1/scope-ref"` | the reference derivation in decision 5 | a re-index pass over every stored row |
 
   Separating them means a routine root rotation can replace the wrapping
   subkey while leaving every stored `scope_ref` valid. The label namespace is
@@ -184,27 +185,31 @@ defmodule Encryptor.Envelope do
   # here and nowhere else. They are the constants the operator's crypto read
   # is a read of: a typo in any of them is a wrapped-key population that a
   # corrected build can no longer open.
-  # Two of them keep the tenant spelling behind the Scope name: the reference
-  # key and the wrap purpose are pinned v1 wire constants (ADR-0009 decision
-  # 4, rows 3 and 4).
+  # Two of them name the owner: the reference key and the wrap purpose are
+  # pinned v2 wire constants (ADR-0009 Amendment A, A1 rows 3 and 4); their
+  # v1 spellings are not read (A3).
   @purpose_key "encryptor-purpose"
-  @scope_ref_key "encryptor-tenant-ref"
+  @scope_ref_key "encryptor-scope-ref"
   @version_key "encryptor-key-version"
   @namespace_key "encryptor-key-namespace"
-  @wrap_purpose "tenant-key-wrap"
+  @wrap_purpose "scope-key-wrap"
 
   # ADR-0003 decision 6's two root purposes. `Encryptor.Kdf.label/1` composes
   # the `"encryptor/v1/"` prefix; these are the purpose halves. The reference
-  # purpose keeps its tenant spelling: it is a pinned v1 wire constant, and a
-  # new spelling would be a new subkey and so a new reference for every stored
-  # row (ADR-0009 decision 4, row 6).
+  # purpose is a pinned v2 wire constant: a new spelling would be a new
+  # subkey and so a new reference for every stored row (ADR-0009 Amendment
+  # A, A1 row 6).
   @root_wrap "root-wrap"
-  @scope_ref_purpose "tenant-ref"
+  @scope_ref_purpose "scope-ref"
+  # The retired v1 reference purpose, whose label 0.6.x and earlier derived
+  # the reference under. Nothing derives it; it stays reserved so no later
+  # purpose takes it, and `subkey/2` refuses it (ADR-0009 Amendment A, A2).
+  @retired_scope_ref_purpose "tenant-ref"
 
   # ADR-0003 decision 5: one value per scoped vault, configured, with this
-  # default. The tenant spelling is a pinned v1 wire constant, persisted in
-  # every wrapped key's binding (ADR-0009 decision 4, row 5).
-  @default_namespace "encryptor-tenant"
+  # default. It is a pinned v2 wire constant, persisted in every wrapped
+  # key's binding (ADR-0009 Amendment A, A1 row 5).
+  @default_namespace "encryptor-scope"
 
   # ADR-0003 decision 1: 32 bytes from the CSPRNG, because ADR-0001's suites
   # both use AES-256-GCM for the data key and there is no reason for the
@@ -251,10 +256,10 @@ defmodule Encryptor.Envelope do
   ## Options
 
     * `:reference_subkey` - **required**, 32 bytes. The pinned reference root
-      expanded under `"encryptor/v1/tenant-ref"`, which is what `scope_ref`
+      expanded under `"encryptor/v1/scope-ref"`, which is what `scope_ref`
       derives from.
     * `:namespace` - the key provider id written into every message header.
-      Defaults to `"encryptor-tenant"`. It may not begin with `"aws-kms"`.
+      Defaults to `"encryptor-scope"`. It may not begin with `"aws-kms"`.
     * `:version` - defaults to `1`. ADR-0003's own worked example provisions
       without naming a version, so first provisioning needs no ceremony; a
       rotation names `n + 1` explicitly.
@@ -268,7 +273,7 @@ defmodule Encryptor.Envelope do
   holds only the wrapping subkey as its `Static` provider material", so a root
   vault is no longer an input the reference can be derived from - which is
   exactly why the reference function's signature was amended at acceptance to
-  take the subkey (it was `tenant_ref/2` then; ADR-0009 renamed it
+  take the subkey (ADR-0009 later gave it its present name,
   `scope_ref/2`). `provision/3` needs the same value for the same reason, and
   takes it the same way. **This is an extension of the accepted `opts()` forced by the
   accepted amendment, and it is flagged rather than assumed.**
@@ -433,7 +438,7 @@ defmodule Encryptor.Envelope do
   is - which an unkeyed hash of a short slug would not.
 
   The output is not secret: it travels in the clear in every message header,
-  both as the `"tenant_ref"` context pair and inside the encrypted data key's
+  both as the `"scope_ref"` context pair and inside the encrypted data key's
   name. The **input** is, and it never reaches a message, a log line, or a
   failure report.
 
@@ -491,7 +496,7 @@ defmodule Encryptor.Envelope do
       32
 
       iex> root = :binary.copy(<<0x0B>>, 32)
-      iex> Encryptor.Envelope.root_subkey(root, "root-wrap") == Encryptor.Envelope.root_subkey(root, "tenant-ref")
+      iex> Encryptor.Envelope.root_subkey(root, "root-wrap") == Encryptor.Envelope.root_subkey(root, "scope-ref")
       false
 
   ## The parameter is a purpose, and the record can be read two ways
@@ -535,18 +540,19 @@ defmodule Encryptor.Envelope do
   because it predates and defines the key; changing it would invalidate
   stored ciphertext. Any other use of a scope master key derives a subkey
   by `HKDF-Expand(scope_master_key, info: "encryptor/v1/<purpose>", 32)`
-  with a purpose label that is not `"root-wrap"` or `"tenant-ref"`.
+  with a purpose label that is not `"root-wrap"`, `"scope-ref"` or the
+  retired `"tenant-ref"`.
 
-  Both root purposes are therefore refused here, and the refusal is the
-  reservation being mechanical rather than remembered:
+  Both root purposes and the retired one are therefore refused here, and the
+  refusal is the reservation being mechanical rather than remembered:
 
-      iex> key = %Encryptor.Key.Aes{namespace: "acme-scope", name: "t/ref/v1", material: :binary.copy(<<7>>, 32), bits: 256}
+      iex> key = %Encryptor.Key.Aes{namespace: "acme-scope", name: "s/ref/v1", material: :binary.copy(<<7>>, 32), bits: 256}
       iex> byte_size(Encryptor.Envelope.subkey(key, "blind-index"))
       32
 
-      iex> key = %Encryptor.Key.Aes{namespace: "acme-scope", name: "t/ref/v1", material: :binary.copy(<<7>>, 32), bits: 256}
+      iex> key = %Encryptor.Key.Aes{namespace: "acme-scope", name: "s/ref/v1", material: :binary.copy(<<7>>, 32), bits: 256}
       iex> Encryptor.Envelope.subkey(key, "root-wrap")
-      ** (ArgumentError) "root-wrap" and "tenant-ref" are the root's purposes and may not be derived from a scope master key
+      ** (ArgumentError) "root-wrap", "scope-ref" and the retired "tenant-ref" are the root's purposes and may not be derived from a scope master key
 
   **A derived subkey is never stored.** It is recomputed from the scope
   master key on demand, so it inherits the master key's shred semantics
@@ -567,10 +573,10 @@ defmodule Encryptor.Envelope do
   """
   @spec subkey(Aes.t(), Kdf.purpose()) :: binary()
   def subkey(%Aes{material: material}, purpose) when is_binary(purpose) do
-    if purpose in [@root_wrap, @scope_ref_purpose] do
+    if purpose in [@root_wrap, @scope_ref_purpose, @retired_scope_ref_purpose] do
       raise ArgumentError,
-            ~s("root-wrap" and "tenant-ref" are the root's purposes and may not be ) <>
-              "derived from a scope master key"
+            ~s("root-wrap", "scope-ref" and the retired "tenant-ref" are the root's ) <>
+              "purposes and may not be derived from a scope master key"
     end
 
     Kdf.derive_subkey(material, purpose)
@@ -580,10 +586,11 @@ defmodule Encryptor.Envelope do
   # ADR-0002 decision 4's recommended grammar, "an opaque reference plus a
   # monotonic version", spelled once. Public to the package so a store-backed
   # provider rebuilds the same name rather than a second spelling of it. The
-  # `"t/"` prefix is a pinned v1 wire constant: it is the key name in every
-  # message header (ADR-0009 decision 4, row 2).
+  # `"s/"` prefix is a pinned v2 wire constant: it is the key name in every
+  # message header (ADR-0009 Amendment A, A1 row 2); its v1 spelling is not
+  # read (A3).
   @spec key_name(String.t(), pos_integer()) :: String.t()
-  def key_name(scope_ref, version), do: "t/" <> scope_ref <> "/v" <> Integer.to_string(version)
+  def key_name(scope_ref, version), do: "s/" <> scope_ref <> "/v" <> Integer.to_string(version)
 
   @doc false
   # ADR-0003 decision 4's four pairs. `@doc false` because the record's

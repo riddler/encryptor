@@ -325,6 +325,13 @@ defmodule Encryptor.Provider.KmsTest do
     # `Resolve.context/5`, because the assertion's other side is composed by
     # that same function. The literal list is what goes red.
     #
+    # The lists are also ADR-0009 Amendment A's second wire for A1 row 1 (v2
+    # `"scope_ref"`) and row 3 (v2 `"encryptor-scope-ref"`): the KMS context
+    # is what a key policy or a CloudTrail query reads. sabotage: respelled
+    # `Encryptor.Context`'s @scope_ref to "tenant_ref" - red on every list;
+    # respelled `Encryptor.Envelope`'s @scope_ref_key to
+    # "encryptor-tenant-ref" - red on the envelope's list.
+    #
     # Two suites, two rules, and ADR-0004's 2026-09-13 Note on the signing
     # suite is the contract for both. Under the default `0x0578` the engine
     # generates an ECDSA verification keypair below the vault and inserts its
@@ -348,8 +355,8 @@ defmodule Encryptor.Provider.KmsTest do
                @engine_pair,
                "column",
                "purpose",
-               "table",
-               "tenant_ref"
+               "scope_ref",
+               "table"
              ]
 
       assert Map.take(sent, Map.keys(@columns)) == @columns
@@ -360,7 +367,7 @@ defmodule Encryptor.Provider.KmsTest do
       # Values that vary per run are not pinned: `scope_ref` is ADR-0003
       # decision 5's keyed derivation, and pinning its bytes would pin a
       # fixture subkey into an assertion.
-      assert is_binary(sent["tenant_ref"]) and sent["tenant_ref"] != "acme"
+      assert is_binary(sent["scope_ref"]) and sent["scope_ref"] != "acme"
     end
 
     # The read side sends a context to KMS a second time, and it is the
@@ -385,8 +392,8 @@ defmodule Encryptor.Provider.KmsTest do
                @engine_pair,
                "column",
                "purpose",
-               "table",
-               "tenant_ref"
+               "scope_ref",
+               "table"
              ]
     end
 
@@ -404,7 +411,7 @@ defmodule Encryptor.Provider.KmsTest do
       refute Map.has_key?(sent, @engine_pair)
       assert sent == composed(vault, "acme", [encryption_context: @columns], :encrypt)
 
-      assert Enum.sort(Map.keys(sent)) == ["app", "column", "purpose", "table", "tenant_ref"]
+      assert Enum.sort(Map.keys(sent)) == ["app", "column", "purpose", "scope_ref", "table"]
     end
 
     # The unsigned rule's read half. The same two facts as the test above,
@@ -427,7 +434,7 @@ defmodule Encryptor.Provider.KmsTest do
       refute Map.has_key?(sent, @engine_pair)
       assert sent == composed(vault, "acme", [encryption_context: @columns], :decrypt)
 
-      assert Enum.sort(Map.keys(sent)) == ["app", "column", "purpose", "table", "tenant_ref"]
+      assert Enum.sort(Map.keys(sent)) == ["app", "column", "purpose", "scope_ref", "table"]
     end
 
     # Amendment A's open question A-1, stated as the fact it rests on: the
@@ -454,7 +461,7 @@ defmodule Encryptor.Provider.KmsTest do
                "encryptor-key-namespace",
                "encryptor-key-version",
                "encryptor-purpose",
-               "encryptor-tenant-ref",
+               "encryptor-scope-ref",
                "purpose"
              ]
     end
@@ -471,7 +478,7 @@ defmodule Encryptor.Provider.KmsTest do
     # generator, this test is re-pointed at the vault path that reaches it.
     test "is recorded on Encrypt too, at the client boundary" do
       client = Recording.new()
-      context = Map.put(@columns, "tenant_ref", "a-reference")
+      context = Map.put(@columns, "scope_ref", "a-reference")
 
       assert {:ok, %{ciphertext: ciphertext}} =
                Recording.encrypt(client, Fake.acme(), @pan, context, [])

@@ -34,7 +34,7 @@ defmodule Encryptor.Kdf do
   pseudorandom key into labelled output). Both are implemented here, and they
   are not used on the same trees.
 
-  `"encryptor/v1/root-wrap"` and `"encryptor/v1/tenant-ref"` are **expand
+  `"encryptor/v1/root-wrap"` and `"encryptor/v1/scope-ref"` are **expand
   only**, because every input those two derive from is already a uniformly
   random key of at least 256 bits:
 
@@ -89,7 +89,7 @@ defmodule Encryptor.Kdf do
       "encryptor/" <> version <> "/" <> purpose
 
   The version is currently `v1`. `label/1` is the only thing that writes that
-  prefix, so a caller supplies the purpose - `"root-wrap"`, `"tenant-ref"` -
+  prefix, so a caller supplies the purpose - `"root-wrap"`, `"scope-ref"` -
   and cannot spell the namespace differently by hand.
 
   ADR-0003 decision 6 fixes two purposes and reserves the rest of the space:
@@ -97,8 +97,9 @@ defmodule Encryptor.Kdf do
   | Label | Use | Record |
   |---|---|---|
   | `"encryptor/v1/root-wrap"` | the root vault's `Static` provider material | ADR-0003 d6 |
-  | `"encryptor/v1/tenant-ref"` | the keyed scope reference derivation | ADR-0003 d5, d6 |
+  | `"encryptor/v1/scope-ref"` | the keyed scope reference derivation | ADR-0003 d5, d6; ADR-0009 Amendment A, A1 row 7 |
   | `"encryptor/v1/blind-index"` | downstream index keys, through `Encryptor.Vault.derive/3` | ADR-0003 d7, amendment A |
+  | `"encryptor/v1/tenant-ref"` | retired and reserved: the reference derivation of 0.6.x and earlier, never taken by another purpose | ADR-0009 Amendment A, A2 |
 
   **The reservation is one-way.** Any future purpose-separated key takes a
   *new* `"encryptor/v<n>/<purpose>"` label and never reuses an existing one
@@ -199,7 +200,7 @@ defmodule Encryptor.Kdf do
 
   @typedoc """
   The purpose half of a label, as ADR-0003 decision 6 spells them:
-  `"root-wrap"`, `"tenant-ref"`, or a new purpose a later record adds.
+  `"root-wrap"`, `"scope-ref"`, or a new purpose a later record adds.
 
   A purpose is the part a caller supplies. The `"encryptor/v1/"` prefix is
   `label/1`'s, never a caller's.
@@ -217,8 +218,8 @@ defmodule Encryptor.Kdf do
       iex> Encryptor.Kdf.label("root-wrap")
       "encryptor/v1/root-wrap"
 
-      iex> Encryptor.Kdf.label("tenant-ref")
-      "encryptor/v1/tenant-ref"
+      iex> Encryptor.Kdf.label("scope-ref")
+      "encryptor/v1/scope-ref"
 
   A purpose must be a non-empty binary and must not contain the separator,
   because a purpose carrying a `/` could spell an existing label from a
@@ -258,14 +259,14 @@ defmodule Encryptor.Kdf do
   Distinct purposes yield unrelated subkeys from the same material:
 
       iex> root = :binary.copy(<<0x0B>>, 32)
-      iex> Encryptor.Kdf.derive_subkey(root, "root-wrap") == Encryptor.Kdf.derive_subkey(root, "tenant-ref")
+      iex> Encryptor.Kdf.derive_subkey(root, "root-wrap") == Encryptor.Kdf.derive_subkey(root, "scope-ref")
       false
 
   The same purpose and material always yield the same subkey, which is what
   makes a derived key recomputable rather than stored:
 
       iex> root = :binary.copy(<<0x0B>>, 32)
-      iex> Encryptor.Kdf.derive_subkey(root, "tenant-ref") == Encryptor.Kdf.derive_subkey(root, "tenant-ref")
+      iex> Encryptor.Kdf.derive_subkey(root, "scope-ref") == Encryptor.Kdf.derive_subkey(root, "scope-ref")
       true
 
   Key material shorter than 32 bytes is refused here rather than one call

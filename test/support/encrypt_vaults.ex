@@ -48,8 +48,8 @@ defmodule Encryptor.EncryptVaults do
     reference = Reference.derive(@reference_subkey, selector)
 
     %Encryptor.Key.Aes{
-      namespace: "encryptor-tenant",
-      name: "t/" <> reference <> "/v1",
+      namespace: "encryptor-scope",
+      name: "s/" <> reference <> "/v1",
       material: merchant_key(selector),
       bits: 256
     }

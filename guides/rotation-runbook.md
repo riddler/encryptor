@@ -338,9 +338,9 @@ Steps 1 and 4 are key-store operations and belong to this package; steps 2 and
    Both versions now resolve. New writes take v2; old rows still open under v1:
 
    ```elixir
-   {:ok, [%Encryptor.Key.Aes{name: "t/" <> _ = v2}, %Encryptor.Key.Aes{name: v1}]} =
+   {:ok, [%Encryptor.Key.Aes{name: "s/" <> _ = v2}, %Encryptor.Key.Aes{name: v1}]} =
      MyApp.MerchantKeyProvider.decryption_keys(state, merchant.id)
-   # v2 is "t/<scope_ref>/v2", v1 is "t/<scope_ref>/v1", newest first.
+   # v2 is "s/<scope_ref>/v2", v1 is "s/<scope_ref>/v1", newest first.
    ```
 
    **[operator]** Then drain the caches before step 2: wait `max_age` on every
@@ -650,7 +650,7 @@ Read this before promising anyone that your offboarding crypto-shreds.
 
 **A shred destroys plaintext, not attribution.** Every message header carries
 the scope's permanent pseudonym - its scope reference, in the encrypted data
-key's name and in the encryption context under `"tenant_ref"` - and deleting
+key's name and in the encryption context under `"scope_ref"` - and deleting
 the wrapping does not touch it. Outsiders cannot resolve the pseudonym. **The holder of the reference
 subkey can, by guess-and-confirm, forever, in every retained backup**: derive
 the reference for a candidate scope id, compare it against the header, and the
@@ -893,8 +893,9 @@ data one version is allowed to cover.
 
 ADR-0005 (rotation and crypto-shred) owns every procedure here, and its
 Amendment A owns P5, with ADR-0010 deciding where the suspended set is agreed
-and what each store's suspension reaches; ADR-0009 names the scope and pins
-the v1 spellings that still say *tenant*; ADR-0003 decision 10 owns the
+and what each store's suspension reaches; ADR-0009 names the scope, and its
+Amendment A pins the v2 spellings that say *scope* in every ciphertext and
+wrapped key; ADR-0003 decision 10 owns the
 attacker table; ADR-0004 decision 10 owns the division of labour; ADR-0007 decision 3 owns the GCP
 out-of-band split and the destroy-time hazard, and ADR-0007 decision 8 owns P3
 step 2a; ADR-0008 decision 4 owns the per-shape table, which is reproduced here
