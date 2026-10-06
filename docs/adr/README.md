@@ -10,7 +10,7 @@
 | [0006](0006-telemetry-and-observability.md) | Telemetry is a closed event set whose metadata is an allow-list, and nothing key-shaped is ever in it | accepted (2026-09-13, amended) |
 | [0007](0007-gcp-kms-wrap-provider.md) | GCP KMS is a wrap-provider, not a keyring, and it owns the tenant key's whole lifecycle | accepted (2026-09-13, amended) |
 | [0008](0008-aws-kms-keyring-backed.md) | AWS KMS is the keyring-backed row, and the descriptor carries the client | accepted (2026-09-13) |
-| [0009](0009-scope-names-the-keys-owner.md) | Scope names the key's owner, and the v1 wire spellings stay constants behind it | accepted (2026-09-24), Amendment A proposed |
+| [0009](0009-scope-names-the-keys-owner.md) | Scope names the key's owner, and the v1 wire spellings stay constants behind it | accepted (2026-09-24, amended) |
 | [0010](0010-suspension-through-a-store-behaviour.md) | A suspension is read from a store behaviour, the per-node ETS set is its default, and a shared store is the host's | accepted (2026-09-24) |
 | [0011](0011-publish-from-the-release-workflow-on-a-tag-push.md) | A version tag pushed on the default branch publishes the package from the release workflow, and nobody publishes by hand | proposed |
 
