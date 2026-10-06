@@ -82,9 +82,11 @@ promotion unchanged, so the version section opens with `### **Breaking**` and
 keeps the sentence saying what to do about the change. Delete the fragments in
 the same commit that cuts the release.
 
-Tagging is a separate step after that commit merges, and it is the operator's:
-the release prep - the version bump, the promoted `CHANGELOG.md` section, the
-deleted fragments - merges on its own, and the tag and the Hex publish follow
-it. Because the prep consumes every fragment its siblings wrote, it merges
+Tagging is a separate step after that commit merges: the release prep - the
+version bump, the promoted `CHANGELOG.md` section, the deleted fragments -
+merges on its own, then the conductor or the session that owns the release
+bead tags the merged release commit with the new version and pushes the tag,
+and the release workflow publishes to Hex on that tag push (ADR-0011).
+Because the prep consumes every fragment its siblings wrote, it merges
 LAST on its lane: a branch still holding an unmerged fragment when the prep
 lands misses that release and has to wait for the next one.
