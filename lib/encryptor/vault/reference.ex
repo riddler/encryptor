@@ -23,9 +23,9 @@ defmodule Encryptor.Vault.Reference do
   #
   # Three call sites want the same bytes: the vault's start-time known-answer
   # check (`Encryptor.Vault.Config.known_answer/1`), the encrypt path's
-  # injection of the reference into the context under `"scope_ref"`, and -
-  # when it lands - `Encryptor.Envelope.scope_ref/2`, whose public signature
-  # ADR-0003 fixes.
+  # injection of the reference into the context under `"scope_ref"`, and the
+  # public `Encryptor.Envelope.scope_ref/2`, whose signature ADR-0003 fixed
+  # under its earlier name `tenant_ref/2` before ADR-0009 renamed it.
   # A derivation spelled three times is a derivation that can drift in two of
   # them, and a drifted reference is not a failed check: it is a message no
   # correct reader can open, discovered at decrypt time against a subkey that

@@ -13,7 +13,7 @@
 #   2. `recycle_after: 20 * max_age` under a        ADR-0004 open question 6
 #      per-column cache partitioning
 #   3. the 32-pair and 4 KiB context bounds         ADR-0004 open question 4
-#   4. the 32-byte tenant master key and 0x0478     ADR-0003 open question 7
+#   4. the 32-byte scope master key and 0x0478      ADR-0003 open question 7
 #   5. the Argon2id 64 MiB / 3-iteration parameters ADR-0003 amendment B4
 #      (accepted 2026-09-13 - measured as an addendum)
 #
@@ -115,7 +115,7 @@ defmodule Bench.Vaults do
     use Encryptor.Vault, otp_app: :encryptor
   end
 
-  defmodule Tenant do
+  defmodule Scoped do
     use Encryptor.Vault, otp_app: :encryptor
   end
 
@@ -165,15 +165,15 @@ defmodule Bench.Vaults do
     module
   end
 
-  # A tenant vault whose provider closure counts its own calls, so the
+  # A scoped vault whose provider closure counts its own calls, so the
   # "is the provider consulted per call or per partition per max_age"
   # question has a number rather than a reading of two records.
-  def start_tenant(counter, descriptors) do
-    Application.put_env(:encryptor, Tenant,
+  def start_scoped(counter, descriptors) do
+    Application.put_env(:encryptor, Scoped,
       context_profile: :scoped,
       algorithm_suite_id: 0x0478,
       reference_subkey:
-        Encryptor.Envelope.root_subkey(:crypto.strong_rand_bytes(32), "tenant-ref"),
+        Encryptor.Envelope.root_subkey(:crypto.strong_rand_bytes(32), "scope-ref"),
       provider:
         {Encryptor.Provider.Function,
          encryption_key: fn selector ->
@@ -191,8 +191,8 @@ defmodule Bench.Vaults do
       cache: [max_age: 60]
     )
 
-    {:ok, _pid} = Tenant.start_link([])
-    Tenant
+    {:ok, _pid} = Scoped.start_link([])
+    Scoped
   end
 
   defp fetch(descriptors, selector) do
@@ -235,21 +235,23 @@ Report.row("canonical keys", inspect(Encryptor.Context.canonical_keys()))
 
 # What a real context actually costs. The scoped rows are what a :scoped
 # vault composes: the caller's pairs plus the scope reference the vault
-# injects (under "tenant_ref", the pinned v1 wire key), plus the static pairs
-# a host configures.
+# injects (under `Encryptor.Context.scope_ref_key/0`, the pinned v2 wire
+# key), plus the static pairs a host configures.
+scope_ref_key = Encryptor.Context.scope_ref_key()
+
 realistic =
   [
     {"single, table+column", canonical_ctx},
     {"single, +app", Map.put(canonical_ctx, "app", "acme_payments")},
-    {"scoped, +tenant_ref",
+    {"scoped, +#{scope_ref_key}",
      Map.merge(canonical_ctx, %{
        "app" => "acme_payments",
-       "tenant_ref" => String.duplicate("a", 22)
+       scope_ref_key => String.duplicate("a", 22)
      })},
     {"scoped, +purpose",
      Map.merge(canonical_ctx, %{
        "app" => "acme_payments",
-       "tenant_ref" => String.duplicate("a", 22),
+       scope_ref_key => String.duplicate("a", 22),
        "purpose" => "pii"
      })},
     {"blob-shaped",
@@ -257,7 +259,7 @@ realistic =
        "blob" => "signup_wizard_variant_b",
        "purpose" => "pii",
        "app" => "acme_payments",
-       "tenant_ref" => String.duplicate("a", 22)
+       scope_ref_key => String.duplicate("a", 22)
      }}
   ]
 
@@ -464,12 +466,12 @@ Report.section("1b. Is the provider consulted per call or per partition?")
 counter = :counters.new(1, [:atomics])
 
 root_material = secrets.root
-reference_subkey = Encryptor.Envelope.root_subkey(root_material, "tenant-ref")
+reference_subkey = Encryptor.Envelope.root_subkey(root_material, "scope-ref")
 
-tenant_ids = Enum.map(1..8, &"merchant-#{&1}")
+scope_ids = Enum.map(1..8, &"merchant-#{&1}")
 
 descriptors =
-  Map.new(tenant_ids, fn id ->
+  Map.new(scope_ids, fn id ->
     {:ok, wrapped} =
       Encryptor.Envelope.provision(Vaults.Root, id,
         reference_subkey: reference_subkey,
@@ -480,13 +482,13 @@ descriptors =
     {id, descriptor}
   end)
 
-tenant_vault = Vaults.start_tenant(counter, descriptors)
+scoped_vault = Vaults.start_scoped(counter, descriptors)
 
 before_count = :counters.get(counter, 1)
 
 Enum.each(1..500, fn _ ->
   {:ok, _} =
-    tenant_vault.encrypt(payload_column, key: "merchant-1", encryption_context: warm_ctx)
+    scoped_vault.encrypt(payload_column, key: "merchant-1", encryption_context: warm_ctx)
 end)
 
 after_count = :counters.get(counter, 1)
@@ -507,7 +509,7 @@ Report.row(
 Report.section("2. Cache cardinality and recycle_after (ADR-0004 OQ6)")
 
 # The partition id is f(vault, selector) only. The engine's cache id is
-# f(partition_id, suite, serialized context). So the entry count is tenants
+# f(partition_id, suite, serialized context). So the entry count is scopes
 # times distinct contexts, and the partition buys separation, not cardinality.
 alias AwsEncryptionSdk.AlgorithmSuite
 alias AwsEncryptionSdk.Cmm.Caching
@@ -519,18 +521,18 @@ columns =
       column <- ["number", "holder", "email", "address", "notes"],
       do: %{"table" => table, "column" => column}
 
-partitions = Enum.map(tenant_ids, &Encryptor.Vault.Partition.id(Vaults.Tenant, &1))
+partitions = Enum.map(scope_ids, &Encryptor.Vault.Partition.id(Vaults.Scoped, &1))
 
 cache_ids =
   for partition <- partitions, ctx <- columns do
     Caching.compute_encryption_cache_id(partition, suite, ctx)
   end
 
-Report.row("tenants", length(tenant_ids))
+Report.row("scopes", length(scope_ids))
 Report.row("distinct contexts (tables x columns)", length(columns))
 Report.row("distinct partition ids", partitions |> Enum.uniq() |> length())
 Report.row("distinct cache ids", cache_ids |> Enum.uniq() |> length())
-Report.row("entries per tenant", length(columns))
+Report.row("entries per scope", length(columns))
 
 # Memory per live entry: fill one cache with N distinct contexts on one
 # partition and take the delta the VM reports for ETS.
@@ -559,12 +561,12 @@ Report.row("entries written", fill)
 Report.row("ETS bytes/entry", Report.round2(per_entry_ets))
 
 Report.table(
-  ["tenants", "columns", "entries", "ETS MiB"],
+  ["scopes", "columns", "entries", "ETS MiB"],
   Enum.map(
     [{100, 10}, {1_000, 10}, {1_000, 25}, {10_000, 10}, {10_000, 25}],
-    fn {tenants, cols} ->
-      entries = tenants * cols
-      [tenants, cols, entries, Report.round2(entries * per_entry_ets / 1_048_576)]
+    fn {scopes, cols} ->
+      entries = scopes * cols
+      [scopes, cols, entries, Report.round2(entries * per_entry_ets / 1_048_576)]
     end
   )
 )
@@ -573,23 +575,23 @@ Report.row("recycle_after default at max_age 60, sec", 20 * 60)
 
 # What recycle_after actually bounds is the number of entries the table can
 # hold before it is dropped whole. That ceiling is the number of DISTINCT
-# (tenant, context) pairs touched in the window, not a rate - a busy vault
+# (scope, context) pairs touched in the window, not a rate - a busy vault
 # re-touches the same entries. So the peak is the reachable cardinality, and
-# recycle_after only helps where tenants churn faster than the window.
+# recycle_after only helps where scopes churn faster than the window.
 Report.table(
-  ["active tenants in 1200s", "columns", "peak entries", "peak ETS MiB"],
+  ["active scopes in 1200s", "columns", "peak entries", "peak ETS MiB"],
   Enum.map(
     [{50, 10}, {500, 10}, {5_000, 10}, {50_000, 10}],
-    fn {tenants, cols} ->
-      entries = tenants * cols
-      [tenants, cols, entries, Report.round2(entries * per_entry_ets / 1_048_576)]
+    fn {scopes, cols} ->
+      entries = scopes * cols
+      [scopes, cols, entries, Report.round2(entries * per_entry_ets / 1_048_576)]
     end
   )
 )
 
 # ---------------------------------------------------------------------------
 
-Report.section("4. 32-byte tenant key and the 0x0478 suite (ADR-0003 OQ7)")
+Report.section("4. 32-byte scope key and the 0x0478 suite (ADR-0003 OQ7)")
 
 suites = [
   {"0x0478 (commit, no sign)", Vaults.Cached0478, Vaults.Uncached0478},
@@ -634,7 +636,7 @@ Report.table(
   rows
 )
 
-# The 32-byte tenant master key: what minting, wrapping and unwrapping one
+# The 32-byte scope master key: what minting, wrapping and unwrapping one
 # actually costs, and how big the stored blob is.
 {:ok, sample} =
   Encryptor.Envelope.provision(Vaults.Root, "merchant-measure",
@@ -659,9 +661,9 @@ unwrap_us =
     :ok
   end)
 
-Report.row("tenant master key, declared bits", sample.bits)
+Report.row("scope master key, declared bits", sample.bits)
 Report.row("wrapped blob bytes", byte_size(sample.wrapped))
-Report.row("tenant_ref chars", String.length(sample.scope_ref))
+Report.row("scope_ref chars", String.length(sample.scope_ref))
 Report.row("provision/3 us", Report.round2(provision_us))
 Report.row("unwrap/2 us", Report.round2(unwrap_us))
 
