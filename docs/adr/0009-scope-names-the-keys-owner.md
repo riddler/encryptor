@@ -318,7 +318,7 @@ Note - and this Note carries no status of its own.
 
 ## Amendment A (2026-10-06): a v2 wire format spells the owner noun scope
 
-Status: proposed (2026-10-06). This amendment replaces decisions 4 and 5
+Status: accepted (2026-10-06, encryptor 0.7.0), proposed 2026-10-06. This amendment replaces decisions 4 and 5
 above. Decisions 1 to 3 and 6 are unchanged; A4 tables the reserved caller
 keys under the v2 spellings, and A5 restates which spellings decision 6's
 sentence now covers. No line above is edited except the header note under
@@ -563,3 +563,112 @@ info.encryption_context["scope_ref"] == ref
 None.
 
 Provenance: bead `enc-q9ke`.
+
+## Note (2026-10-06): Amendment A is accepted
+
+Amendment A's Status line now reads `accepted (2026-10-06, encryptor
+0.7.0)`. The record's own Status line, `accepted (2026-09-24)`, does not
+change, and its index row now reads `accepted (2026-09-24, amended)`. The
+amendment decides something cryptographic - a new HKDF label for the
+reference subkey, and the strings the engine and Cloud KMS authenticate - so
+it is accepted by the operator's own reading, not by this repository's flip
+rule.
+
+The amendment's code shipped in encryptor 0.7.0: the commit tagged `v0.7.0`
+(`cb379b5`), published on Hex by the release workflow's run
+https://github.com/riddler/encryptor/actions/runs/37490975248, which
+succeeded. Every claim below was re-verified at `cb379b5`, which was also the
+tip of `main` when this Note was written, so no later commit touches a claim.
+The amendment gave its anchors at `32880c7`, under the v1 values, and each
+resolves there as cited; the table below gives where each A1 row resolves at
+`cb379b5`, now holding its v2 value.
+
+| Row | v2 value | Where it is written at `cb379b5` |
+|---|---|---|
+| 1 | `"scope_ref"` | `lib/encryptor/context.ex:123`, `@scope_ref`, returned by `scope_ref_key/0` (`:189`) |
+| 2 | `"s/<ref>/v<n>"` | `lib/encryptor/envelope.ex:593`, `key_name/2` |
+| 3 | `"encryptor-scope-ref"` | `lib/encryptor/envelope.ex:192`, `@scope_ref_key`, applied by `binding/3` (`:601`) |
+| 4 | `"scope-key-wrap"` | `lib/encryptor/envelope.ex:195`, `@wrap_purpose`, applied by `binding/3` |
+| 5 | `"encryptor-scope"` | `lib/encryptor/envelope.ex:212`, `@default_namespace`, and `lib/encryptor/provider/gcp_kms.ex:263`, `@default_namespace` |
+| 6 | `"scope-ref"` | `lib/encryptor/envelope.ex:203`, `@scope_ref_purpose`, refused by `subkey/2` (`:575-580`); `guides/getting-started.md:415`, "Onboarding a merchant" |
+| 7 | `"encryptor/v1/scope-ref"` | `lib/encryptor/kdf.ex:235`, `label/1`, composing `@label_namespace` and `@label_version` (`:188-189`) with the purpose at `:244`; the moduledoc's label table at `:100` |
+| 8 | `"s-"` | `lib/encryptor/provider/gcp_kms.ex:267`, `@default_prefix`, the option's default (`:320`), used by `key_id/2` (`:438-442`) |
+
+- **A1.** Each v2 value is its v1 value with the owner noun swapped and
+  nothing else. Row 8's reason holds: the GCP KMS provider's moduledoc
+  section "The `CryptoKey` id" says the provider's keys cannot be renamed or
+  deleted. `Encryptor.Vault.Reference.derive/2`
+  (`lib/encryptor/vault/reference.ex:49`) carries no owner noun, and between
+  `v0.6.1` and `v0.7.0` only a comment in its file changed. The second wires:
+  `aad/3` (`lib/encryptor/provider/gcp_kms.ex:453`) encodes `binding/3`'s
+  map; the AWS KMS context lists in `test/encryptor/provider/kms_test.exs`
+  pin `"scope_ref"` as the pair KMS receives; `key_id/2` is the prefix and
+  the base32 of the SHA-256 of the namespace, a zero byte and the selector.
+  The binding's other spellings are unchanged: `@purpose_key`,
+  `@version_key` and `@namespace_key` (`lib/encryptor/envelope.ex:191-194`),
+  `@root_wrap`, and the `"encryptor/v1/"` prefix of `label/1`.
+- **A2.** The two sentences the label rule quotes still read as quoted, at
+  `lib/encryptor/kdf.ex:104-106` and `:185-187`; `@label_version` is still
+  `"v1"`. `subkey/2` refuses `"root-wrap"`, `"scope-ref"` and the retired
+  `"tenant-ref"` (`lib/encryptor/envelope.ex:576`), and the label table lists
+  `"encryptor/v1/tenant-ref"` as retired and reserved
+  (`lib/encryptor/kdf.ex:102`).
+- **A3.** No v1 spelling is written or read anywhere in `lib/` except the
+  retired, reserved keys A4 and A5 name; there is no fallback decrypt, dual
+  binding, alias or migration helper. `test/encryptor/wire_fixture_test.exs`
+  pins the refusal: its 0.4.1 wrapped key "does not unwrap under the root
+  vault" and its 0.4.1 ciphertext "does not decrypt on a :scoped vault, even
+  holding the key it was written under".
+- **A4.** `reserved_key?/2` (`lib/encryptor/context.ex:263-268`) refuses the
+  `@reserved_prefixes` (`:140`), `"scope_ref"` and `"tenant_ref"` on both
+  profiles, and `@owner_ids`, `"scope_id"` and `"tenant_id"` (`:132`), on a
+  `:scoped` vault. `test/encryptor/context_test.exs` asserts
+  `{:reserved_context_key, "tenant_ref"}` and `{:reserved_context_key,
+  "scope_ref"}` on both profiles.
+- **A5.** Every `tenant` spelling in `lib/` at `cb379b5` is `"tenant_ref"`
+  (`lib/encryptor/context.ex:128`), `"tenant_id"` (`:132`), `"tenant-ref"`
+  (`lib/encryptor/envelope.ex:207` and the refusal message in `subkey/2`),
+  the retired label's row in the label table, or prose and comments that
+  quote one of them; one comment in `Encryptor.Vault.Reference` names the
+  function's earlier name, `tenant_ref/2`, as history. Each of the three
+  constants sits beside a comment saying why it stays.
+- **Consequences.** The 0.7.0 changelog opens with a **Breaking** section
+  whose first entry names every respelled string and says a later respelling
+  is a re-encrypt rather than a rotation, and whose second says nothing
+  written by 0.6.x or earlier opens under 0.7.0. encryptor_ecto's ADR-0006
+  Amendment A is on that repository's `main` (read at `34ebbc5`). ADR-0003,
+  ADR-0004, ADR-0005, ADR-0007 and ADR-0008 each carry a Note of 2026-10-06
+  pointing here. `test/encryptor/wire_fixture_v2_test.exs` pins A1's table
+  with a v2 wrapped key and ciphertext.
+- **The contract as typespecs.** The specs of `scope_ref_key/0`,
+  `Envelope.scope_ref/2`, `key_name/2` and `Kdf.label/1` read as the
+  amendment gives them, and the doctest of `label/1` returns
+  `"encryptor/v1/scope-ref"` for `"scope-ref"`.
+- **The worked example.** `Envelope.provision/3` and `Envelope.unwrap/2`
+  take the arguments the example passes; the v2 fixture test "is the row the
+  current build provisions for the same selector" and "carries the reference
+  under the v2 context key and the v2 key name".
+- **Why now.** The Hex API lists encryptor_ecto as the only package that
+  depends on encryptor, and encryptor_ecto's `mix.exs` (read at `34ebbc5`)
+  pins `== 0.7.0`. The two facts about stored rows - that no host has stored
+  a ciphertext or a wrapped key, and that no real `CryptoKey` was created
+  through this provider under the v1 defaults - are not in any source this
+  repository or Hex can show; they rest on the operator's report, and the
+  operator's acceptance of this amendment is the reading that covers them.
+
+**Sentences that name the amendment as proposed.** The header note under
+this record's Status line says "**Amendment A (2026-10-06) is proposed, not
+accepted.**" and asks the reader to read the amendment "as a proposal
+awaiting the operator's acceptance reading". From this Note on, Amendment A
+is accepted, and the header note's other sentences (where the amendment
+sits, and which decisions it replaces) hold as written. The 2026-10-06 Notes
+on ADR-0003, ADR-0004, ADR-0005, ADR-0007 and ADR-0008 each name "ADR-0009
+Amendment A (2026-10-06, proposed)", which still states the date it was
+proposed. `guides/choosing-the-scope.md`'s list of records marks the
+amendment "(proposed)"; the guide is not a record and follows on its own.
+None of these is edited.
+
+Provenance: bead `enc-a9ah`.
+
+No decision changes, no line above is edited other than Amendment A's Status
+line, and this Note carries no status of its own.
