@@ -91,3 +91,52 @@ jobs:
           test "${#cmd[@]}" -gt 0 || { echo "gate.full is empty" >&2; exit 1; }
           echo "gate command (.claude/wurk.json gate.full): ${cmd[*]}"
           "${cmd[@]}"
+
+  # The test suite on the oldest pair the package supports, beside the gate.
+  #
+  # Unlike the gate job, this pair is fixed here rather than read from
+  # mise.toml, on purpose: mise.toml names the development and release pair,
+  # while this job proves a consumer floor - Erlang/OTP 26 with Elixir 1.18 -
+  # that the package promises to compile and pass on. The two move for
+  # different reasons, so they live in different places. The versions are
+  # loose ("26", "1.18") so setup-beam takes the newest patch of each line.
+  #
+  # Compile with warnings as errors plus the test suite, nothing else:
+  # Dialyzer and Credo answer about the code rather than the runtime, and
+  # they stay on the gate job.
+  test-otp26:
+    name: Tests on Erlang/OTP 26
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          otp-version: "26"
+          elixir-version: "1.18"
+
+      # Keyed on the resolved pair and mix.lock, so it never shares an entry
+      # with the gate job's cache.
+      - name: Cache deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-test-${{ runner.os }}-otp${{ steps.beam.outputs.otp-version }}-ex${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-test-${{ runner.os }}-otp${{ steps.beam.outputs.otp-version }}-ex${{ steps.beam.outputs.elixir-version }}-
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      - name: Compile with warnings as errors
+        run: mix compile --warnings-as-errors
+        env:
+          MIX_ENV: test
+
+      - name: Run the test suite
+        run: mix test
