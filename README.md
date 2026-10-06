@@ -33,7 +33,7 @@ Add `encryptor` to the dependencies in your `mix.exs`:
 ```elixir
 def deps do
   [
-    {:encryptor, "~> 0.6.0"}
+    {:encryptor, "~> 0.7.0"}
   ]
 end
 ```
