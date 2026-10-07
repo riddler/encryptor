@@ -108,7 +108,16 @@ defmodule Encryptor.Vault.Config do
       fires first only above a payload of `max_bytes / max_messages` - about
       107 KB under these defaults.
     * `:context_profile` is `:single` or `:scoped`, and `:required_context` is
-      a list of context keys (ADR-0004 decision 3).
+      a list of context keys (ADR-0004 decision 3). It may not name a key
+      `Encryptor.Context.reserved_key?/2` reserves on that profile: a caller
+      is refused that key, so no encrypt a caller makes could carry it, and
+      the start fails with `{:invalid_config, :required_context,
+      {:reserved_key, key}}`. Two exceptions are keys the package supplies
+      itself: `"scope_ref"` on a `:scoped` vault, and on a `:single` vault
+      the four `encryptor-` keys `Encryptor.Envelope` binds every wrapped
+      key to (`"encryptor-purpose"`, `"encryptor-scope-ref"`,
+      `"encryptor-key-version"` and `"encryptor-key-namespace"`), which a
+      root vault may require.
     * On a `:scoped` vault `:reference_subkey` is required, and when the
       deployment has pinned a `:reference_check` value the subkey must
       reproduce it (ADR-0004 decision 4).
@@ -187,6 +196,7 @@ defmodule Encryptor.Vault.Config do
   """
 
   alias Encryptor.Context
+  alias Encryptor.Envelope
   alias Encryptor.Error
   alias Encryptor.Kdf
   alias Encryptor.Provider
@@ -816,36 +826,35 @@ defmodule Encryptor.Vault.Config do
       invalid = Enum.find(keys, &(not context_key?(&1))) ->
         {:error, error(vault, {:invalid_config, :required_context, {:invalid_key, invalid}})}
 
-      profile == :single and Context.scope_ref_key() in keys ->
-        # ADR-0004 decision 2: `"scope_ref"` is refused on a `:single` vault, so
-        # requiring it there is a vault that can never encrypt.
-        {:error,
-         error(
-           vault,
-           {:invalid_config, :required_context, {:reserved_key, Context.scope_ref_key()}}
-         )}
-
-      retired = Enum.find(keys, &retired_scope_ref_key?/1) ->
-        # ADR-0009 Amendment A, A4: the retired v1 spelling of the reference
-        # key is reserved on both profiles and never injected, so requiring
-        # it is a vault that can never encrypt, on either profile.
-        {:error, error(vault, {:invalid_config, :required_context, {:reserved_key, retired}})}
+      reserved = Enum.find(keys, &unsuppliable_key?(&1, profile)) ->
+        {:error, error(vault, {:invalid_config, :required_context, {:reserved_key, reserved}})}
 
       true ->
         {:ok, keys}
     end
   end
 
-  # On a `:single` vault `Context.reserved_key?/2` refuses the reserved
-  # prefixes, the vault's own reference key and the retired v1 spelling of
-  # it (ADR-0009 Amendment A, A4). Taking away the first two leaves the
-  # retired key, read from `Encryptor.Context` rather than from a second copy
-  # of the literal.
-  @spec retired_scope_ref_key?(String.t()) :: boolean()
-  defp retired_scope_ref_key?(key) do
-    Context.reserved_key?(key, :single) and key != Context.scope_ref_key() and
-      not Enum.any?(Context.reserved_prefixes(), &String.starts_with?(key, &1))
+  # A required key is one every message must carry. A caller is refused every
+  # key `Context.reserved_key?/2` names for the profile, so a message carries a
+  # reserved key only when the package supplies it. Two cases do: a `:scoped`
+  # vault supplies its own `"scope_ref"` on every message, and
+  # `Encryptor.Envelope` supplies the four `encryptor-` pairs of its binding
+  # on every wrap and unwrap through a root vault, which is `:single`. Every
+  # other reserved key would refuse every encrypt, so requiring it refuses
+  # the start (ADR-0004 decision 2, ADR-0003 decision 4, ADR-0009 Amendment
+  # A, A4).
+  @spec unsuppliable_key?(String.t(), profile()) :: boolean()
+  defp unsuppliable_key?(key, :scoped) do
+    key != Context.scope_ref_key() and reserved_context_key?(key, :scoped)
   end
+
+  defp unsuppliable_key?(key, :single) do
+    not envelope_binding_key?(key) and reserved_context_key?(key, :single)
+  end
+
+  # The binding's keys are read from `Encryptor.Envelope` rather than from a
+  # second copy of the literals; the values passed here are placeholders.
+  defp envelope_binding_key?(key), do: Map.has_key?(Envelope.binding("", 1, ""), key)
 
   defp static_encryption_context(vault, profile, opts) do
     case Keyword.get(opts, :static_encryption_context) do
