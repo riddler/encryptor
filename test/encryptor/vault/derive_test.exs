@@ -213,6 +213,83 @@ defmodule Encryptor.Vault.DeriveTest do
       assert error.operation == :derive
     end
 
+    # Sabotage (each of the three below): removed the `purpose/2` step from
+    # `Derive.call/3`, so a reserved purpose reached the KDF. Red on each.
+    test "the root-wrap purpose is refused" do
+      vault = start_vault(DeriveVaults.App)
+
+      assert {:error, %Error{} = error} = Vault.derive(vault, "root-wrap", info: "x")
+      assert error.reason == {:invalid_config, :purpose, :reserved}
+      assert error.operation == :derive
+      assert error.vault == vault
+      assert error.engine == nil
+    end
+
+    test "the scope-ref purpose is refused" do
+      vault = start_vault(DeriveVaults.App)
+
+      assert {:error, %Error{} = error} = Vault.derive(vault, "scope-ref")
+      assert error.reason == {:invalid_config, :purpose, :reserved}
+      assert error.operation == :derive
+    end
+
+    test "the retired tenant-ref purpose is refused" do
+      vault = start_vault(DeriveVaults.App)
+
+      assert {:error, %Error{} = error} = Vault.derive(vault, "tenant-ref", info: "x")
+      assert error.reason == {:invalid_config, :purpose, :reserved}
+      assert error.operation == :derive
+    end
+
+    # Sabotage: made `purpose/2` refuse every purpose, not only the three
+    # reserved ones. Red.
+    test "a purpose that is not reserved still derives" do
+      vault = start_vault(DeriveVaults.App)
+
+      assert {:ok, derived} = Vault.derive(vault, "search-token", info: "x")
+
+      assert derived ==
+               Kdf.salted_subkey(
+                 DeriveVaults.app_key(),
+                 DeriveVaults.salt(),
+                 "search-token",
+                 "x",
+                 32
+               )
+    end
+
+    # Sabotage: moved the `purpose/2` step after `Resolve.selector/3`, so the
+    # absent selector was reported first. Red.
+    test "a reserved purpose is refused before the selector or the provider" do
+      vault = start_vault(DeriveVaults.Merchant)
+
+      assert {:error, %Error{} = error} = Vault.derive(vault, "scope-ref", info: "x")
+      assert error.reason == {:invalid_config, :purpose, :reserved}
+    end
+
+    # Sabotage: dropped "tenant-ref" from the reserved list in `Derive`.
+    # Red: the two refusal lists must name the same purposes.
+    test "derive/3 refuses exactly the purposes Envelope.subkey/2 refuses" do
+      vault = start_vault(DeriveVaults.App)
+
+      key = %Encryptor.Key.Aes{
+        namespace: "n",
+        name: "s/k/v1",
+        material: DeriveVaults.app_key(),
+        bits: 256
+      }
+
+      for purpose <- ["root-wrap", "scope-ref", "tenant-ref"] do
+        assert_raise ArgumentError, fn -> Encryptor.Envelope.subkey(key, purpose) end
+
+        assert {:error, %Error{reason: {:invalid_config, :purpose, :reserved}}} =
+                 Vault.derive(vault, purpose)
+      end
+
+      assert {:ok, _derived} = Vault.derive(vault, "blind-index")
+      assert is_binary(Encryptor.Envelope.subkey(key, "blind-index"))
+    end
+
     # Sabotage: dropped `label/1`'s separator guard on this path. Red.
     test "a purpose that could spell another label raises" do
       vault = start_vault(DeriveVaults.App)
