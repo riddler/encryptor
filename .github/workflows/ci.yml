@@ -315,3 +315,37 @@ jobs:
 
       - name: Run the python_interop tests
         run: mix test --only python_interop
+
+  # A host already on hackney 1.x (through httpoison) resolves this package
+  # with no committed lock, the way a real host would: the engine comes
+  # from Hex through this package's own range, beside the host's ex_aws and
+  # KMS client stack. The fixture under test/fixtures/hackney1_host/ names
+  # this checkout as a path dependency, so a range this package narrows is
+  # caught here before a host meets it.
+  #
+  # No cache: the job resolves and compiles, nothing more, and a cached
+  # deps/ would let a stale resolution pass for a fresh one.
+  hackney-1x:
+    name: Host on hackney 1.x (Elixir 1.18 / OTP 26)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26"
+          elixir-version: "1.18"
+
+      - name: Resolve the hackney 1.x host
+        working-directory: test/fixtures/hackney1_host
+        run: mix deps.get
+
+      - name: Compile the hackney 1.x host
+        working-directory: test/fixtures/hackney1_host
+        run: mix compile --warnings-as-errors
+
+      - name: Show the host's resolved engine, hackney and ex_aws
+        working-directory: test/fixtures/hackney1_host
+        run: grep -E '^  "(aws_encryption_sdk|hackney|ex_aws)":' mix.lock | cut -d, -f1-3
