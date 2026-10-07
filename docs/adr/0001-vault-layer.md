@@ -1150,3 +1150,156 @@ half rewrites under the new version at once, with no drain" pin B1, and
 `test/encryptor/vault/partition_test.exs` pins the derivation.
 
 Provenance: bead `enc-jwkn`.
+
+## Amendment C (2026-10-07): both partition ids carry a fingerprint of the key material, and a used name is not minted again
+
+Status: **proposed (2026-10-07)**. This amendment only adds: no line above is
+edited. It amends decision 7's formula for the read side, Amendment B's B1
+formula for the write side, and decision 10's vocabulary, which gains one
+reason term. It is a cryptographic decision - a value derived from wrapping
+key material is computed and folded into a cache key - so it stays proposed
+until the maintainer's own reading flips it. The lib/ cites below name
+functions this change adds or edits, so they are anchors, not line numbers;
+the engine cites are `aws_encryption_sdk` 1.0.0, the version `mix.lock`
+resolves.
+
+### Why
+
+A review found that a scope shredded and then provisioned again under the
+same key name mixes the two byte strings in the cache. A whole-scope shred
+(ADR-0005 P3) deletes the scope's rows; a provision for the same scope at the
+same version mints the same name, `s/<scope_ref>/v1`, over new bytes. With
+decision 7 and B1 the partition ids carry names, never bytes, so:
+
+- a decryption entry warmed before the shred is found again by its own cache
+  id (`compute_decryption_cache_id/4`,
+  `lib/aws_encryption_sdk/cmm/caching.ex:224`), which hashes the message's
+  encrypted data keys and so its key name, and the message written under the
+  destroyed bytes decrypts again;
+- the next write finds the encryption entry warmed before the shred
+  (`compute_encryption_cache_id/3`, `lib/aws_encryption_sdk/cmm/caching.ex:201`)
+  and wraps its data key under the destroyed bytes, so the message it writes
+  no longer decrypts once that entry is gone.
+
+`Encryptor.Key.Aes` says a name is bound to its bytes for good, but nothing
+the vault can see enforces it after the rows are deleted. B3's premise, that
+an encrypted data key naming its key is enough to key a read entry, holds
+only while a name never changes its bytes.
+
+### C1. The fingerprint, and the key identity that carries it
+
+```
+lp(x)            = <<byte_size(x)::32-big>> <> x
+fingerprint(m)   = :crypto.hash(:sha256, lp("encryptor partition fingerprint v1") <> m)
+identity(key)    = <<0>> <> lp(namespace) <> lp(name) <> fingerprint(material)   # an Encryptor.Key.Aes
+                 | <<1>> <> lp(key_id)                                         # an Encryptor.Key.Kms
+```
+
+The label is the domain separator: no other hash this package computes over
+the same bytes shares the pre-image, and it does not use the `"encryptor/v1/"`
+prefix, which belongs to `Encryptor.Kdf`'s label space. The fingerprint is
+fixed-width (32 bytes), so it needs no prefix of its own, and the AES identity
+still parses back to exactly one (namespace, name, material). A KMS key's
+identity is unchanged: its key id names bytes only the key manager holds, and
+B1's KMS form stands.
+
+The fingerprint is computed inside the partition pre-image and never kept.
+What leaves `Encryptor.Vault.Partition` is the 16-byte truncation of a SHA-256
+over it, which decision 7 already says is not key material, not secret and
+never on the wire; ADR-0006 keeps it out of telemetry, and so does this
+amendment. A 128-bit or wider random key is not recoverable from a hash of it.
+
+### C2. The write side's formula
+
+B1's formula, with C1's identity:
+
+```
+partition_id = binary_part(:crypto.hash(:sha256,
+                 lp(vault_namespace) <> lp(encoded_selector) <> identity(key)), 0, 16)
+```
+
+`Encryptor.Vault.Partition.encryption_id/3` computes it, as before. A name
+minted again over new bytes is a new partition, cold at once.
+
+### C3. The read side's formula
+
+Decision 7's read-side formula is replaced by one over the provider's whole
+candidate list, newest first, as `decryption_keys/2` answered it:
+
+```
+partition_id = binary_part(:crypto.hash(:sha256,
+                 lp(vault_namespace) <> lp(encoded_selector)
+                 <> <<length(candidates)::32-big>> <> identity(c1) <> ... <> identity(cn)), 0, 16)
+```
+
+The count is prefixed and each identity is self-delimiting, so the pre-image
+parses back to exactly one candidate list. `Encryptor.Vault.Partition.decryption_id/3`
+computes it; `Encryptor.Vault.Encrypt.stack/4` and `client/4` take the
+candidate list on the read side and one key on the write side, and
+`Encryptor.Vault.Decrypt` and a rekey's read half pass the list.
+`Encryptor.Vault.Partition.id/2` stays, as decision 7's selector-only
+formula, and is no longer handed to the caching CMM. Every function this
+names is `@doc false` except `id/2`, which is unchanged; no public function
+or option is added.
+
+A list that gains, loses, reorders or re-mints a candidate is a new
+partition. Two consequences follow, both intended:
+
+- A message written under bytes that were shredded and minted again under
+  the same name is not served from a warm entry; it fails as any message
+  under the wrong key does, `:decrypt_failed`.
+- A single retired version (ADR-0005 P4) no longer waits on the cache for
+  readability: the provider's shorter list is a new partition, so the warm
+  entry for a message under the retired version is not found and the next
+  read fails at once. ADR-0005's Note of 2026-09-29 ("P4 depends on the cache
+  drain and P3 does not") describes the code before this amendment on that
+  point; P4's drain step still drops the entry's residency.
+
+Decision 7's two properties still hold on both sides: the id is 16 bytes, the
+engine's width, and it is a cache-key input only. B2's argument carries over
+unchanged: every field is length-prefixed or fixed-width and every identity is
+tagged, so two different inputs cannot share a pre-image, and what is left is
+the 128-bit truncation decision 7 accepted.
+
+### C4. The refusal, where a used name is visible
+
+Decision 10's vocabulary gains one term, `{:key_name_in_use, selector}`: a
+provision refused because the key name it would mint is already in use for
+the selector. It carries the selector the vault asked about, as every
+selector term does, and renders that selector and nothing else.
+`Encryptor.Telemetry.reason_tag/1` reports it as `:key_name_in_use`, and
+`Encryptor.Provider`'s reason type admits it, so a provider may answer it.
+
+Who refuses, and who cannot see the name:
+
+| path | refuses with `{:key_name_in_use, selector}` | cannot see |
+|---|---|---|
+| `Encryptor.Provider.GcpKms.provision/2`, through `Encryptor.Vault.provision/2` | when its store answers any row for the scope's `scope_ref`, before any GCP call: it mints version 1 only, so any row carries the name it would mint | a name whose rows a shred deleted: `ALREADY_EXISTS` on the create stays success (ADR-0007 decision 6) |
+| `Encryptor.Envelope.provision/3` | never | any prior use: it sees no store |
+| a host's own store | the host's to do, by remembering the versions it has used | - |
+
+On the GCP path a full shred also destroys every `CryptoKeyVersion` (ADR-0005
+P3 step 2a), after which a provision's `Encrypt` fails and answers
+`{:key_unavailable, selector}`. Where no refusal fires, C2 and C3 are what
+keep the old and the new bytes apart in the cache.
+
+### C5. A deploy is one cold cache, on both sides
+
+Every partition id for an AES key changes once, when a node first runs this
+change, so every warm entry on that node, encryption and decryption, is a miss
+after the deploy. B4's "read-side ids do not change" no longer holds. A deploy
+that restarts the node starts cold anyway; a hot code upgrade pays this once.
+A provision that answered `{:ok, row}` for a scope its GCP store already held
+a row for now answers `{:error, %Encryptor.Error{reason: {:key_name_in_use, selector}}}`.
+
+### What this amendment does not do
+
+No ciphertext shape, message field, wire spelling, HKDF label or algorithm
+changes, and nothing persisted carries a partition id or a fingerprint.
+`test/encryptor/vault/remint_test.exs` reproduces the reported sequence on both
+halves, `test/encryptor/vault/partition_test.exs` pins both derivations with
+values computed outside the package, and
+`test/encryptor/vault/shred_drain_test.exs`'s "refuses a retired version at
+once on a warm cache, with no drain" pins C3's second consequence.
+
+Provenance: bead `enc-hqc3`.

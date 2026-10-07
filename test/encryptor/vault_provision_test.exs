@@ -23,6 +23,8 @@ defmodule Encryptor.VaultProvisionTest do
       Supervisor.child_spec({GcpKmsVaults.NotProvisionable, []}, restart: :temporary)
     )
 
+    start_supervised!(Supervisor.child_spec({GcpKmsVaults.Provisioned, []}, restart: :temporary))
+
     :ok
   end
 
@@ -34,6 +36,14 @@ defmodule Encryptor.VaultProvisionTest do
     assert row.scope_ref == Reference.derive(GcpKmsCase.subkey(), @selector)
     assert row.version == 1
     assert row.bits == 256
+  end
+
+  # sabotage: deleted the {:key_name_in_use, _} clause from
+  # Resolve.in_contract/2 - red: the provider's refusal then reads as a
+  # provider off its contract, and a host cannot tell a used name from a bug.
+  test "answers key_name_in_use for a scope the provider's store already holds" do
+    assert {:error, %Error{reason: {:key_name_in_use, @selector}, operation: :provision}} =
+             GcpKmsVaults.Provisioned.provision(@selector)
   end
 
   # mutation: call the callback without checking that it is exported - a host

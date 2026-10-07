@@ -500,6 +500,12 @@ defmodule Encryptor.Vault do
       descriptor, keyed by `scope_ref` and never by the raw selector.
     * provisioning is explicit. Nothing on the read path calls it, so there
       is no route from a decrypt to a key creation (ADR-0003 decision 8).
+    * a provider that can see the key name it would mint is already in use
+      for the selector refuses with `{:key_name_in_use, selector}` rather
+      than minting new bytes under it (ADR-0001 Amendment C).
+      `Encryptor.Provider.GcpKms` refuses a scope its store already holds a
+      row for; a name used before a store delete is invisible to it, and to
+      this function.
 
   Persisting the result is the host's: this package owns no storage
   (ADR-0003 decision 9).

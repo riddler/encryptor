@@ -263,6 +263,13 @@ defmodule Encryptor.Envelope do
   produce two rows claiming the same version; the transaction that closes that
   race is `encryptor_ecto`'s, and ADR-0003 open question 1 owns the split.
 
+  It sees no store, so it cannot tell a version that was minted before, and
+  shredded since, from one that never was: it never answers
+  `{:key_name_in_use, selector}`, and a host's store refuses a version it has
+  already used. Minting new bytes under a used name is still never served
+  from the vault's cache against the old bytes, because every cache partition
+  carries a fingerprint of the key material (ADR-0001 Amendment C).
+
   ## Options
 
     * `:reference_subkey` - **required**, 32 bytes. The pinned reference root

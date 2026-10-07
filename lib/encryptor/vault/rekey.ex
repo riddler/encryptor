@@ -171,7 +171,7 @@ defmodule Encryptor.Vault.Rekey do
          {:ok, composed} <- Resolve.context(config, reference, [], :rekey, reserved),
          {:ok, stored} <- stored_context(config, ciphertext),
          :ok <- Decrypt.agree(config, ciphertext, composed, :rekey),
-         {:ok, plaintext} <- open(config, readers, selector, ciphertext, stored),
+         {:ok, plaintext} <- open(config, {readers, candidates}, selector, ciphertext, stored),
          {:ok, descriptor} <-
            Telemetry.provider_span(config, :encryption_key, :rekey, scope_ref, fn ->
              Resolve.encryption_key(config, selector, :rekey)
@@ -179,7 +179,7 @@ defmodule Encryptor.Vault.Rekey do
          {:ok, writer} <- Keyring.build(vault, :rekey, descriptor) do
       # The write-side client, partitioned by the key it writes under as well
       # as the selector, so a rewrite after a mint never finds a warm entry
-      # wrapped under the version before it (ADR-0001 Amendment B).
+      # wrapped under the version before it (ADR-0001 Amendments B and C).
       config
       |> Encrypt.client(writer, selector, descriptor)
       |> Encrypt.engine_encrypt(config, plaintext, writable(stored), :rekey)
@@ -220,15 +220,20 @@ defmodule Encryptor.Vault.Rekey do
   defp writable(stored), do: Map.delete(stored, CmmBehaviour.reserved_encryption_context_key())
 
   # The read half. The stack is the writer's stack, built by
-  # `Encryptor.Vault.Encrypt.client/3`, for the reason that module records: this
+  # `Encryptor.Vault.Encrypt.client/4`, for the reason that module records: this
   # engine mixes the serialization of the required subset of the context into
   # the header AAD, so a reader that does not know which keys were required
   # fails header authentication rather than anything more legible.
-  @spec open(Config.t(), Keyring.t(), Error.selector(), binary(), Context.context()) ::
-          {:ok, binary()} | {:error, Error.t()}
-  defp open(config, readers, selector, ciphertext, stored) do
+  @spec open(
+          Config.t(),
+          {Keyring.t(), [Encryptor.Key.t(), ...]},
+          Error.selector(),
+          binary(),
+          Context.context()
+        ) :: {:ok, binary()} | {:error, Error.t()}
+  defp open(config, {readers, candidates}, selector, ciphertext, stored) do
     config
-    |> Encrypt.client(readers, selector)
+    |> Encrypt.client(readers, selector, candidates)
     |> Decrypt.engine_decrypt(config, ciphertext, stored, :rekey)
   end
 

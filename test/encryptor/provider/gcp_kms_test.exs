@@ -308,6 +308,28 @@ defmodule Encryptor.Provider.GcpKmsTest do
       assert {:error, {:unknown_key, ""}} = GcpKms.provision(state, "")
     end
 
+    # sabotage: made unused/3 answer :ok for every store answer - red,
+    # because a second provision for a stored scope then mints new bytes
+    # under the version-1 name the stored row already carries.
+    test "refuses a scope the store already holds a row for, before any GCP call" do
+      {_state, row} = GcpKmsCase.provisioned(@selector)
+      state = GcpKmsCase.state(store: store([row]), http_client: EchoKms)
+
+      assert {:error, {:key_name_in_use, @selector}} = GcpKms.provision(state, @selector)
+      refute_received {:kms_request, _url, _body, _opts}
+    end
+
+    # sabotage: made unused/3 answer :ok when the store failed - red, because
+    # a store that could not say whether the name is in use is then read as
+    # one that said it is not.
+    test "reads an unknown_key or empty store as unused, and a failed one as unavailable" do
+      unknown = GcpKmsCase.state(store: fn _ref -> {:error, {:unknown_key, "x"}} end)
+      failing = GcpKmsCase.state(store: fn _ref -> {:error, :timeout} end)
+
+      assert {:ok, %{version: 1}} = GcpKms.provision(unknown, @selector)
+      assert {:error, {:key_unavailable, @selector}} = GcpKms.provision(failing, @selector)
+    end
+
     # mutation: derive the master key from anything - decision 1 keeps
     # ADR-0003 decision 1's independent 32 CSPRNG bytes per scope.
     test "mints independent material on every call" do

@@ -89,11 +89,11 @@ defmodule Encryptor.Vault.Resolve do
   # ahead of the materials cache and the very next call fails, warm cache or
   # cold. A whole-scope shred (ADR-0005 P3) is immediate for the same reason:
   # the provider is asked here on every call, so a scope with no live row
-  # answers `{:unknown_key, selector}` before any cache is read. What does
-  # wait on the cache is a single retired version (P4): the provider's
-  # shorter list is accepted, and a warm entry for a message written under
-  # the dropped version serves until it expires or the cache is dropped
-  # (ADR-0005's 2026-09-29 Note).
+  # answers `{:unknown_key, selector}` before any cache is read. A single
+  # retired version (P4) once waited on the cache (ADR-0005's 2026-09-29
+  # Note); since ADR-0001 Amendment C the read side's partition is derived
+  # from the provider's candidate list, so the shorter list is a new
+  # partition and the retired version's warm entries are not found either.
   #
   # `encrypt/2`, `decrypt/2`, `rekey/2` and `derive/2` reach one of the two
   # callbacks above and are therefore all covered; `provision/3` is not, and
@@ -174,6 +174,9 @@ defmodule Encryptor.Vault.Resolve do
 
   defp in_contract({:key_unavailable, _provider_selector}, selector),
     do: {:ok, {:key_unavailable, selector}}
+
+  defp in_contract({:key_name_in_use, _provider_selector}, selector),
+    do: {:ok, {:key_name_in_use, selector}}
 
   defp in_contract({:invalid_key_descriptor, _detail} = reason, _selector), do: {:ok, reason}
 
