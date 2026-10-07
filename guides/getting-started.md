@@ -429,7 +429,10 @@ reference_subkey = Encryptor.Envelope.root_subkey(reference_root, "scope-ref")
 `namespace`, `name`, `bits` and `wrapped`.
 
 **The plaintext key never leaves that function.** There is no function in this
-package that returns a bare scope master key as a binary.
+package that returns a bare scope master key as a binary. That holds for the
+root vault's own doors too: its `decrypt/2` and `rekey/2` refuse a wrapping
+with `:decrypt_failed`, and a wrapping is read with `Encryptor.Envelope.unwrap/2`
+and rotated with `Encryptor.Envelope.rewrap/2`.
 
 `MyApp.MerchantKeys` is yours. **This package defines no storage** - no table,
 no migration, no repo, no transaction - and no function here takes one. The

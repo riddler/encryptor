@@ -25,6 +25,11 @@ defmodule Encryptor.WireFixtureTest do
     :ok
   end
 
+  # An `{:ok, _}` here would be key material under a sabotage, and key
+  # material must not reach a failure report.
+  defp no_value({:ok, _material}), do: :opened
+  defp no_value(error), do: error
+
   describe "a wrapped-key row written by 0.4.1" do
     # A3, rows 3 and 4: the row's binding spells them in v1. sabotage:
     # respelled `@scope_ref_key` and `@wrap_purpose` in `Encryptor.Envelope`
@@ -40,6 +45,18 @@ defmodule Encryptor.WireFixtureTest do
     test "does not rewrap either" do
       assert {:error, %Error{reason: :decrypt_failed}} =
                Envelope.rewrap(RootVault, Fixture.row())
+    end
+
+    # Its binding carries pairs under the package prefix in either spelling,
+    # so the root vault's own doors refuse it as they refuse a v2 wrapping.
+    # sabotage: removed the package-reserved clause from `compare/4` in
+    # `Encryptor.Vault.Decrypt` - red: the decrypt and the rekey open it.
+    test "is not opened by the root vault's public decrypt or rekey" do
+      assert {:error, %Error{reason: :decrypt_failed}} =
+               no_value(RootVault.decrypt(Fixture.row().wrapped))
+
+      assert {:error, %Error{reason: :decrypt_failed}} =
+               no_value(RootVault.rekey(Fixture.row().wrapped))
     end
   end
 

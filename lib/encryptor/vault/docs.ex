@@ -71,6 +71,13 @@ defmodule Encryptor.Vault.Docs do
     the error's `:engine` field for an operator's log line and not for a
     `case`. Distinguishable decrypt failures are a decryption oracle.
 
+    A message whose stored context carries a pair under this package's own
+    `encryptor-` prefix is `:decrypt_failed` too. No host can write such a
+    pair; this package writes them into a scope-key wrapping
+    (`Encryptor.Envelope.provision/3`), and a wrapping is opened by
+    `Encryptor.Envelope.unwrap/2`, which returns a key descriptor, never by
+    a vault's `decrypt/2`, which would return the bare scope master key.
+
     ## Options
 
       * `:key` - the selector handed to the key provider, typed by the
@@ -118,6 +125,11 @@ defmodule Encryptor.Vault.Docs do
     `:encryption_context` is therefore **not** an option: passing one is
     `{:reserved_context_key, key}`, since the only correct value is the one
     already in the message.
+
+    A message whose stored context carries a pair under this package's own
+    `encryptor-` prefix - a scope-key wrapping - is `:decrypt_failed`, as it
+    is from `decrypt/2`. A wrapping is moved onto a new root with
+    `Encryptor.Envelope.rewrap/2`.
 
     One pair is not the host's and is not carried: under a signing suite
     (`0x0578`, the default) the engine stores the message's signature

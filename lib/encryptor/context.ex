@@ -137,7 +137,11 @@ defmodule Encryptor.Context do
   @app "app"
 
   @canonical_keys [@scope_ref, @table, @column, @blob, @purpose, @app]
-  @reserved_prefixes ["aws-crypto-", "encryptor-"]
+  # The package's own prefix, spelled once: `reserved_prefixes/0` refuses it
+  # from a host, and `package_key?/1` is how a reader tells a message that
+  # carries a package pair.
+  @package_prefix "encryptor-"
+  @reserved_prefixes ["aws-crypto-", @package_prefix]
 
   @max_pairs 32
   @max_bytes 4096
@@ -174,6 +178,17 @@ defmodule Encryptor.Context do
   """
   @spec reserved_prefixes() :: [String.t()]
   def reserved_prefixes, do: @reserved_prefixes
+
+  @doc false
+  # Whether a key is under this package's own prefix. No host can write one
+  # (`reserved_key?/2` refuses the prefix on both profiles), so a stored
+  # context that carries one was written by this package for itself: today
+  # that is `Encryptor.Envelope`'s wrapped-key binding, every key of which is
+  # under it. `Encryptor.Vault.Decrypt` refuses a message carrying such a key
+  # to any reader that did not reproduce it, which is what keeps a root
+  # vault's own `decrypt/2` and `rekey/2` from opening a wrapping.
+  @spec package_key?(String.t()) :: boolean()
+  def package_key?(key) when is_binary(key), do: String.starts_with?(key, @package_prefix)
 
   @doc """
   The key the vault writes a scope reference under.
