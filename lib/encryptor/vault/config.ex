@@ -175,6 +175,19 @@ defmodule Encryptor.Vault.Config do
   bytes per row buys nothing when one application is both parties
   (ADR-0001 decision 9).
 
+  Keeping `0x0578` does not by itself stop a reader from forging. The
+  signature stops forgery only where the reader cannot wrap a data key of its
+  own: a key that is an AWS KMS key (`Encryptor.Key.Kms`), with the reader's
+  role granted `kms:Decrypt` and neither `kms:GenerateDataKey` nor
+  `kms:Encrypt` on it. A key that reaches the vault as AES key material
+  (`Encryptor.Key.Aes`, which `Encryptor.Provider.GcpKms` answers too, once it
+  has unwrapped the scope's key) is in every reader's hands, so any reader can
+  write a message the vault accepts. And the configured suite is the suite a
+  vault writes, not one it requires: decrypt reads a message under either
+  accepted suite, so a `0x0578` vault reads a `0x0478` message under the same
+  key. The getting-started guide's "Why `0x0478`" section says when that
+  matters.
+
   ## The profile is start-time, not compile-time
 
   `:context_profile` arrives through the same five layers as everything else,

@@ -149,7 +149,24 @@ vaults use `0x0478`.
 
 Keep `0x0578` when a ciphertext crosses a trust boundary: written by one
 service and read by another that should not be able to forge it, or handed to
-a third party.
+a third party. But know exactly what the signature buys there. It stops a
+reader from forging a message only where that reader cannot wrap a data key of
+its own: a key that is an AWS KMS key (an `Encryptor.Key.Kms` descriptor, as
+`Encryptor.Provider.Kms` answers), with the reader's role granted
+`kms:Decrypt` on it and neither `kms:GenerateDataKey` nor `kms:Encrypt`. A key
+that reaches the vault as AES key material (an `Encryptor.Key.Aes`
+descriptor, which is what `Encryptor.Provider.Static` answers, and what
+`Encryptor.Provider.GcpKms` answers once it has unwrapped the scope's key)
+puts the key that wraps data keys in every reader's hands. Any reader can then
+write a message, signed or not, that every other holder of the key accepts,
+and the signature says nothing about who wrote it.
+
+Decrypt does not check the suite either. `:algorithm_suite_id` is the suite a
+vault writes, not one it requires on read: a vault configured for `0x0578`
+decrypts a `0x0478` message under the same key. So even on the KMS path the
+signature holds only while no unsigned message exists under that key, because
+a reader that can unwrap an unsigned message's data key can write another
+message under it.
 
 Two suites are accepted and nothing else is. `:commitment_policy` may be
 relaxed from `:require_encrypt_require_decrypt` to
