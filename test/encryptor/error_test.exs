@@ -159,6 +159,52 @@ defmodule Encryptor.ErrorTest do
     end
   end
 
+  describe "inspect/2" do
+    # sabotage: rendered `error.engine` unredacted in the Inspect
+    # implementation - red.
+    test "never renders the engine term" do
+      key_shaped = :binary.copy(<<0xAB>>, 32)
+      error = Error.decrypt_failed(MyApp.Vault, :decrypt, {:own_term, key_shaped})
+
+      assert inspect(error) ==
+               ~s(#Encryptor.Error<reason: :decrypt_failed, vault: MyApp.Vault, operation: :decrypt, engine: "[redacted]">)
+
+      refute inspect(error) =~ "171"
+    end
+
+    # sabotage: dropped the redact/1 clause for nil, so a nil engine rendered
+    # as "[redacted]" - red, because an operator reading a redaction where
+    # there was nothing would go looking for a term that never existed.
+    test "renders an absent engine term as nil" do
+      assert inspect(%Error{reason: :decrypt_failed}) ==
+               "#Encryptor.Error<reason: :decrypt_failed, vault: nil, operation: nil, engine: nil>"
+    end
+
+    # sabotage: removed the {:invalid_key_descriptor, _} clause of
+    # redact_reason/1 - red, as removing the {:invalid_config, _, _} clause
+    # is. The two redacted details are the ones message/1 never renders.
+    test "redacts exactly the reason details message/1 never renders" do
+      key_shaped = :binary.copy(<<0xAB>>, 32)
+
+      redacted = [
+        {{:invalid_config, :static_key, key_shaped},
+         ~s({:invalid_config, :static_key, "[redacted]"})},
+        {{:invalid_key_descriptor, %{material: key_shaped}},
+         ~s({:invalid_key_descriptor, "[redacted]"})}
+      ]
+
+      for {reason, rendered} <- redacted do
+        assert inspect(%Error{reason: reason}) ==
+                 "#Encryptor.Error<reason: #{rendered}, vault: nil, operation: nil, engine: nil>"
+      end
+
+      # Every other reason is this package's own term and renders as it is.
+      for reason <- [{:unknown_key, "tenant_a"}, {:missing_config, [:my_app, MyApp.Vault]}] do
+        assert inspect(%Error{reason: reason}) =~ inspect(reason)
+      end
+    end
+  end
+
   describe "the vocabulary is closed" do
     # sabotage: removed the sixteenth term from reason/0 - red, as a
     # seventeenth would be. This test exists so that a later bead extending

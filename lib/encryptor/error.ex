@@ -56,6 +56,16 @@ defmodule Encryptor.Error do
   wrapping key material never reach a message, a log line, or a failure
   report.
 
+  `inspect/2` keeps the same rule. It renders the struct as
+  `#Encryptor.Error<...>`, with a non-`nil` `:engine` and those two details
+  replaced by `"[redacted]"`, so a log line, a crash report or the exit a
+  supervisor reports when a vault fails to start carries no term a provider
+  or the engine supplied. The fields themselves are unchanged: code that
+  needs the term reads `error.engine`.
+
+      iex> inspect(%Encryptor.Error{reason: {:invalid_config, :provider, :init}, operation: :start, engine: {:own_term, "detail"}})
+      ~s(#Encryptor.Error<reason: {:invalid_config, :provider, "[redacted]"}, vault: nil, operation: :start, engine: "[redacted]">)
+
   Records: ADR-0001 decision 10, ADR-0002 decision 6, ADR-0004 decision 8.
   """
 
@@ -229,4 +239,39 @@ defmodule Encryptor.Error do
 
   defp where(%__MODULE__{vault: vault, operation: operation}),
     do: " (#{inspect(vault)}, #{operation})"
+
+  # The same redaction `message/1` applies, for every other path an error is
+  # printed through: a log line, a crash report, the exit a supervisor reports
+  # when a vault fails to start. Without it the default rendering would print
+  # `:engine` - where a provider's own failure term rides - and a
+  # provider-supplied reason detail, either of which can hold key material.
+  # The redaction follows `Encryptor.Vault.Config`'s.
+  defimpl Inspect do
+    import Inspect.Algebra
+
+    @redacted "[redacted]"
+
+    def inspect(error, opts) do
+      fields = [
+        reason: redact_reason(error.reason),
+        vault: error.vault,
+        operation: error.operation,
+        engine: redact(error.engine)
+      ]
+
+      container_doc("#Encryptor.Error<", fields, ">", opts, &field/2)
+    end
+
+    defp field({key, value}, opts), do: concat("#{key}: ", to_doc(value, opts))
+
+    defp redact(nil), do: nil
+    defp redact(_term), do: @redacted
+
+    defp redact_reason({:invalid_config, key, _detail}), do: {:invalid_config, key, @redacted}
+
+    defp redact_reason({:invalid_key_descriptor, _detail}),
+      do: {:invalid_key_descriptor, @redacted}
+
+    defp redact_reason(reason), do: reason
+  end
 end
