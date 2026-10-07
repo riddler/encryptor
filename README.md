@@ -102,6 +102,7 @@ and there is no second column to keep in step with it.
   - [The changelog](https://github.com/riddler/encryptor/blob/main/CHANGELOG.md): what changed in each version, and what to do about each breaking change.
 - Understand
   - [The security model: keys, scopes and envelopes](docs/explanation/security-model.md): the three levels of keys, why a scope's key is random and stored rather than derived, what the encryption context binds, why decrypt failures look alike, and what the model does not protect against.
+  - [The threat model: what is protected, from whom, and how we know](docs/explanation/threat-model.md): the assets, the adversaries and the trust boundaries, the test or record behind each claim, the limits of AES-GCM, the known engine defects, and what the evidence was tested against.
   - [Choosing the scope](guides/choosing-the-scope.md): what a scope is, where to draw its boundary, the rotate, suspend and shred verbs, and what cryptographic erasure honestly achieves.
   - [The decision records](https://github.com/riddler/encryptor/tree/main/docs/adr): the record behind every cryptographic choice here, with an index of what each one decides.
 

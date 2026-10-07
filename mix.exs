@@ -66,7 +66,8 @@ defmodule Encryptor.MixProject do
         "guides/secrets-at-start.md",
         "guides/rotation-runbook.md",
         "guides/choosing-the-scope.md",
-        "docs/explanation/security-model.md"
+        "docs/explanation/security-model.md",
+        "docs/explanation/threat-model.md"
       ],
       groups_for_extras: [
         Tutorials: ["guides/getting-started.md"],
@@ -76,7 +77,8 @@ defmodule Encryptor.MixProject do
         ],
         Explanation: [
           "guides/choosing-the-scope.md",
-          "docs/explanation/security-model.md"
+          "docs/explanation/security-model.md",
+          "docs/explanation/threat-model.md"
         ]
       ],
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
@@ -115,6 +117,7 @@ defmodule Encryptor.MixProject do
         guides/choosing-the-scope.md
         guides/rotation-runbook.md
         docs/explanation/security-model.md
+        docs/explanation/threat-model.md
       ),
       links: %{
         "GitHub" => @source_url,
