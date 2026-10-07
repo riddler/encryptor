@@ -29,7 +29,7 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
     * The 120 positives written under a suite with key commitment (`0x0478`
       and `0x0578`, 60 each) decrypt to the expected plaintext under the
       default commitment policy.
-    * The 541 positives written under the eleven suites without it are
+    * The 541 positives written under the nine suites without it are
       refused under the default policy, and decrypt to the expected plaintext
       under a vault configured `commitment_policy:
       :require_encrypt_allow_decrypt`.
