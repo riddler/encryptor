@@ -35,9 +35,12 @@ Each entry carries:
 - the claim it breaks, quoted from a public page, a moduledoc or a code comment;
 - a disposition, which is one of:
   - **FIXED** in a named pull request, with the test that pins the fix and
-    that test's sabotage note (the mutation that turns it red);
+    that test's sabotage note (the mutation that turns it red). A finding
+    FIXED by documentation is one where the documentation now states what
+    the code does, and a test pins that behaviour;
   - **ACCEPTED**, with the maintainer's reason;
-  - **DEFERRED** to a named bead in this repository's tracker;
+  - **DEFERRED** to a named bead in this repository's tracker, or in
+    encryptor_ecto's where the entry says so;
   - **FIX IN PROGRESS** in a named pull request that is not merged yet;
   - **PENDING** the maintainer's disposition.
 
@@ -137,19 +140,20 @@ No entries yet.
 | F4 | Low | the SP 800-38D reading behind the threat model | DEFERRED to the engine |
 | F5 | Medium | a review read of the 0.7.0 wire-format change | FIXED, PR 146 |
 | F6 | High | a review read of the 0.7.0 wire-format change | FIXED, PR 147 |
-| F7 | High | the LLM pass | PENDING the maintainer's disposition |
-| F8 | High | the LLM pass | PENDING the maintainer's disposition |
-| F9 | Medium | the LLM pass | PENDING the maintainer's disposition |
-| F10 | Medium | the LLM pass | PENDING the maintainer's disposition |
+| F7 | High | the LLM pass | FIXED, PR 156 |
+| F8 | High | the LLM pass | FIXED, PR 158; the refusal after a shred DEFERRED to ece-qxuu |
+| F9 | Medium | the LLM pass | FIXED by documentation, PR 159; the refusal DEFERRED to enc-5vyn |
+| F10 | Medium | the LLM pass | FIXED, PR 157 |
 | F11 | Medium | the LLM pass | FIXED, PR 154 |
-| F12 | Medium | the LLM pass | PENDING the maintainer's disposition |
+| F12 | Medium | the LLM pass | FIXED by documentation, PR 160; the refusal DEFERRED to enc-d4yx |
 | F13 | Low | the LLM pass | DEFERRED to enc-de5n |
 | F14 | Low | the LLM pass | DEFERRED to enc-u4s6 |
 | F15 | Low | the LLM pass | DEFERRED to enc-mo72 |
 | F16 | Low/Info | the LLM pass | DEFERRED to enc-ssfx |
 
-Under the rule above, F1, F2, F7 and F8 keep every release prep from merging
-until each one is FIXED or the maintainer accepts it.
+Under the rule above, F1 and F2 keep every release prep from merging until
+each one is FIXED or the maintainer accepts it. They are the only open High
+findings.
 
 ### F1. The engine stores required context keys in the message header
 
@@ -171,12 +175,14 @@ until each one is FIXED or the maintainer accepts it.
   moduledoc: the stored context "MUST NOT contain any key value pairs listed in
   the encryption material's required encryption context keys".
 - **Disposition:** FIX IN PROGRESS. The maintainer's disposition, given
-  2026-10-06, is to fix it in the engine:
+  2026-10-06, is to fix it in the engine. The fix is merged there, in
   [aws-encryption-sdk-elixir PR 100](https://github.com/riddler/aws-encryption-sdk-elixir/pull/100),
-  open and held for his review. That PR also closes engine
+  which also closes engine
   [issue #96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96).
-  This package moves to the release that carries the fix as ADR-0004
-  Amendment B (proposed, on `main`) describes. Until then the README's
+  It ships in the engine's 1.1.0 release, which is not published yet, and
+  this package does not yet require that release. This package moves to it
+  as ADR-0004 Amendment B (proposed, on `main`) describes, and this entry
+  turns FIXED when it does. Until then the README's
   Compatibility section and the threat model's "Known defects in the engine"
   name the failure. The interop test asserts each failing direction with its
   exact error.
@@ -193,7 +199,9 @@ until each one is FIXED or the maintainer accepts it.
 - **Severity:** High.
 - **Claim broken:** the same README sentence as F1. The specification
   (`framework/transitive-requirements.md`) requires the compressed form.
-- **Disposition:** FIX IN PROGRESS, in the same engine PR as F1. The engine
+- **Disposition:** FIX IN PROGRESS, in the same engine PR as F1, merged
+  there and shipping in the same unpublished 1.1.0 release, which this
+  package does not yet require. The engine
   reads both forms, so messages already written stay readable. The signature
   itself was never weak: either form encodes the same point.
 
@@ -311,9 +319,27 @@ until each one is FIXED or the maintainer accepts it.
   `rewrap/2` and nothing else", for a root vault left on the default suite.
   The rotation runbook's root-rotation step works only because the
   getting-started guide's root vault sets `algorithm_suite_id: 0x0478`.
-- **Disposition:** PENDING the maintainer's disposition. The pass suggested a
-  fix: drop `aws-crypto-public-key` from the context written back, and add
-  rekey and rewrap tests on 0x0578.
+- **Disposition:** FIXED in
+  [PR 156](https://github.com/riddler/encryptor/pull/156), as the maintainer
+  disposed it on 2026-10-07. The rekey's write half now writes the stored
+  context less the engine's verification-key pair (`writable/1` in
+  `Encryptor.Vault.Rekey`), and the engine writes a fresh pair for the new
+  message. `rewrap/2` reaches the same write half. Tests on 0x0578 pin it:
+  - in "on the signing suite, 0x0578"
+    ([`test/encryptor/vault/rekey_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/rekey_test.exs)):
+    "moves a message off a retired key, and it opens under the new one",
+    "carries the host's pairs across, and the engine writes a fresh
+    verification key" and "round trips on a scoped vault, with the pair the
+    vault supplied itself";
+  - in "rewrap/2 on the signing suite, 0x0578"
+    ([`test/encryptor/envelope_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/envelope_test.exs)):
+    "moves the wrapping onto the new root, and it unwraps to the identical
+    descriptor" and "the binding is carried across, and only the engine's
+    pair is renewed".
+
+  Their sabotage note: passing the stored context to the re-encrypt in place
+  of `writable(stored)` turns each one red, because the engine refuses its
+  own verification-key pair from a caller.
 
 ### F8. Re-provisioning a shredded scope under the same key name revives old ciphertext
 
@@ -335,10 +361,37 @@ until each one is FIXED or the maintainer accepts it.
   ADR-0001 Amendment B, "a new version is a new partition and a write after a
   mint is a cold miss". The rotation runbook's crypto-shred step 3, draining
   the caches, which it describes as "residency rather than readability".
-- **Disposition:** PENDING the maintainer's disposition. The pass suggested a
-  fix: put a fingerprint of the material in both partition ids, or recycle the
-  cache on any re-provision, and refuse to mint new bytes under a name already
-  used.
+- **Disposition:** FIXED in
+  [PR 158](https://github.com/riddler/encryptor/pull/158), as the maintainer
+  disposed it on 2026-10-07, in both halves the pass suggested:
+  - **The cache.** Both cache partition ids now carry a fingerprint of the
+    key material: the write side's over the resolved key
+    (`Encryptor.Vault.Partition.encryption_id/3`), the read side's over the
+    whole candidate list (`decryption_id/3`). The record is ADR-0001
+    Amendment C. It is a cryptographic decision, so it stays proposed until
+    the maintainer's own reading flips it. Two tests in "a re-provision under
+    a shredded name"
+    ([`test/encryptor/vault/remint_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/remint_test.exs))
+    replay the reported sequence:
+    - "does not revive a message written under the shredded bytes". Its
+      sabotage note: leaving the material's fingerprint out of `identity/1`
+      in `Encryptor.Vault.Partition`, for both sides, turns it red.
+    - "writes a message that still decrypts after the cache is recycled". Its
+      sabotage note: leaving the fingerprint out of `encryption_id/3` turns it
+      red.
+  - **The re-mint.** Where the GCP KMS provider can see that a scope's name
+    is in use, a provision is refused with `{:key_name_in_use, selector}`
+    before any GCP call. "refuses a scope the store already holds a row for,
+    before any GCP call"
+    ([`test/encryptor/provider/gcp_kms_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/provider/gcp_kms_test.exs))
+    pins it. Its sabotage note: making `unused/3` answer `:ok` for every
+    store answer turns it red.
+
+  The provider cannot see a used name after a whole-scope shred has deleted
+  the store's rows, and `Encryptor.Envelope.provision/3` sees no store.
+  Refusing a re-insert after a shred is the key store's to do: DEFERRED to
+  ece-qxuu, in encryptor_ecto's tracker. The fingerprint keeps the cache safe
+  either way.
 
 ### F9. A per-call context key the message never stored is not compared
 
@@ -355,10 +408,25 @@ until each one is FIXED or the maintainer accepts it.
   fails to decrypt rather than decrypting into the wrong place, because both
   are bound to where they were written", and "a decrypt under a context that
   disagrees with the message fails".
-- **Disposition:** PENDING the maintainer's disposition. The pass suggested two
-  options: refuse a per-call key absent from the stored context, or make the
-  threat model and the security model say the binding needs
-  `:required_context`.
+- **Disposition:** FIXED by documentation in
+  [PR 159](https://github.com/riddler/encryptor/pull/159), as the maintainer
+  disposed it on 2026-10-07. The threat model, the security model, the
+  getting-started guide and the `Encryptor.Context` moduledoc now say that a
+  context key binds a message only when the message carries it, which the
+  vault's `:required_context` guarantees, as does a writer that passes it on
+  every call. The README's decrypt example no longer says a decrypt under any
+  other context fails. Two
+  tests in "the vault-side reproduced-context value check"
+  ([`test/encryptor/vault/decrypt_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/decrypt_test.exs))
+  pin today's behaviour:
+  - "a message written without a column reads under any column claim". Its
+    sabotage note: replacing `Map.get(stored, key, value)` with
+    `Map.get(stored, key)` in `compare/4` turns it red.
+  - "a vault requiring the column refuses a message written without it". Its
+    sabotage note: making `maybe_required/2` return the materials manager
+    unwrapped for every config turns it red.
+
+  Refusing a per-call key the stored context lacks is DEFERRED to enc-5vyn.
 
 ### F10. A root vault used as an application vault returns a scope master key
 
@@ -377,10 +445,24 @@ until each one is FIXED or the maintainer accepts it.
   in this package that returns a bare scope master key as a binary."
   `docs/explanation/security-model.md:101`, "The plaintext key is never handed
   back."
-- **Disposition:** PENDING the maintainer's disposition. The pass suggested a
-  fix: on the public decrypt and rekey paths, refuse any message whose stored
-  context carries an `encryptor-` key, with `rewrap/2` passing an internal
-  flag.
+- **Disposition:** FIXED in
+  [PR 157](https://github.com/riddler/encryptor/pull/157), as the maintainer
+  disposed it on 2026-10-07. The public decrypt and rekey, on a root vault as
+  on any other, refuse a message whose stored context carries an
+  `encryptor-` key the reader did not reproduce, with `:decrypt_failed`
+  (`compare/4` in `Encryptor.Vault.Decrypt`). No host can write such a key,
+  so every scope-key wrapping is refused there. `Encryptor.Envelope` keeps an
+  internal path: `unwrap/2` and `rewrap/2` reproduce the binding and enter
+  the decrypt and rekey code below the public functions. Tests in "a root
+  vault's public decrypt and rekey refuse a wrapping"
+  ([`test/encryptor/envelope_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/envelope_test.exs))
+  pin it, among them:
+  - "decrypt/2 refuses it, naming the first binding key in :engine". Its
+    sabotage note: removing the package-reserved clause from `compare/4`
+    turns it red, because the decrypt then returns the 32-byte scope master
+    key.
+  - "rekey/2 refuses it, stamped :rekey". Its sabotage note: the same
+    removal turns it red.
 
 ### F11. `inspect/2` of an `Encryptor.Error` rendered a provider's own failure term
 
@@ -429,9 +511,23 @@ until each one is FIXED or the maintainer accepts it.
   ciphertext crosses a trust boundary: written by one service and read by
   another that should not be able to forge it". The suite guidance in
   `lib/encryptor/vault/config.ex:165-176` says the same.
-- **Disposition:** PENDING the maintainer's disposition. The pass suggested two
-  options: refuse any suite other than the configured one on decrypt (or allow
-  an explicit list during a migration), or reword the guide.
+- **Disposition:** FIXED by documentation in
+  [PR 160](https://github.com/riddler/encryptor/pull/160), as the maintainer
+  disposed it on 2026-10-07. The getting-started guide, the suite section of
+  `Encryptor.Vault.Config`'s moduledoc and the threat model now say that the
+  signature stops a reader forging only where that reader cannot wrap a data
+  key of its own: an AWS KMS key whose grants give the reader decrypt and
+  nothing that wraps. A key that reaches the vault as AES material, from raw
+  key material or from the GCP KMS provider, is in every reader's hands, so
+  signing does not prevent forgery there. They also say that decrypt does not
+  check a message's suite. "a signing-suite vault reads an unsigned message
+  under the same key", in "the suite a message was written under"
+  ([`test/encryptor/vault/decrypt_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/decrypt_test.exs)),
+  pins today's behaviour. Its sabotage note: making `agree/4` refuse a
+  message whose suite differs from the configured one turns it red.
+
+  Refusing a suite other than the configured one on decrypt is DEFERRED to
+  enc-d4yx.
 
 ### F13. `derive/3` raises for some bad input instead of returning its error
 
