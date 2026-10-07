@@ -272,6 +272,28 @@ defmodule Encryptor.Vault.DecryptTest do
     end
   end
 
+  describe "an engine return outside its contract" do
+    # sabotage: carried the engine's own return in `:engine` from
+    # engine_result/3's catch-all instead of `:unexpected_engine_result` - red,
+    # because the parsed message then rides into every log line that inspects
+    # the error. Deleting the clause is red too, with the CaseClauseError whose
+    # text renders that same term.
+    test "a message followed by one trailing byte is decrypt_failed, carrying no engine term" do
+      vault = start_vault(EncryptVaults.App)
+
+      {:ok, ciphertext} = vault.encrypt(@pan)
+      result = vault.decrypt(ciphertext <> <<0>>)
+
+      assert {:error,
+              %Error{
+                reason: :decrypt_failed,
+                vault: EncryptVaults.App,
+                operation: :decrypt,
+                engine: :unexpected_engine_result
+              }} = result
+    end
+  end
+
   describe "the failure mapping of ADR-0004 decision 8" do
     # sabotage: collapsed the missing-required-keys clause into engine_decrypt/4's
     # catch-all - red, because the one context failure a caller can act on then
