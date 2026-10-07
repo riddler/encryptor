@@ -1819,3 +1819,334 @@ Provenance: bead `enc-q9ke`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Amendment B (2026-10-06): rekey takes the required pairs the header no longer stores
+
+Status: **proposed (2026-10-06)**. This amendment changes decision 11 and
+states how decision 6's guarantee is kept for required keys once the engine
+stops storing them. Decisions 1 to 10 and 12, the two acceptance amendments at
+the top of this record, Amendment A and every Note above stand as written; no
+line above is edited. The record's own status line is unchanged, and this
+amendment is proposed under it.
+
+Everything about this package's code below was read at `2d0017e` and is cited
+by function, with the line at that commit. The engine cites are
+`aws_encryption_sdk` 1.0.0, the version `mix.lock` resolves, under
+`lib/aws_encryption_sdk/`. The specification cites are
+awslabs/aws-encryption-sdk-specification at
+`f95ae385f2e5388d0c5e1dca9d7b592e7329dc2a`. The engine release this amendment
+depends on is not published as it is written; what that release does and what
+this package does on it are stated as what this amendment decides, not as
+code that exists.
+
+Names follow the current wire spellings: `scope_ref` and the `:scoped`
+profile, which decision 4's `tenant_ref` and decision 3's `:tenant` became
+under ADR-0009 Amendment A (see the 2026-10-06 Note above).
+
+### Why now
+
+The sixth Context finding says the engine stores the full context in the
+header and appends the required subset to the header-authentication AAD as
+well, and calls that a deviation from the specification. It is still true of
+the published engine: `Crypto.HeaderAuth.build_header/4` puts
+`materials.encryption_context` into the header whole (`crypto/header_auth.ex:24`,
+the field at `:35`), and `compute_header_auth_tag/4` appends
+`Map.take(full_encryption_context, required_ec_keys)` (`:71`, the take at
+`:98`).
+
+The specification's text for the header's AAD field, "Construct the header",
+"V2 Header" in `client-apis/encrypt.md`:
+
+> MUST serialize the AAD. The value MUST be the serialization of the
+> encryption context in the encryption materials, and this serialization MUST
+> NOT contain any key value pairs listed in the encryption material's required
+> encryption context keys.
+
+(Links removed from the quotation; the V1 Header section carries the same
+sentence.) A reader that follows it treats a required key it finds stored in
+the header as not required, leaves it out of the authentication tail, and fails
+header authentication on every message this engine writes with required keys;
+and the engine, which unwraps under the stored context only
+(`Cmm.Default.get_decryption_materials/2`, `cmm/default.ex:215`, the unwrap
+under the stored context at `:232`), cannot open a conforming message
+whose required keys are absent from the header. Every message a `:scoped` vault
+writes has a required key: the profile always puts `scope_ref` in the required
+set (`required_keys/2`, `lib/encryptor/vault/config.ex:567`).
+
+The engine's next minor release, `aws_encryption_sdk` 1.1.0, not published as
+this amendment is written, is the correction. Open question 5 predicted the
+consequence for this record: decision 11 reproduces the required context from
+the header, and a header that no longer carries it cannot supply it. This
+amendment is written ahead of the encryptor code that moves to that release,
+because decision 11 is a contract a caller codes against, and the record
+leads.
+
+### What is true at `2d0017e`, per surface
+
+| Surface | Today | Read at |
+|---|---|---|
+| `rekey/2`'s reproduced context | the header's stored context, recovered through `Encryptor.Message.describe/1`, used as the decrypt's reproduced context and as the re-encrypt's context | `Encryptor.Vault.Rekey`, `stored_context/2` (`lib/encryptor/vault/rekey.ex:163`), used at `:137` and `:148`; `Message.describe/1` (`lib/encryptor/message.ex:94`) |
+| `rekey/2`'s `:encryption_context` option | a non-empty map is `{:reserved_context_key, key}`; an empty map is accepted | `refuse_context/2` and `refuse_pairs/2` (`rekey.ex:196`, `:210-223`) |
+| `rekey/2`'s binding check | the vault-composed context is compared with the stored one through the read path's comparison | `Decrypt.agree/4` called at `rekey.ex:136` |
+| decision 6's comparison | every key present in both the reproduced and the stored context must agree; a key the message does not carry is skipped | `Encryptor.Vault.Decrypt.agree/4` and `compare/4` (`lib/encryptor/vault/decrypt.ex:178`, `:199`) |
+| the warm-cache read | a decryption cache hit returns the cached materials without calling the CMM below it | `Cmm.Caching`'s `handle_decryption_cache_lookup/3` (`cmm/caching.ex:287`); the decryption cache id hashes the stored context, never the reproduced one (`compute_decryption_cache_id/4`, `:224`) |
+| the test that pins decision 6 on a warm cache | a column swap inside one scope fails on the second read | "the same swap fails on a warm decryption cache, which is the whole point" (`test/encryptor/vault/decrypt_test.exs:189`) |
+
+### Which messages this amendment is about
+
+**Affected: a message written by an engine that no longer stores required
+keys**, with at least one required key. On `aws_encryption_sdk` 1.1.0 that is
+every message a `:scoped` vault writes, and every message a `:single` vault
+with a non-empty `:required_context` writes, including the output of a
+`rekey/2`. Its header stores the context minus the required pairs; the
+required pairs are authenticated in the header-authentication AAD and bound
+into the encrypted data key, and nowhere else.
+
+**Not affected: every message written earlier.** A message the 1.0.x engine
+wrote, and so every message encryptor wrote on a 1.0.x engine, stores its
+required pairs in the header. It keeps
+decrypting and keeps rekeying exactly as decision 11 describes, with no option
+passed, on the new engine as on the old. A message with no required key has
+the same header on both engines and is outside this amendment entirely.
+
+The two forms are told apart by the header itself: a required key is either
+stored in it or not, and B1 below branches on exactly that, per key.
+
+### Decisions
+
+**B1. `rekey/2` takes, as `:encryption_context`, the required pairs the header
+does not store and the vault cannot compose; it still refuses every other
+key.** This replaces decision 11's second paragraph. For one call, with
+`required` the vault's required set (decision 3: `:required_context`, plus
+`scope_ref` on a `:scoped` vault), `stored` the message's stored context, and
+`composed` what the vault composes from the call's own arguments (the static
+layer, and `scope_ref` from `:key` on a `:scoped` vault):
+
+| A key in the `:encryption_context` option that is | Result |
+|---|---|
+| in `required`, absent from `stored`, not a key of `composed`, and not package-reserved | accepted: it is the only way the value can reach the decrypt |
+| in `required` and present in `stored` (a message written earlier) | `{:error, {:reserved_context_key, key}}`, as decision 11 says today: the only correct value is the stored one |
+| a key of `composed` (`scope_ref`, a static key) | `{:error, {:reserved_context_key, key}}`: the vault supplies it, and decision 4's refusal of a caller's scope pair stands |
+| package-reserved (decision 1's highest layer, the `encryptor-` prefix) | `{:error, {:reserved_context_key, key}}`, as decision 1 refuses it from any caller |
+| not in `required` | `{:error, {:reserved_context_key, key}}`, as today |
+
+An empty map is accepted, as today. The checks run before the provider is
+consulted, like today's refusal, because they depend on the caller's arguments,
+the vault's configuration and the header, and on no key material.
+
+The decrypt half then reproduces `stored`, plus each key of `required` absent
+from `stored` that `composed` supplies, plus the accepted option pairs. A
+required key absent from `stored` that neither the vault nor the caller
+supplies is `{:missing_required_context_keys, keys}` from the required-context
+CMM, decision 8's one caller-fixable term, because it depends only on the
+caller's arguments and the vault's configuration. A supplied value that
+disagrees with the one the message was written under is `:decrypt_failed`: the
+data key was bound to the right value, so the unwrap fails, and nothing is
+rebound (B2). The re-encrypt writes under that same reproduced map.
+
+**B2. Decision 6's guarantee holds for a required key that is not stored
+because the engine binds it, and this package depends on the engine for it.**
+Decision 6's text stands: the vault compares every key present in both the
+reproduced and the stored context, above the engine, before `Client.decrypt/3`
+is called. For an affected message a required key is not in the stored
+context, so that comparison has nothing to compare for it. Agreement on that
+key comes from two engine behaviours, and this amendment decides that
+encryptor requires an engine release carrying both, the 1.1.0 release named
+above:
+
+- **Cold read: the unwrap under the reproduced context.** The release appends a
+  reproduced key absent from the stored context to the decryption materials
+  before the unwrap, as the specification's `framework/cmm-interface.md`,
+  "Decrypt Materials", has it; the data key was wrapped under the full
+  context at encrypt; so a wrong value fails the unwrap, and with it the
+  header-authentication tag. The engine detail is an unwrap failure rather than
+  `{:encryption_context_mismatch, key}`; the reason a caller sees is
+  `:decrypt_failed`, unchanged (decision 8).
+- **Warm read: the caching CMM's hit check.** Today a disagreeing value for a
+  stored required key misses the cache, because the stored context is hashed
+  into the decryption cache id (`compute_decryption_cache_id/4`). A required key
+  that is no longer stored is no longer in the cache id, so without a check a
+  second reader claiming a different value would be served the first reader's
+  materials and a plaintext. The release compares the reproduced context with
+  the keys a cached entry bound (its stored keys and its required set) before
+  it serves a hit, and refuses a disagreement with
+  `{:encryption_context_mismatch, key}`. That is the engine-side fix open
+  question 7 asked for (riddler/aws-encryption-sdk-elixir issue #96).
+
+**This package's own comparison is kept, unchanged, for stored keys.** It
+still covers every advisory key and every required key of a message written
+earlier, on a cold cache, a warm cache and with caching off, as decision 6
+describes. Decision 6's first consequence, that anti-substitution "holds
+identically on a cold cache, a warm cache, and with caching disabled", holds
+for the stack as a whole; for a required key of an affected message it is an
+engine behaviour this package depends on rather than one it re-checks.
+
+Within one scope the hit check is what matters. The read side's partition id
+is derived from the vault and the selector (`Encryptor.Vault.Partition.id/2`,
+`lib/encryptor/vault/partition.ex:95`, ADR-0001 decision 7), and `scope_ref` is
+a function of the selector, so a reader naming another scope never shares a
+cache entry; the exposure the hit check closes is a host's other required keys,
+`table` and `column`, which is case 3 of the first worked example (`:727-739`).
+
+**B3. The reproduced context the vault hands the engine keeps decision 6's
+"ignored" rule.** Decision 6 says a key a reader supplies that the message does
+not carry is ignored. On the 1.1.0 engine a reproduced key absent from the
+stored context is appended before the unwrap, so an advisory key the message
+never carried would fail the unwrap of an affected message. The vault therefore
+passes the engine only the reproduced pairs whose key is stored in the header
+or is in the vault's required set, on `decrypt/2` and on `rekey/2`'s decrypt
+half. `agree/4` still sees the whole reproduced context. This is decision 6's
+reach made explicit for the new engine, not a change to it.
+
+**B4. The engine version is a requirement, and readers move first.** encryptor
+requires the 1.1.0 minor of `aws_encryption_sdk` from the release that ships
+B1 to B3. A 1.0.x engine cannot decrypt an affected message, because its
+default CMM unwraps under the stored context, which no longer carries the key
+the data key was bound to. So every process that reads a vault's messages runs
+the new engine before any process writes an affected message; a rollback to the
+old engine after affected messages exist leaves them unreadable until the
+reader is upgraded again, and the new engine reads them.
+
+### The contract as typespecs
+
+The callback keeps `opts :: keyword()`; this is the option's documented shape.
+
+```elixir
+defmodule Encryptor.Vault do
+  @typedoc """
+  An option to `rekey/2`.
+
+  `:encryption_context` carries only the vault's required keys that the
+  message's header does not store and the vault does not compose itself
+  (ADR-0004 Amendment B, B1). Any other key is
+  `{:reserved_context_key, key}`; an empty map is accepted.
+  """
+  @type rekey_option ::
+          {:key, selector()}
+          | {:encryption_context, Encryptor.Context.context()}
+
+  @callback rekey(ciphertext :: binary(), opts :: [rekey_option()]) ::
+              {:ok, binary()} | {:error, Encryptor.Error.t()}
+end
+```
+
+No error term is added. The terms B1 uses are decision 8's.
+
+### Worked example: rekeying a message whose header no longer stores its binding
+
+A `:scoped` vault behind `encryptor_ecto`, `required_context: ["table",
+"column"]`, so its required set is `scope_ref`, `table` and `column`. This shows
+the behaviour this amendment decides, on the 1.1.0 engine.
+
+```elixir
+# A message written earlier: the header stores all three required pairs.
+{:ok, info} = Encryptor.Message.describe(old_ciphertext)
+Map.take(info.encryption_context, ["scope_ref", "table", "column"])
+#=> %{"scope_ref" => ref, "table" => "customers", "column" => "tax_id"}
+
+# 1. It rekeys exactly as decision 11 describes, with no option.
+{:ok, new_ciphertext} = MyApp.Vault.rekey(old_ciphertext, key: scope.id)
+
+# The rekeyed message is written by the new engine: the required pairs are
+# authenticated, and no longer stored.
+{:ok, info} = Encryptor.Message.describe(new_ciphertext)
+Map.take(info.encryption_context, ["scope_ref", "table", "column"])
+#=> %{}
+
+# 2. Rekeying it again without the pairs the vault cannot compose is the
+#    caller-fixable refusal. The vault supplies scope_ref from :key itself.
+MyApp.Vault.rekey(new_ciphertext, key: scope.id)
+#=> {:error, %Encryptor.Error{
+#     reason: {:missing_required_context_keys, ["table", "column"]},
+#     operation: :rekey}}
+
+# 3. The row's owner supplies them, and the rekey succeeds.
+{:ok, _} =
+  MyApp.Vault.rekey(new_ciphertext,
+    key: scope.id,
+    encryption_context: %{"table" => "customers", "column" => "tax_id"}
+  )
+
+# 4. A wrong value rebinds nothing: the data key was bound to "tax_id".
+MyApp.Vault.rekey(new_ciphertext,
+  key: scope.id,
+  encryption_context: %{"table" => "customers", "column" => "notes"}
+)
+#=> {:error, %Encryptor.Error{reason: :decrypt_failed, operation: :rekey}}
+
+# 5. Still refused: a key the vault composes, a key the header stores, and a
+#    key that is not required.
+MyApp.Vault.rekey(new_ciphertext, key: scope.id,
+  encryption_context: %{"scope_ref" => ref})
+#=> {:error, %Encryptor.Error{reason: {:reserved_context_key, "scope_ref"}}}
+
+MyApp.Vault.rekey(old_ciphertext, key: scope.id,
+  encryption_context: %{"column" => "tax_id"})
+#=> {:error, %Encryptor.Error{reason: {:reserved_context_key, "column"}}}
+
+MyApp.Vault.rekey(new_ciphertext, key: scope.id,
+  encryption_context: %{"purpose" => "pii"})
+#=> {:error, %Encryptor.Error{reason: {:reserved_context_key, "purpose"}}}
+```
+
+### Consequences
+
+- **Decision 11's first paragraph stands; its second is replaced by B1.** A
+  rekey still preserves the context and still never changes it. What changes
+  is where the context comes from for an affected message: the stored pairs
+  from the header, `scope_ref` and the static layer from the vault, and the
+  rest from whoever owns the row, which is the remedy open question 5 and the
+  `rekey/2` consequence above both named.
+- **Open question 5 is answered by this amendment, and open question 7 by the
+  engine release B2 depends on.** This record's dependency on the engine's
+  deviation from the specification ends with that release.
+- **"Byte for byte" is read as the authenticated context.** ADR-0001 decision 4
+  requires a rekey to preserve "the message's encryption context byte for
+  byte". This record reads that as the authenticated map: the same pairs are
+  bound to the rekeyed message. Read as the header's stored bytes it would not
+  hold, because a rekey of a message written earlier, run on the new engine,
+  writes a header without the required pairs. ADR-0001 is not edited.
+- **A batch that rekeys affected messages needs the row.** A rekey that held
+  only a ciphertext was enough for every message written earlier; for an
+  affected message on a vault with host-required keys, the caller passes those
+  pairs. `Encryptor.Envelope.rewrap/2` passes none (`lib/encryptor/envelope.ex:417`),
+  which is enough while its root vault requires no key (open question B-1).
+- **Decision 5's "It does not hide values" bullet is history for affected
+  messages.** Their required values are no longer in the header. A scope
+  provisioned through `Encryptor.Envelope` still names its reference in clear
+  in the encrypted data key's key name, `"s/<ref>/v<n>"`
+  (`Envelope.key_name/2`, `lib/encryptor/envelope.ex:593`), so the reference is
+  not hidden from a header reader there.
+- **`describe/1` returns fewer pairs for an affected message.** Decision 12's
+  properties are unchanged; what it returns is the stored context, and that is
+  now smaller. ADR-0009 Amendment A's worked example, which reads `scope_ref`
+  back through `describe/1`, describes a message written before the engine
+  change.
+- **Error detail moves; reasons do not.** The third worked example above
+  (`:727-739`) still ends in `:decrypt_failed`; for an affected message its
+  `engine:` detail is the unwrap failure on a cold read and the hit check's
+  `{:encryption_context_mismatch, "column"}` on a warm one.
+- **A message written on the new engine cannot be read on the old one.** B4's
+  ordering is the cost: readers before writers, and no rollback past the
+  engine requirement once affected messages exist.
+
+### Open questions this amendment adds
+
+**B-1. A root vault that requires the envelope's binding keys.** A `:single`
+root vault may name the four `encryptor-` binding pairs in `:required_context`
+(`unsuppliable_key?/2`, `lib/encryptor/vault/config.ex:851`). On the new
+engine those pairs would not be stored in a wrapping, and
+`Encryptor.Envelope`'s own binding check reads them from the stored context
+(`require_binding/4`, `lib/encryptor/envelope.ex:663`), so `unwrap/2` and
+`rewrap/2` would refuse a wrapping written that way. B1 does not let a caller
+supply a reserved key either. Whether the envelope passes its binding as the
+reproduced context instead of reading it from the header, or a root vault is
+refused a required binding key, is for the code that moves to the new engine
+to settle with its own record; this amendment does not decide it.
+
+**B-2. A reader whose required set differs from the writer's.** For a message
+written earlier, the reader must know the writer's required set, because the
+authentication tail carries it. For an affected message the engine derives the
+tail from what the header does not store, so a reader that reproduces the keys
+reads it whatever its own configuration. Whether that relaxation should be
+documented as a property or left as a detail is open.
