@@ -23,16 +23,19 @@ defmodule Encryptor.Vault.Derive do
   # encrypt and decrypt paths take it, and for the same reasons:
   #
   #   1. `Encryptor.Vault.ready/2` - running vault, live provider.
-  #   2. The selector profile check, before the provider is consulted. A
+  #   2. The purpose. `"root-wrap"`, `"scope-ref"` and the retired
+  #      `"tenant-ref"` are refused, before anything else the caller passed
+  #      is read and before the provider is consulted (see `purpose/2`).
+  #   3. The selector profile check, before the provider is consulted. A
   #      `:scoped` vault refuses `:default` here exactly as it does at encrypt
   #      (ADR-0004 decision 3); a derivation that fell back to a default key on
   #      a per-scope vault would hand every scope the same subkey.
-  #   3. The salt, from configuration. Checked after the selector so that a
+  #   4. The salt, from configuration. Checked after the selector so that a
   #      caller passing a nonsense selector to an unsalted vault is told about
   #      the selector, which is the argument they control.
-  #   4. The provider resolves the selector to one descriptor.
-  #   5. The descriptor must be derivable.
-  #   6. The derivation.
+  #   5. The provider resolves the selector to one descriptor.
+  #   6. The descriptor must be derivable.
+  #   7. The derivation.
   #
   # ## Why the encryption key and not the decryption candidates
   #
@@ -60,10 +63,17 @@ defmodule Encryptor.Vault.Derive do
 
   @default_length 32
 
+  # ADR-0003 decision 6's root purposes and the retired reference purpose
+  # (ADR-0009 Amendment A, A2): the labels this package derives for itself,
+  # or reserves so nothing later takes them. `Encryptor.Envelope.subkey/2`
+  # refuses the same three; the derive test pins that the two lists agree.
+  @reserved_purposes ["root-wrap", "scope-ref", "tenant-ref"]
+
   @doc false
   @spec call(module(), Kdf.purpose(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
   def call(vault, purpose, opts) when is_atom(vault) and is_binary(purpose) and is_list(opts) do
     with {:ok, config} <- Vault.ready(vault, :derive),
+         :ok <- purpose(config, purpose),
          {:ok, selector} <- Resolve.selector(config, opts, :derive),
          {:ok, salt} <- salt(config),
          {:ok, info} <- info(config, opts),
@@ -73,6 +83,20 @@ defmodule Encryptor.Vault.Derive do
       {:ok, Kdf.salted_subkey(material, salt, purpose, info, length)}
     end
   end
+
+  # ADR-0003 decision 6 reserves the label space one way: a label this
+  # package derives under, or once derived under, is never handed to another
+  # use. This path's output is salted and expanded once more under the
+  # caller's `:info`, so it never equals the internal root-wrap or scope-ref
+  # subkey; what the refusal keeps is the reservation itself, mechanical here
+  # as it is in `Encryptor.Envelope.subkey/2` rather than a sentence in the
+  # docs. A typed error rather than a raise, because this path reports what
+  # its caller passed (`:info`, `:length`) the same way.
+  @spec purpose(Config.t(), Kdf.purpose()) :: :ok | {:error, Error.t()}
+  defp purpose(config, purpose) when purpose in @reserved_purposes,
+    do: {:error, error(config, {:invalid_config, :purpose, :reserved})}
+
+  defp purpose(_config, _purpose), do: :ok
 
   # Amendment A decision 3: optional at start, required here.
   @spec salt(Config.t()) :: {:ok, binary()} | {:error, Error.t()}

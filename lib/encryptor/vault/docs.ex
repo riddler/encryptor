@@ -176,7 +176,11 @@ defmodule Encryptor.Vault.Docs do
     `purpose` is the label purpose of ADR-0003 decision 6 - `"blind-index"`,
     or a new one a later record adds. It may not be `"root-wrap"` or
     `"scope-ref"`, which name the trees this package derives for itself, or
-    the retired `"tenant-ref"`, and it may not contain `"/"`.
+    the retired `"tenant-ref"`: any of the three returns
+    `{:error, %Encryptor.Error{reason: {:invalid_config, :purpose, :reserved}}}`
+    before the key provider is consulted. It may not contain `"/"` either,
+    which raises an `ArgumentError`, because a purpose carrying the separator
+    is wrong in the source rather than at runtime.
 
     Returns `{:ok, bytes}`. The key material the bytes were derived from is
     never returned, never carried in an error, and never rendered.

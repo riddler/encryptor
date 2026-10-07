@@ -466,6 +466,14 @@ defmodule Encryptor.Vault do
   this surface's caller is a library, which has a tagged tuple to thread and
   an error vocabulary of its own to map onto.
 
+  A purpose this package reserves for itself - `"root-wrap"`, `"scope-ref"`
+  or the retired `"tenant-ref"` (ADR-0003 decision 6) - is refused with
+  `{:invalid_config, :purpose, :reserved}` before the key provider is
+  consulted. The label space is reserved one way, so a derivation under one
+  of those labels is not handed to a caller even though this path's salt
+  and final expansion keep its bytes from equalling the package's own
+  subkey.
+
   A non-binary purpose is a `FunctionClauseError` rather than an
   `Encryptor.Error`, for the same reason `encrypt/3` makes a non-binary
   plaintext one: it is wrong in the source, not at runtime.
