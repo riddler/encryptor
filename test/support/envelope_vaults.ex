@@ -132,6 +132,70 @@ defmodule Encryptor.EnvelopeVaults do
     end
   end
 
+  defmodule SignedRoot do
+    @moduledoc """
+    `Root` on the signing suite, `0x0578`, the default a host gets when it
+    names no suite.
+    """
+
+    use Encryptor.Vault,
+      otp_app: :encryptor,
+      context_profile: :single,
+      algorithm_suite_id: 0x0578,
+      cache: false
+
+    @doc "Layer 5: the key material a config file must not hold."
+    def init(config) do
+      {:ok,
+       Keyword.put(
+         config,
+         :provider,
+         {Encryptor.Provider.Static, Encryptor.EnvelopeVaults.entry(1)}
+       )}
+    end
+  end
+
+  defmodule SignedStaged do
+    @moduledoc "`Staged` on the signing suite, `0x0578`."
+
+    use Encryptor.Vault,
+      otp_app: :encryptor,
+      context_profile: :single,
+      algorithm_suite_id: 0x0578,
+      cache: false
+
+    @doc "Layer 5: the key material a config file must not hold."
+    def init(config) do
+      {:ok,
+       Keyword.put(
+         config,
+         :provider,
+         {Encryptor.Provider.Static,
+          keys: [Encryptor.EnvelopeVaults.entry(2), Encryptor.EnvelopeVaults.entry(1)]}
+       )}
+    end
+  end
+
+  defmodule SignedRotated do
+    @moduledoc "`Rotated` on the signing suite, `0x0578`."
+
+    use Encryptor.Vault,
+      otp_app: :encryptor,
+      context_profile: :single,
+      algorithm_suite_id: 0x0578,
+      cache: false
+
+    @doc "Layer 5: the key material a config file must not hold."
+    def init(config) do
+      {:ok,
+       Keyword.put(
+         config,
+         :provider,
+         {Encryptor.Provider.Static, Encryptor.EnvelopeVaults.entry(2)}
+       )}
+    end
+  end
+
   defmodule Contextual do
     @moduledoc """
     A root vault whose host has configured a static context.
