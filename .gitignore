@@ -34,3 +34,7 @@ encryptor-*.tar
 
 # Local beads telemetry churn; the tracker syncs via refs/dolt/data.
 .beads/interactions.jsonl
+
+# The AWS Encryption SDK decrypt vectors, fetched at a pinned commit (CI's
+# aws-vectors job; Encryptor.AwsVectors says how). Never committed.
+/test/fixtures/aws_vectors/
