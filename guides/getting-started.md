@@ -250,6 +250,9 @@ authentication tag. Two things follow, and both matter:
 - no pair can be edited without breaking the tag, which is what binds a message
   to the row and column it was written for.
 
+A pair binds the message only if it is in the message. A decrypt compares the
+keys present in both the message and the reader's context, so a value written
+without a `column` key would decrypt under any `column` a reader names.
 Because `required_context: ["table", "column"]` is configured above, a call
 that omits either is refused rather than silently written unbound:
 

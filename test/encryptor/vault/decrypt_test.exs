@@ -231,6 +231,38 @@ defmodule Encryptor.Vault.DecryptTest do
       assert {:ok, @pan} = vault.decrypt(ciphertext)
     end
 
+    # The two tests below pin where the binding stops, as the threat model
+    # states it: a key binds a message only when the writer passed it, which
+    # `:required_context` is the way to guarantee.
+    #
+    # sabotage: replaced `Map.get(stored, key, value)` with `Map.get(stored, key)`
+    # in compare/4 - red on the first read, which then fails as a mismatch.
+    test "a message written without a column reads under any column claim" do
+      vault = start_vault(DecryptVaults.Loose)
+
+      unbound = vault.encrypt!(@pan, encryption_context: %{"table" => "payment_methods"})
+      bound = vault.encrypt!(@pan, encryption_context: @columns)
+      moved = %{"table" => "payment_methods", "column" => "notes"}
+
+      assert {:ok, @pan} = vault.decrypt(unbound, encryption_context: @columns)
+      assert {:ok, @pan} = vault.decrypt(unbound, encryption_context: moved)
+
+      assert engine(vault.decrypt(bound, encryption_context: moved)) ==
+               {:encryption_context_mismatch, "column"}
+    end
+
+    # sabotage: made maybe_required/2 in encrypt.ex return the CMM unwrapped for
+    # every config - red, because the requiring reader then opens the message.
+    test "a vault requiring the column refuses a message written without it" do
+      writer = start_vault(DecryptVaults.Loose)
+      reader = start_vault(DecryptVaults.Retired)
+
+      unbound = writer.encrypt!(@pan, encryption_context: %{"table" => "payment_methods"})
+      result = reader.decrypt(unbound, encryption_context: @columns)
+
+      assert {:error, %Error{reason: :decrypt_failed}} = result
+    end
+
     # sabotage: sorted the reproduced context `:desc` in compare/4 - red, because
     # the reported key then depends on ordering rather than on the context.
     test "two disagreeing keys name the same one on every run" do

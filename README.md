@@ -75,7 +75,7 @@ context = %{"table" => "notes", "column" => "body"}
 {:error, %Encryptor.Error{reason: {:missing_required_context_keys, ["column"]}}} =
   MyApp.Vault.encrypt("a private note", encryption_context: %{"table" => "notes"})
 
-# A decrypt under any other context fails, and every such failure looks the same.
+# A decrypt naming another table or column fails, and every such failure looks the same.
 {:error, %Encryptor.Error{reason: :decrypt_failed}} =
   MyApp.Vault.decrypt(ciphertext, encryption_context: %{"table" => "t", "column" => "c"})
 ```
