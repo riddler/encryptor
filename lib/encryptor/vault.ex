@@ -535,9 +535,10 @@ defmodule Encryptor.Vault do
       materials cache, so the very next call fails on a warm cache as on a
       cold one. A whole-scope shred is immediate for the same reason when
       the provider reads its store on every call: the provider's
-      `{:unknown_key, selector}` arrives ahead of the cache too. It is a
-      single-version retire whose runbook has to drain caches, because the
-      provider still answers (ADR-0005 amendment B).
+      `{:unknown_key, selector}` arrives ahead of the cache too. A
+      single-version retire is immediate as well, though the provider still
+      answers: the shorter candidate list is a new cache partition (ADR-0001
+      Amendment C), and its runbook's drain is for residency only.
     * **It destroys nothing**, so `reinstate/2` needs no backup and no escrow.
       It is not a backup either: reinstating a selector whose wrappings were
       shredded meanwhile restores the refusal and nothing else, and the

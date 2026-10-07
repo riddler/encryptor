@@ -124,10 +124,11 @@ Three properties follow, and all three are load-bearing:
   policy says, and that policy lives in your compliance documentation, not in
   this package's configuration.
 - **There is a lower bound, and it is not zero.** A shred is safe only after
-  the rewrite pass has finished, the verification pass is green, **and every
-  running vault has stopped serving the retired version out of its materials
-  cache.** That last term is the one operators forget; see "Cache drainage"
-  below.
+  the rewrite pass has finished and the verification pass is green. Once the
+  wrapping is deleted, no running vault serves the retired version out of its
+  materials cache, because the shorter candidate list is a new cache
+  partition (ADR-0001 Amendment C); the cached data keys stay resident until
+  the caches drain, see "Cache drainage" below.
 - **Widening the window costs a list walk and nothing else.** A long candidate
   list costs one small decrypt per candidate on a cold cache; a warm materials
   cache saves those decrypts but never the provider lookup before them. Nothing
@@ -197,9 +198,9 @@ targeted invalidation is not available to be shipped. If the upstream engine
 grows a bounded, inspectable cache, these steps get sharper.
 
 **Cache drainage is part of the procedure, not a follow-up.** A retire that
-stops at the delete is a retire that has not happened yet, and a rotation
-whose rewrite starts before the drain can rewrite rows under the version it is
-about to retire.
+stops at the delete is readable by no one, but its data keys are still
+resident in memory, and a rotation whose rewrite starts before the drain can
+rewrite rows under the version it is about to retire.
 
 ---
 
