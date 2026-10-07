@@ -249,6 +249,24 @@ defmodule Encryptor.Vault.RekeyTest do
       assert %Error{operation: :rekey} = elem(result, 1)
     end
 
+    # sabotage: passed `:decrypt` rather than `operation` to Error.decrypt_failed/3
+    # in Decrypt.engine_result/3's catch-all - red, because the rekey's decrypt
+    # half is the same call and must report the operation the caller asked for.
+    test "a message followed by one trailing byte is decrypt_failed, carrying no engine term" do
+      vault = start_vault(EncryptVaults.App)
+
+      old = vault.encrypt!(@pan)
+      result = vault.rekey(old <> <<0>>)
+
+      assert {:error,
+              %Error{
+                reason: :decrypt_failed,
+                vault: EncryptVaults.App,
+                operation: :rekey,
+                engine: :unexpected_engine_result
+              }} = result
+    end
+
     # sabotage: moved stored_context/2 above the provider in call/3 - red,
     # because an unresolvable selector then collapses to :decrypt_failed and an
     # operator is sent looking for corruption instead of a key store.

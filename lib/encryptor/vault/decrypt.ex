@@ -102,6 +102,11 @@ defmodule Encryptor.Vault.Decrypt do
   # The vault's own `{:encryption_context_mismatch, key}` goes into `:engine`
   # shaped exactly as the engine's, so an operator's log line reads the same
   # whether the check fired above the engine or below it.
+  #
+  # An engine return that is neither `{:ok, %{plaintext: _}}` nor
+  # `{:error, _}` - a message followed by trailing bytes is one today - also
+  # collapses to `:decrypt_failed`, carrying `:unexpected_engine_result` in
+  # `:engine` rather than the term, which would hold the parsed message.
 
   alias AwsEncryptionSdk.Client
   alias Encryptor.Context
@@ -218,7 +223,24 @@ defmodule Encryptor.Vault.Decrypt do
           Error.operation()
         ) :: {:ok, binary()} | {:error, Error.t()}
   def engine_decrypt(client, config, ciphertext, context, operation) do
-    case Client.decrypt(client, ciphertext, encryption_context: context) do
+    client
+    |> Client.decrypt(ciphertext, encryption_context: context)
+    |> engine_result(config, operation)
+  end
+
+  @doc false
+  # The failure mapping itself, taking `term()` rather than the engine's
+  # `@spec` on purpose. `Client.decrypt/3` is specified to return
+  # `{:ok, decrypt_result}` or `{:error, term}`, and it does not: a message
+  # followed by trailing bytes comes back as `{:ok, parsed_message, rest}`.
+  # Matched inside `engine_decrypt/5` against the spec, the last clause
+  # below is one a type checker calls unreachable; matched here, against
+  # what the engine actually returns, it is the clause that keeps a decrypt
+  # from raising. Public only so the type of its argument is its own.
+  @spec engine_result(term(), Config.t(), Error.operation()) ::
+          {:ok, binary()} | {:error, Error.t()}
+  def engine_result(result, config, operation) do
+    case result do
       {:ok, %{plaintext: plaintext}} ->
         {:ok, plaintext}
 
@@ -243,6 +265,17 @@ defmodule Encryptor.Vault.Decrypt do
       # not act differently on the distinctions anyway.
       {:error, engine} ->
         {:error, Error.decrypt_failed(config.vault, operation, engine)}
+
+      # Any return outside the engine's documented pair. The engine answers a
+      # message followed by trailing bytes with `{:ok, parsed_message, rest}`,
+      # and a future engine may answer something else again. It depends on the
+      # message, so it collapses like every other message-dependent failure; and
+      # the term itself is NOT carried, because a parsed message holds the header,
+      # the wrapped data keys and the body ciphertext, and `:engine` is printed
+      # wherever an error struct is inspected. Without this clause the `case`
+      # raises a `CaseClauseError` whose text renders that whole term.
+      _unexpected ->
+        {:error, Error.decrypt_failed(config.vault, operation, :unexpected_engine_result)}
     end
   end
 end
