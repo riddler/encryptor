@@ -58,6 +58,21 @@ defmodule Encryptor.EnvelopeTest do
     )
   end
 
+  describe "a root vault that requires the binding's keys" do
+    # sabotage: dropped the binding-key exemption of unsuppliable_key?/2 on
+    # :single - red, because the root vault then refuses to start.
+    test "starts, and provision/3 and unwrap/2 work through it" do
+      assert {:ok, _pid} =
+               start_supervised(
+                 Supervisor.child_spec({EnvelopeVaults.RequiredBinding, []}, restart: :temporary)
+               )
+
+      wrapped = provisioned(EnvelopeVaults.RequiredBinding)
+
+      assert {:ok, %Aes{bits: 256}} = Envelope.unwrap(EnvelopeVaults.RequiredBinding, wrapped)
+    end
+  end
+
   describe "provision/3, minting a scope master key" do
     # sabotage: returned the plaintext material as a seventh field of the
     # struct - red, and it is the failure the whole narrow surface exists to

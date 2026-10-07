@@ -36,6 +36,9 @@ defmodule Encryptor.Vault.ConfigTest do
     )
   end
 
+  defp resolve(:single, opts), do: single(opts)
+  defp resolve(:scoped, opts), do: scope(opts)
+
   defp reason({:error, %Error{reason: reason}}), do: reason
 
   describe "the precedence chain" do
@@ -497,25 +500,65 @@ defmodule Encryptor.Vault.ConfigTest do
                reason(single(required_context: [""]))
     end
 
-    # sabotage: removed the profile == :single branch of
-    # required_context_keys/3 - red, because the vault then resolves.
-    test "may not require scope_ref on a single-profile vault" do
-      assert {:invalid_config, :required_context, {:reserved_key, "scope_ref"}} =
-               reason(single(required_context: ["scope_ref"]))
+    # Every key `Encryptor.Context.reserved_key?/2` refuses from a caller on
+    # that profile, one row per key: a prefix the engine or this package owns,
+    # the vault's own reference key where no scope exists, its retired v1
+    # spelling, and the two owner ids where a scope exists to be named twice.
+    # A vault that required any of them could never encrypt: the caller is
+    # refused the key and the package never supplies it. On :single the
+    # `encryptor-` row is the retired v1 spelling of the binding's reference
+    # key, which `Encryptor.Envelope` no longer supplies.
+    @unsuppliable [
+      single: "aws-crypto-public-key",
+      single: "encryptor-tenant-ref",
+      single: "scope_ref",
+      single: "tenant_ref",
+      scoped: "aws-crypto-public-key",
+      scoped: "encryptor-purpose",
+      scoped: "tenant_ref",
+      scoped: "scope_id",
+      scoped: "tenant_id"
+    ]
+
+    for {profile, key} <- @unsuppliable do
+      # sabotage: removed the reserved-key branch of required_context_keys/3 -
+      # red on every row, because each vault then starts.
+      test "a #{profile} vault may not require #{key}" do
+        key = unquote(key)
+
+        assert {:error,
+                %Error{reason: {:invalid_config, :required_context, {:reserved_key, ^key}}}} =
+                 resolve(unquote(profile), required_context: ["table", key])
+      end
     end
 
-    # sabotage: removed the retired_scope_ref_key?/1 branch of
-    # required_context_keys/3 - red on both profiles, because each vault then
-    # starts requiring a key it never injects and a caller may not send
-    # (ADR-0009 Amendment A, A4).
-    test "may not require the retired tenant_ref on either profile" do
-      assert {:error,
-              %Error{reason: {:invalid_config, :required_context, {:reserved_key, "tenant_ref"}}}} =
-               single(required_context: ["tenant_ref"])
+    # sabotage: refused every reserved key on both profiles, dropping the
+    # scope_ref exemption on :scoped - red, because the scoped vault's own
+    # reference key is the one key it always supplies.
+    test "a scoped vault may require its own scope_ref" do
+      assert {:ok, %Config{required_keys: ["scope_ref"]}} =
+               scope(required_context: ["scope_ref"])
+    end
 
-      assert {:error,
-              %Error{reason: {:invalid_config, :required_context, {:reserved_key, "tenant_ref"}}}} =
-               scope(required_context: ["table", "tenant_ref"])
+    # sabotage: dropped the binding-key exemption of unsuppliable_key?/2 on
+    # :single - red, because a root vault then refuses to start requiring the
+    # pairs `Encryptor.Envelope` sets on every wrap and unwrap.
+    test "a single vault may require the four keys of the envelope binding" do
+      binding = [
+        "encryptor-purpose",
+        "encryptor-scope-ref",
+        "encryptor-key-version",
+        "encryptor-key-namespace"
+      ]
+
+      assert {:ok, %Config{required_keys: ^binding}} = single(required_context: binding)
+    end
+
+    # sabotage: refused scope_id and tenant_id on both profiles - red, because
+    # a single vault has no scope, so a caller may send either key there.
+    test "a single vault may require scope_id and tenant_id" do
+      assert {:ok, %Config{required_keys: ["scope_id", "tenant_id"]}} =
+               single(required_context: ["scope_id", "tenant_id"])
     end
   end
 

@@ -159,6 +159,36 @@ defmodule Encryptor.EnvelopeVaults do
     end
   end
 
+  defmodule RequiredBinding do
+    @moduledoc """
+    A root vault whose host requires the four pairs of the envelope binding.
+
+    Every wrap and unwrap carries them, so the vault starts and both work.
+    """
+
+    use Encryptor.Vault,
+      otp_app: :encryptor,
+      context_profile: :single,
+      algorithm_suite_id: 0x0478,
+      cache: false,
+      required_context: [
+        "encryptor-purpose",
+        "encryptor-scope-ref",
+        "encryptor-key-version",
+        "encryptor-key-namespace"
+      ]
+
+    @doc "Layer 5: the key material a config file must not hold."
+    def init(config) do
+      {:ok,
+       Keyword.put(
+         config,
+         :provider,
+         {Encryptor.Provider.Static, Encryptor.EnvelopeVaults.entry(1)}
+       )}
+    end
+  end
+
   defmodule MistypedRoot do
     @moduledoc """
     A root vault a host has configured as a scoped vault by mistake.
