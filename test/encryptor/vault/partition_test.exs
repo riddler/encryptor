@@ -120,20 +120,96 @@ defmodule Encryptor.Vault.PartitionTest do
                Partition.encryption_id(LifecycleVaults.Cached, "default", key)
     end
 
+    # sabotage: dropped the material's fingerprint from identity/1 - red,
+    # because a name minted again over new bytes after a shred then shares
+    # the partition of the shredded bytes, and the next write reuses a data
+    # key wrapped under bytes nobody holds any more.
+    test "one name over two byte strings produces distinct ids" do
+      first = aes("ns", "t/r/v1")
+      second = %{first | material: :binary.copy(<<2>>, 32)}
+
+      refute Partition.encryption_id(LifecycleVaults.Cached, "tenant-42", first) ==
+               Partition.encryption_id(LifecycleVaults.Cached, "tenant-42", second)
+    end
+
     # sabotage: widened the length prefix from 32 to 16 bits - red, because
     # this pins the derivation itself: a change to the pre-image, the digest
-    # or the truncation is an ADR-0001 amendment, made deliberately.
-    test "matches the derivation ADR-0001 Amendment B fixes" do
+    # or the truncation is an ADR-0001 amendment, made deliberately. The
+    # expected values were computed outside this package from Amendment C's
+    # formula; the KMS one is unchanged from Amendment B's.
+    test "matches the derivation ADR-0001 Amendments B and C fix" do
       key = aes("ns", "t/r/v1")
 
       assert Base.encode16(Partition.encryption_id(LifecycleVaults.Cached, "tenant-42", key),
                case: :lower
-             ) == "1e952266f389bcd5843a51c31d524ee0"
+             ) == "5f295f16a61eec58698b9b9fde5db39e"
 
       assert Base.encode16(
                Partition.encryption_id(LifecycleVaults.Cacheless, :default, kms("key-1")),
                case: :lower
              ) == "4ed343ddc772fe6c11a50fd62bb718d6"
+    end
+  end
+
+  describe "the read side's partition id, which carries every candidate" do
+    defp candidate(name, byte),
+      do: %Aes{namespace: "ns", name: name, material: :binary.copy(<<byte>>, 32), bits: 256}
+
+    # sabotage: dropped the material's fingerprint from identity/1 - red,
+    # because a candidate list whose name came back over new bytes after a
+    # shred then finds the decryption entries the shredded bytes left, and a
+    # message written under them decrypts again.
+    test "one name over two byte strings produces distinct ids" do
+      refute Partition.decryption_id(LifecycleVaults.Cached, "t", [candidate("t/r/v1", 1)]) ==
+               Partition.decryption_id(LifecycleVaults.Cached, "t", [candidate("t/r/v1", 2)])
+    end
+
+    # sabotage: hashed only the first candidate's identity - red, because a
+    # list that loses or gains a version then keeps its partition.
+    test "a list that gains, loses or reorders a candidate is a different id" do
+      v1 = candidate("t/r/v1", 1)
+      v2 = candidate("t/r/v2", 2)
+
+      ids =
+        Enum.map([[v1], [v2, v1], [v1, v2], [v2]], fn list ->
+          Partition.decryption_id(LifecycleVaults.Cached, "t", list)
+        end)
+
+      assert length(Enum.uniq(ids)) == 4
+      assert Enum.all?(ids, &(byte_size(&1) == 16))
+    end
+
+    # sabotage: dropped the selector from the decryption_id/3 pre-image - red,
+    # because two scopes answering one candidate list would share a partition.
+    test "the vault and the selector still partition" do
+      list = [candidate("t/r/v1", 1)]
+
+      refute Partition.decryption_id(LifecycleVaults.Cached, "tenant-42", list) ==
+               Partition.decryption_id(LifecycleVaults.Cached, "tenant-43", list)
+
+      refute Partition.decryption_id(LifecycleVaults.Cached, "tenant-42", list) ==
+               Partition.decryption_id(LifecycleVaults.Second, "tenant-42", list)
+
+      refute Partition.decryption_id(LifecycleVaults.Cached, :default, list) ==
+               Partition.decryption_id(LifecycleVaults.Cached, "default", list)
+    end
+
+    # sabotage: dropped the candidate count from the pre-image - red, because
+    # this pins the derivation itself. The expected values were computed
+    # outside this package from ADR-0001 Amendment C's formula.
+    test "matches the derivation ADR-0001 Amendment C fixes" do
+      list = [candidate("t/r/v2", 2), candidate("t/r/v1", 1)]
+
+      assert Base.encode16(Partition.decryption_id(LifecycleVaults.Cached, "tenant-42", list),
+               case: :lower
+             ) == "c3dc578639b2f207ff088d79c084447b"
+
+      assert Base.encode16(
+               Partition.decryption_id(LifecycleVaults.Cacheless, :default, [
+                 %Kms{key_id: "key-1", client: %{}}
+               ]),
+               case: :lower
+             ) == "59a8d5a86f87d5d5a2cfd8466a8b9153"
     end
   end
 end

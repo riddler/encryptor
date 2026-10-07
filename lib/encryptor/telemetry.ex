@@ -181,6 +181,7 @@ defmodule Encryptor.Telemetry do
           | :invalid_selector
           | :not_provisionable
           | :suspension_store_unavailable
+          | :key_name_in_use
 
   @typedoc "Every metadata key any event may carry, and nothing else."
   @type metadata :: %{
@@ -244,6 +245,7 @@ defmodule Encryptor.Telemetry do
   def reason_tag({:invalid_selector, _term}), do: :invalid_selector
   def reason_tag({:not_provisionable, _module}), do: :not_provisionable
   def reason_tag({:suspension_store_unavailable, _module}), do: :suspension_store_unavailable
+  def reason_tag({:key_name_in_use, _selector}), do: :key_name_in_use
 
   @doc false
   # `[:encryptor, :vault, :started]`. The whole of what the frozen

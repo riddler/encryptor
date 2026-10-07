@@ -91,7 +91,7 @@ defmodule Encryptor.Vault.Decrypt do
   #
   # ## The reader's stack is the writer's stack
   #
-  # `Encryptor.Vault.Encrypt.client/3` builds it, and this module calls that
+  # `Encryptor.Vault.Encrypt.client/4` builds it, and this module calls that
   # function rather than assembling a second one. The reason is not tidiness:
   # this engine appends the serialization of the *required subset* of the
   # context to the header AAD (`Crypto.HeaderAuth.compute_header_auth_tag/4`,
@@ -181,7 +181,7 @@ defmodule Encryptor.Vault.Decrypt do
          {:ok, context} <- Resolve.context(config, reference, opts, :decrypt, reserved),
          :ok <- agree(config, ciphertext, context) do
       config
-      |> Encrypt.client(keyring, selector)
+      |> Encrypt.client(keyring, selector, candidates)
       |> engine_decrypt(config, ciphertext, context, :decrypt)
     end
   end

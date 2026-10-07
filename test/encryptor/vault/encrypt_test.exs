@@ -29,6 +29,12 @@ defmodule Encryptor.Vault.EncryptTest do
     config
   end
 
+  # The read side's candidate list, for the stack tests that build one by
+  # hand: the descriptor the keyring below is built from.
+  defp candidates do
+    [%Aes{namespace: "ns", name: "name", material: EncryptVaults.single_key(), bits: 256}]
+  end
+
   # The test's own reader, built from the same material the provider resolves
   # to. It reads the message with the engine directly, which is what makes the
   # round trip evidence that this package writes an ordinary ESDK message
@@ -138,7 +144,7 @@ defmodule Encryptor.Vault.EncryptTest do
   end
 
   describe "the CMM stack order" do
-    # sabotage: swapped maybe_caching/3 and maybe_required/2 in stack/3 so
+    # sabotage: swapped maybe_caching/3 and maybe_required/2 in build/3 so
     # caching wrapped the required-context CMM - red. That arrangement is the
     # silently unsafe one: a decryption cache hit returns the stored materials
     # without calling the wrapped CMM, so the reproduced-context presence
@@ -151,7 +157,7 @@ defmodule Encryptor.Vault.EncryptTest do
       assert %RequiredEncryptionContext{
                required_encryption_context_keys: ["scope_ref", "table", "column"],
                underlying_cmm: %Caching{underlying_cmm: %Default{}}
-             } = Encrypt.stack(config, keyring, "merchant_a")
+             } = Encrypt.stack(config, keyring, "merchant_a", candidates())
     end
 
     # sabotage: dropped the `maybe_required/2` guard on an empty list so the
@@ -162,7 +168,8 @@ defmodule Encryptor.Vault.EncryptTest do
       config = config(vault)
       {:ok, keyring} = RawAes.new("ns", "name", EncryptVaults.single_key(), :aes_256_gcm)
 
-      assert %Caching{underlying_cmm: %Default{}} = Encrypt.stack(config, keyring, :default)
+      assert %Caching{underlying_cmm: %Default{}} =
+               Encrypt.stack(config, keyring, :default, candidates())
     end
 
     # sabotage: made maybe_caching/3 wrap unconditionally - red, because a
@@ -174,7 +181,7 @@ defmodule Encryptor.Vault.EncryptTest do
       {:ok, keyring} = RawAes.new("ns", "name", EncryptVaults.single_key(), :aes_256_gcm)
 
       assert %RequiredEncryptionContext{underlying_cmm: %Default{}} =
-               Encrypt.stack(config, keyring, :default)
+               Encrypt.stack(config, keyring, :default, candidates())
     end
 
     # sabotage: dropped the `cache: false` clause of maybe_caching/3 - red,
@@ -185,7 +192,7 @@ defmodule Encryptor.Vault.EncryptTest do
       config = config(vault)
       {:ok, keyring} = RawAes.new("ns", "name", EncryptVaults.single_key(), :aes_256_gcm)
 
-      assert %Default{} = Encrypt.stack(config, keyring, :default)
+      assert %Default{} = Encrypt.stack(config, keyring, :default, candidates())
     end
 
     # sabotage: dropped the `:partition_id` option, letting the engine
@@ -196,10 +203,12 @@ defmodule Encryptor.Vault.EncryptTest do
       config = config(vault)
       {:ok, keyring} = RawAes.new("ns", "name", EncryptVaults.single_key(), :aes_256_gcm)
 
-      a = Encrypt.stack(config, keyring, "merchant_a").underlying_cmm
-      b = Encrypt.stack(config, keyring, "merchant_b").underlying_cmm
+      a = Encrypt.stack(config, keyring, "merchant_a", candidates()).underlying_cmm
+      b = Encrypt.stack(config, keyring, "merchant_b", candidates()).underlying_cmm
 
-      assert a.partition_id == Partition.id(EncryptVaults.Merchant, "merchant_a")
+      assert a.partition_id ==
+               Partition.decryption_id(EncryptVaults.Merchant, "merchant_a", candidates())
+
       assert byte_size(a.partition_id) == 16
       refute a.partition_id == b.partition_id
     end
@@ -221,13 +230,16 @@ defmodule Encryptor.Vault.EncryptTest do
         Encrypt.stack(config, keyring, "merchant_a", v2)
 
       %RequiredEncryptionContext{underlying_cmm: read} =
-        Encrypt.stack(config, keyring, "merchant_a")
+        Encrypt.stack(config, keyring, "merchant_a", candidates())
 
       assert write.partition_id ==
                Partition.encryption_id(EncryptVaults.Merchant, "merchant_a", v1)
 
       refute write.partition_id == next.partition_id
-      assert read.partition_id == Partition.id(EncryptVaults.Merchant, "merchant_a")
+
+      assert read.partition_id ==
+               Partition.decryption_id(EncryptVaults.Merchant, "merchant_a", candidates())
+
       refute write.partition_id == read.partition_id
     end
 
@@ -240,7 +252,7 @@ defmodule Encryptor.Vault.EncryptTest do
       {:ok, keyring} = RawAes.new("ns", "name", EncryptVaults.single_key(), :aes_256_gcm)
 
       assert %Caching{max_age: 60, max_messages: 10_000, max_bytes: 1_073_741_824} =
-               Encrypt.stack(config, keyring, :default)
+               Encrypt.stack(config, keyring, :default, candidates())
     end
 
     # sabotage: dropped :max_encrypted_data_keys from the Client.new/2 options
@@ -254,7 +266,7 @@ defmodule Encryptor.Vault.EncryptTest do
       assert %Client{
                commitment_policy: :require_encrypt_require_decrypt,
                max_encrypted_data_keys: 10
-             } = Encrypt.client(config, keyring, :default)
+             } = Encrypt.client(config, keyring, :default, candidates())
     end
   end
 

@@ -36,7 +36,9 @@ defmodule Encryptor.Vault.Encrypt do
   #      data key out of another scope's cache lookup (ADR-0001 decision 7),
   #      and, on this write side, from the resolved key too, so a newly
   #      minted version is a cold partition rather than a warm entry wrapped
-  #      under the version before it (ADR-0001 Amendment B).
+  #      under the version before it (ADR-0001 Amendment B), and the key's
+  #      material too, so a name minted again over new bytes after a shred
+  #      is a cold partition as well (ADR-0001 Amendment C).
   #   7. The CMM stack, then the client, then the engine call.
   #
   # ## The CMM stack order is a security property, not a style choice
@@ -157,7 +159,9 @@ defmodule Encryptor.Vault.Encrypt do
   @type cmm :: Default.t() | Caching.t() | RequiredEncryptionContext.t()
 
   # Which side of the cache a stack serves, and what it partitions by.
-  @typep partition :: {:read, Error.selector()} | {:write, Error.selector(), Aes.t() | Kms.t()}
+  @typep partition ::
+           {:read, Error.selector(), [Aes.t() | Kms.t(), ...]}
+           | {:write, Error.selector(), Aes.t() | Kms.t()}
 
   @doc false
   # Public so the nesting can be asserted directly. The order below is the
@@ -165,15 +169,18 @@ defmodule Encryptor.Vault.Encrypt do
   # observe it through a successful round trip would pass just as happily
   # with the unsafe arrangement.
   #
-  # Two arities, one per side of the cache. `stack/3` is the read side's:
-  # `Encryptor.Vault.Decrypt` and `rekey/2`'s read half partition by the
-  # selector alone (ADR-0001 decision 7), because the decryption cache id
-  # already hashes the message's encrypted data keys. `stack/4` is the write
-  # side's: it also partitions by the key `encryption_key/2` resolved to, so a
-  # warm entry from before a mint is never found by a write after it
-  # (ADR-0001 Amendment B).
-  @spec stack(Config.t(), Keyring.t(), Error.selector()) :: cmm()
-  def stack(config, keyring, selector), do: build(config, keyring, {:read, selector})
+  # Two shapes of the last argument, one per side of the cache. Given the
+  # provider's candidate list, it is the read side's: `Encryptor.Vault.Decrypt`
+  # and `rekey/2`'s read half partition by the selector and every candidate's
+  # identity, because a candidate list whose bytes changed under the same
+  # names must not find the entries the old bytes left (ADR-0001 Amendment C).
+  # Given one key, it is the write side's: it partitions by the key
+  # `encryption_key/2` resolved to, so a warm entry from before a mint, or
+  # from before a shred and a re-provision, is never found by a write after it
+  # (ADR-0001 Amendments B and C).
+  @spec stack(Config.t(), Keyring.t(), Error.selector(), [Aes.t() | Kms.t(), ...]) :: cmm()
+  def stack(config, keyring, selector, [_ | _] = candidates),
+    do: build(config, keyring, {:read, selector, candidates})
 
   @spec stack(Config.t(), Keyring.t(), Error.selector(), Aes.t() | Kms.t()) :: cmm()
   def stack(config, keyring, selector, key),
@@ -188,20 +195,21 @@ defmodule Encryptor.Vault.Encrypt do
   end
 
   @doc false
-  # Public for the same reason `stack/3` is: the commitment policy and the EDK
+  # Public for the same reason `stack/4` is: the commitment policy and the EDK
   # limit the client carries are configuration the vault is not allowed to
   # take from a caller, and a test that could only observe them through a
   # successful encrypt could not tell a dropped limit from a present one.
   #
-  # The read side's client, and the write side's with the resolved key, for
-  # the reason `stack/3` and `stack/4` are two.
-  @spec client(Config.t(), Keyring.t(), Error.selector()) :: Client.t()
-  def client(config, keyring, selector),
-    do: config |> stack(keyring, selector) |> new_client(config)
-
-  @spec client(Config.t(), Keyring.t(), Error.selector(), Aes.t() | Kms.t()) :: Client.t()
-  def client(config, keyring, selector, key),
-    do: config |> stack(keyring, selector, key) |> new_client(config)
+  # The read side's client with the candidate list, and the write side's with
+  # the resolved key, for the reason `stack/4` takes either.
+  @spec client(
+          Config.t(),
+          Keyring.t(),
+          Error.selector(),
+          [Aes.t() | Kms.t(), ...] | Aes.t() | Kms.t()
+        ) :: Client.t()
+  def client(config, keyring, selector, keys),
+    do: config |> stack(keyring, selector, keys) |> new_client(config)
 
   @spec new_client(cmm(), Config.t()) :: Client.t()
   defp new_client(cmm, config) do
@@ -227,7 +235,8 @@ defmodule Encryptor.Vault.Encrypt do
   end
 
   @spec partition_id(module(), partition()) :: binary()
-  defp partition_id(vault, {:read, selector}), do: Partition.id(vault, selector)
+  defp partition_id(vault, {:read, selector, candidates}),
+    do: Partition.decryption_id(vault, selector, candidates)
 
   defp partition_id(vault, {:write, selector, key}),
     do: Partition.encryption_id(vault, selector, key)

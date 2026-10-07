@@ -107,7 +107,11 @@ defmodule Encryptor.Error do
   to provision that has no `c:Encryptor.Provider.provision/2`. ADR-0010 adds
   one, for a suspension store that could not answer a `suspend/2` or
   `reinstate/2`; it carries the store module, and the store's own term rides
-  in `:engine`.
+  in `:engine`. ADR-0001 Amendment C adds one, `{:key_name_in_use, selector}`,
+  for a provision refused because the key name it would mint is already in
+  use for that selector: minting new bytes under a used name is what lets a
+  message written under the old bytes be served, or written, against the
+  wrong key.
   """
   @type reason ::
           :decrypt_failed
@@ -126,6 +130,7 @@ defmodule Encryptor.Error do
           | {:invalid_selector, term()}
           | {:not_provisionable, module()}
           | {:suspension_store_unavailable, module()}
+          | {:key_name_in_use, selector()}
 
   @type t :: %__MODULE__{
           reason: reason(),
@@ -241,6 +246,9 @@ defmodule Encryptor.Error do
 
   defp describe({:suspension_store_unavailable, module}),
     do: "suspension store #{inspect(module)} is unavailable"
+
+  defp describe({:key_name_in_use, selector}),
+    do: "the key name a provision would mint for selector #{inspect(selector)} is already in use"
 
   @spec where(t()) :: String.t()
   defp where(%__MODULE__{vault: nil, operation: nil}), do: ""

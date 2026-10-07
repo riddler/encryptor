@@ -12,7 +12,7 @@ defmodule Encryptor.Vault.Partition do
   and this module is the only place it is computed. The result is what the
   vault hands the engine's caching CMM as `:partition_id`.
 
-  ## The write side also carries the key
+  ## Both sides also carry the key, and the key's bytes
 
   The engine's encryption cache id hashes the partition id, the suite and the
   context, and never the key that wrapped the entry's data key. With the
@@ -22,9 +22,24 @@ defmodule Encryptor.Vault.Partition do
   (an encrypt, and a rekey's write half) also carries the resolved key's
   identity - the namespace and name of an `Encryptor.Key.Aes`, the key id of
   an `Encryptor.Key.Kms` - in a length-prefixed pre-image, and a new version
-  is a new partition, cold at once (ADR-0001 Amendment B). The read side is
-  unchanged: the decryption cache id already hashes the message's encrypted
-  data keys, which name the key that wrapped them.
+  is a new partition, cold at once (ADR-0001 Amendment B).
+
+  A name is not enough on its own. A whole-scope shred deletes a store's rows,
+  and a provision for the same scope at the same version mints the same name
+  over new bytes. With names alone, a decryption entry warmed before the shred
+  then serves the old message again, and the next write reuses an encryption
+  entry whose data key is wrapped under the destroyed bytes. So an AES key's
+  identity also carries a fingerprint of its material, and the read side (a
+  decrypt, and a rekey's read half) is partitioned by the identity of every
+  candidate the provider answered, in order (ADR-0001 Amendment C). Two
+  different byte strings under one name never share a cache entry, on either
+  side.
+
+  The fingerprint is a domain-separated SHA-256 of the material, computed in
+  the pre-image and never kept: what leaves this module is the 16-byte
+  truncation of a hash over it, which is not key material and is never put
+  in telemetry, a message or a store. A `Encryptor.Key.Kms` key carries no
+  material here; its key id names bytes that only the key manager holds.
 
   ## Why the width is fixed, and why it is 16
 
@@ -46,8 +61,8 @@ defmodule Encryptor.Vault.Partition do
   selector keeps scope identifiers out of a structure this package does not
   control the lifetime of, and buys the uniform width for free.
 
-  Records: ADR-0001 decisions 3 and 7 and Amendment B; the selector type is
-  ADR-0004 decision 3.
+  Records: ADR-0001 decisions 3 and 7 and Amendments B and C; the selector
+  type is ADR-0004 decision 3.
   """
 
   alias Encryptor.Error
@@ -73,8 +88,17 @@ defmodule Encryptor.Vault.Partition do
   @aes_tag 0
   @kms_tag 1
 
+  # The domain separator of the material fingerprint (ADR-0001 Amendment C).
+  # It is the only input hashed beside the bytes, so no other SHA-256 this
+  # package computes over the same bytes shares a pre-image with it.
+  @fingerprint_label "encryptor partition fingerprint v1"
+
   @doc """
   The 16-byte partition id for a vault and a key selector.
+
+  This is ADR-0001 decision 7's selector-only formula. The vault no longer
+  hands it to the caching CMM: both sides partition by the keys as well
+  (Amendments B and C), through derivations that are internal to the vault.
 
   Pure, total over the selector types ADR-0004 decision 3 admits, and
   allocating nothing that outlives the call.
@@ -99,10 +123,11 @@ defmodule Encryptor.Vault.Partition do
   end
 
   @doc false
-  # ADR-0001 Amendment B's write-side partition: the vault, the selector and
-  # the resolved key, each field length-prefixed so that the pre-image parses
-  # back to exactly one triple, and no two triples share it. The digest and
-  # the truncation are decision 7's, so the width is the engine's 16 bytes.
+  # The write side's partition: the vault, the selector and the resolved key,
+  # each field length-prefixed so that the pre-image parses back to exactly
+  # one triple, and no two triples share it. ADR-0001 Amendment B's formula,
+  # with Amendment C's fingerprint in the key's identity. The digest and the
+  # truncation are decision 7's, so the width is the engine's 16 bytes.
   #
   # `@doc false` because no host calls it: `Encryptor.Vault.Encrypt` builds
   # the write-side stack with it, and a test pins the derivation. The key is
@@ -115,6 +140,27 @@ defmodule Encryptor.Vault.Partition do
       prefixed(Atom.to_string(vault)),
       prefixed(encoded(selector)),
       identity(key)
+    ])
+    |> binary_part(0, @bytes)
+  end
+
+  @doc false
+  # The read side's partition (ADR-0001 Amendment C): the vault, the selector
+  # and every candidate the provider answered, newest first. The count is
+  # prefixed and each identity is self-delimiting, so the pre-image parses
+  # back to exactly one candidate list. A list that gains, loses, reorders or
+  # re-mints a key is a new partition.
+  #
+  # The candidates are descriptors `Encryptor.Vault.Keyring.build_all/3` has
+  # already accepted, which is a non-empty list.
+  @spec decryption_id(module(), Error.selector(), [Aes.t() | Kms.t(), ...]) :: binary()
+  def decryption_id(vault, selector, [_ | _] = candidates) when is_atom(vault) do
+    :sha256
+    |> :crypto.hash([
+      prefixed(Atom.to_string(vault)),
+      prefixed(encoded(selector)),
+      <<length(candidates)::32>>,
+      Enum.map(candidates, &identity/1)
     ])
     |> binary_part(0, @bytes)
   end
@@ -139,13 +185,18 @@ defmodule Encryptor.Vault.Partition do
 
   # The fields the message header records for the key that wraps a data key:
   # the provider id and key name of a raw AES keyring, the key id of a KMS
-  # keyring. A name is bound to its bytes for good (`Encryptor.Key.Aes`), so
-  # a new version is a new name, and a new name is a new partition.
+  # keyring. A raw AES key also carries its material's fingerprint, because a
+  # name can come back over other bytes after a shred (Amendment C).
   @spec identity(Aes.t() | Kms.t()) :: iodata()
-  defp identity(%Aes{namespace: namespace, name: name}),
-    do: [@aes_tag, prefixed(namespace), prefixed(name)]
+  defp identity(%Aes{namespace: namespace, name: name, material: material}),
+    do: [@aes_tag, prefixed(namespace), prefixed(name), fingerprint(material)]
 
   defp identity(%Kms{key_id: key_id}), do: [@kms_tag, prefixed(key_id)]
+
+  # Fixed width, so it needs no prefix of its own.
+  @spec fingerprint(binary()) :: binary()
+  defp fingerprint(material) when is_binary(material),
+    do: :crypto.hash(:sha256, [prefixed(@fingerprint_label), material])
 
   @spec prefixed(binary()) :: iodata()
   defp prefixed(field) when is_binary(field), do: [<<byte_size(field)::32>>, field]

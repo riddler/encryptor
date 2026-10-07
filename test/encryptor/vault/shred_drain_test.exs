@@ -5,16 +5,18 @@ defmodule Encryptor.Vault.ShredDrainTest do
   Every read asks the provider before it builds the caching CMM
   (`Encryptor.Vault.Decrypt`'s step order), and the decryption cache id is
   computed from the partition, the suite, the message's EDKs and its stored
-  context - never from the candidate list the provider answered. The two
-  procedures fall on opposite sides of that:
+  context; the read side's partition is derived from the candidate list the
+  provider answered (ADR-0001 Amendment C). Neither procedure waits on a
+  drain:
 
     * P3, the whole-scope shred, leaves the provider answering
       `{:unknown_key, selector}`, and that answer arrives before the cache is
       consulted, so the next read fails at once, warm cache or cold.
     * P4, the single-version retire, leaves the provider answering a shorter
-      list, which the resolution step accepts; the warm entry for a message
-      written under the retired version is then found by its own cache id and
-      serves until it expires or the cache is dropped.
+      list, which the resolution step accepts; the shorter list is a new read
+      partition, so the warm entry for a message written under the retired
+      version is not found, and the read fails at once. Before Amendment C
+      the entry served until it expired or the cache was dropped.
 
   The mint that opens the window has a cache question of its own, on the
   write side. The engine's encryption cache id is computed from the
@@ -130,11 +132,6 @@ defmodule Encryptor.Vault.ShredDrainTest do
     Patrons
   end
 
-  defp restart_vault do
-    :ok = stop_supervised(Patrons)
-    start_vault()
-  end
-
   setup do
     :ets.new(@store, [:named_table, :public, :set])
     :ok
@@ -165,10 +162,11 @@ defmodule Encryptor.Vault.ShredDrainTest do
   end
 
   describe "P4, the single-version retire" do
-    # sabotage: made maybe_caching/3 in Encryptor.Vault.Encrypt return the
-    # uncached CMM for every vault - red on the warm read: with no materials
-    # cache there is nothing to drain, and the retired version fails at once.
-    test "keeps serving a retired version from a warm cache until the cache is dropped" do
+    # sabotage: made partition_id/2 in Encryptor.Vault.Encrypt answer
+    # Partition.id(vault, selector) for the read side, dropping the candidate
+    # list from the partition - red: the retired version keeps serving from
+    # the entry the first read left until the cache is dropped.
+    test "refuses a retired version at once on a warm cache, with no drain" do
       vault = start_vault()
       put_versions(@branch, [1])
 
@@ -179,13 +177,8 @@ defmodule Encryptor.Vault.ShredDrainTest do
       put_versions(@branch, [2, 1])
       put_versions(@branch, [2])
 
-      # Before the drain: the provider no longer names version 1, and the
-      # message still decrypts, from the entry the first read left.
-      assert {:ok, @email} = vault.decrypt(ciphertext, key: @branch, encryption_context: @columns)
-
-      # P4 step 2, by restart: a fresh cache, and the retire takes effect.
-      vault = restart_vault()
-
+      # No drain: the provider's shorter list is a new read partition, so the
+      # entry the first read left is not found.
       assert {:error, %Error{reason: :decrypt_failed}} =
                vault.decrypt(ciphertext, key: @branch, encryption_context: @columns)
     end

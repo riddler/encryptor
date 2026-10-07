@@ -128,7 +128,8 @@ defmodule Encryptor.TelemetryTest do
         {{:invalid_context_value, :too_large}, :invalid_context_value},
         {{:invalid_selector, 42}, :invalid_selector},
         {{:not_provisionable, MyApp.Provider}, :not_provisionable},
-        {{:suspension_store_unavailable, MyApp.Store}, :suspension_store_unavailable}
+        {{:suspension_store_unavailable, MyApp.Store}, :suspension_store_unavailable},
+        {{:key_name_in_use, "acct_9f21"}, :key_name_in_use}
       ]
 
       Enum.each(reasons, fn {reason, tag} ->
@@ -137,8 +138,9 @@ defmodule Encryptor.TelemetryTest do
       end)
     end
 
-    # sabotage: deleted the {:suspension_store_unavailable, _} clause (and,
-    # before it, the {:not_provisionable, _} one) - red, because
+    # sabotage: deleted the {:key_name_in_use, _} clause (and, before it, the
+    # {:suspension_store_unavailable, _} and {:not_provisionable, _} ones) -
+    # red, because
     # reason_tag/1 is spec'd over the whole of Encryptor.Error.reason/0 and a
     # missing clause raises a FunctionClauseError inside an emit, which is
     # exactly the fallthrough decision 5's closing paragraph refuses.
@@ -159,7 +161,8 @@ defmodule Encryptor.TelemetryTest do
         {:invalid_context_value, :count},
         {:invalid_selector, nil},
         {:not_provisionable, MyApp.Provider},
-        {:suspension_store_unavailable, MyApp.Store}
+        {:suspension_store_unavailable, MyApp.Store},
+        {:key_name_in_use, :default}
       ]
 
       Enum.each(reasons, fn reason ->
@@ -179,7 +182,8 @@ defmodule Encryptor.TelemetryTest do
                  :invalid_context_value,
                  :invalid_selector,
                  :not_provisionable,
-                 :suspension_store_unavailable
+                 :suspension_store_unavailable,
+                 :key_name_in_use
                ]
       end)
     end

@@ -204,6 +204,7 @@ defmodule Encryptor.Provider do
           | {:provider_not_started, module()}
           | {:missing_optional_dependency, atom()}
           | {:not_provisionable, module()}
+          | {:key_name_in_use, selector()}
 
   @typedoc """
   What `c:provision/2` returns: everything a store needs to reconstruct the

@@ -289,6 +289,25 @@ defmodule Encryptor.GcpKmsVaults do
     end
   end
 
+  defmodule Provisioned do
+    @moduledoc "A scoped vault whose store already holds a row for every scope."
+
+    use Encryptor.Vault, otp_app: :encryptor, context_profile: :scoped, cache: false
+
+    @doc "Layer 5: the provider and the reference subkey, both key material."
+    def init(config) do
+      {:ok,
+       Keyword.merge(config,
+         provider:
+           {Encryptor.Provider.GcpKms,
+            Keyword.put(Encryptor.GcpKmsVaults.provider_opts(), :store, fn _ref ->
+              {:ok, [%{version: 1}]}
+            end)},
+         reference_subkey: Encryptor.GcpKmsCase.subkey()
+       )}
+    end
+  end
+
   defmodule NotProvisionable do
     @moduledoc "A single-key vault whose provider has no provision callback."
 

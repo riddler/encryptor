@@ -18,9 +18,10 @@ This package already uses "partition" for something else, and the collision is
 worth clearing before anything below.
 
 **A partition here is the cache partition id**: a fixed-width value hashed
-from the vault namespace and the encoded selector, passed to the engine's
-caching materials manager as a cache-key input. ADR-0001 decision 7 defines
-it and says what it is not - "a cache-key input only. It is not key material,
+from the vault namespace, the encoded selector and the keys the provider
+answered, passed to the engine's caching materials manager as a cache-key
+input. ADR-0001 decision 7 defines it, with Amendments B and C adding the
+keys, and says what it is not - "a cache-key input only. It is not key material,
 it is not secret, and it never reaches the message". `Encryptor.Vault.Partition`
 is the only place it is computed.
 

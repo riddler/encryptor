@@ -207,15 +207,30 @@ defmodule Encryptor.ErrorTest do
   end
 
   describe "the vocabulary is closed" do
-    # sabotage: removed the sixteenth term from reason/0 - red, as a
-    # seventeenth would be. This test exists so that a later bead extending
+    # sabotage: removed the seventeenth term from reason/0 - red, as an
+    # eighteenth would be. This test exists so that a later bead extending
     # the vocabulary without an ADR trips over it. The fifteenth,
-    # `{:not_provisionable, module}`, arrived through ADR-0007 decision 2, and
+    # `{:not_provisionable, module}`, arrived through ADR-0007 decision 2,
     # the sixteenth,
     # `{:suspension_store_unavailable, module}`, through ADR-0010's
-    # consequences, which is what the test requires of every addition.
-    test "reason/0 is exactly the sixteen terms the records fix" do
-      assert union_size(:reason) == 16
+    # consequences, and the seventeenth, `{:key_name_in_use, selector}`,
+    # through ADR-0001 Amendment C, which is what the test requires of every
+    # addition.
+    test "reason/0 is exactly the seventeen terms the records fix" do
+      assert union_size(:reason) == 17
+    end
+
+    # sabotage: dropped the selector from the message - red, because an
+    # operator then cannot tell which scope's provision was refused.
+    test "the re-mint refusal renders its selector and nothing else" do
+      error = %Error{
+        reason: {:key_name_in_use, "scope-a"},
+        vault: MyApp.Vault,
+        operation: :provision
+      }
+
+      assert Exception.message(error) ==
+               "the key name a provision would mint for selector \"scope-a\" is already in use (MyApp.Vault, provision)"
     end
 
     # sabotage: added :describe to operation/0 - red. ADR-0001 decision 10

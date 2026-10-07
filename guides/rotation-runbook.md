@@ -163,10 +163,23 @@ provider still answers:
   wrappings are gone the provider answers `{:unknown_key, selector}`, and the
   next call for the scope fails at once, warm cache or cold, on every node. A
   provider that keeps its own bounded cache delays P3 by that bound instead.
-- **P4, the version retire, waits on it.** The provider still answers, with a
-  shorter list, and a warm entry for a message written under the retired
-  version keeps decrypting it until the entry expires or the cache is dropped.
-- **P2 step 1, the mint, waits on it too, on the write side.** A warm
+- **P4, the version retire, does not wait on it either.** The provider still
+  answers, with a shorter list, and the read side's cache partition is
+  derived from that list, so the shorter list is a new partition: a warm
+  entry for a message written under the retired version is not found, and the
+  next read of it fails at once. The entry stays resident until the table is
+  dropped, which is what P4 step 2 is for.
+- **A scope provisioned again after P3 does not revive anything.** A provision
+  for a shredded scope at the same version mints the same key name over new
+  bytes. Every cache partition, read and write, carries a fingerprint of the
+  key material, so the old messages are not served from a warm entry and a new
+  write never reuses a data key wrapped under the destroyed bytes.
+  `Encryptor.Provider.GcpKms` refuses a provision for a scope your store still
+  holds a row for, with `{:key_name_in_use, selector}`; once the rows are
+  deleted no function here can see that the name was used, and
+  `Encryptor.Envelope.provision/3` never sees a store at all. Refusing a
+  version your store has already used, shredded or not, is your store's to do.
+- **P2 step 1, the mint, waits on it, on the write side.** A warm
   encryption entry from before the mint keeps issuing data keys wrapped under
   version *n* after `encryption_key/2` has started answering *n+1*, until the
   entry expires, reaches its `max_messages` or `max_bytes` bound, or the cache
@@ -577,8 +590,8 @@ holder of credentials to the key material (ADR-0010 decision 9).
 There is no cache-drainage step. The deny gate sits at resolution, ahead of the
 materials cache, so the very next call fails on a warm cache as on a cold one
 (Amendment A decision 5). P3 needs no drain for the same reason, for a provider
-that reads its store on every call; P4, whose provider still answers, is the
-procedure that waits on one. Suspending does drop this vault's materials cache
+that reads its store on every call, and P4 needs none because the shorter
+candidate list is a new cache partition. Suspending does drop this vault's materials cache
 as hygiene, because no partition-scoped eviction exists (decision 6), so every
 other selector on the vault takes one cold miss; a vault configured
 `cache: false` has no cache to drop and is unaffected.

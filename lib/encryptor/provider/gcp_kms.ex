@@ -107,6 +107,25 @@ defmodule Encryptor.Provider.GcpKms do
   keyed by `scope_ref`, with the raw selector nowhere in it, and without the
   plaintext.
 
+  **It refuses a scope that already has a row.** This provider mints at
+  version 1 only, so a store answering any row for the scope's `scope_ref`
+  means the name a provision would mint is already in use, and minting new
+  bytes under it is refused with `{:key_name_in_use, selector}` before
+  anything is created or minted (ADR-0001 Amendment C). A store that cannot
+  answer is `{:key_unavailable, selector}`; one answering
+  `{:unknown_key, _}` or no rows lets the provision proceed.
+
+  What it cannot see is a name used before and since deleted. A whole-scope
+  shred deletes the scope's rows, and `ALREADY_EXISTS` on the create is
+  success (ADR-0007 decision 6), so a provision after the store delete mints
+  version 1 again. Destroying every `CryptoKeyVersion` (ADR-0005 P3 step 2a)
+  makes that provision's `Encrypt` fail, answered as
+  `{:key_unavailable, selector}`; without it, refusing the name is the
+  host's store's to do, by remembering the versions it has shredded. The
+  vault's cache partitions carry a fingerprint of the key material either
+  way, so a name minted again over new bytes never shares a cache entry with
+  the old ones.
+
   **It is not safe to call concurrently for one selector, and this package
   does not make it so.** Two concurrent calls both pass the create step and
   both mint fresh material at the same version; whichever row loses the store
@@ -174,8 +193,9 @@ defmodule Encryptor.Provider.GcpKms do
   line that inspects the reason reads it.
 
   `c:Encryptor.Provider.provision/2` is not covered by this table: a failed
-  `CreateCryptoKey` or `Encrypt` there answers `{:key_unavailable, selector}`
-  whatever the status.
+  store read, `CreateCryptoKey` or `Encrypt` there answers
+  `{:key_unavailable, selector}` whatever the status, and a scope the store
+  already holds a row for answers `{:key_name_in_use, selector}`.
 
   ## Two vocabularies of "version"
 
@@ -233,7 +253,8 @@ defmodule Encryptor.Provider.GcpKms do
   when the key is created; `provision/2` sets none, so a key it creates takes
   the Cloud KMS default, 30 days. The window exists; do not rely on it.
 
-  Records: ADR-0007 decisions 1 through 10 and Amendment B; ADR-0002
+  Records: ADR-0007 decisions 1 through 10 and Amendment B; ADR-0001
+  Amendment C; ADR-0002
   decisions 1, 5 and 6;
   ADR-0003 decisions 1, 4, 5, 6 and 8; ADR-0004 decisions 3, 4 and 7;
   ADR-0005 decision 10 and procedure P3.
@@ -364,7 +385,9 @@ defmodule Encryptor.Provider.GcpKms do
 
   ADR-0007 decisions 3 and 6, in order: `CreateCryptoKey` with the derived id,
   `ENCRYPT_DECRYPT` and no rotation schedule; 32 bytes from the CSPRNG;
-  `Encrypt` under the four-field AAD; the row. `ALREADY_EXISTS` on the create
+  `Encrypt` under the four-field AAD; the row. Before any of it, the store is
+  read, and a scope it already holds a row for is refused with
+  `{:key_name_in_use, selector}` ("Provisioning" above). `ALREADY_EXISTS` on the create
   is success for that step - the id is a pure function of the selector, so an
   existing key is always *this* scope's - which is what makes a provision
   that half-succeeded retryable.
@@ -379,18 +402,33 @@ defmodule Encryptor.Provider.GcpKms do
   @spec provision(state(), Provider.selector()) ::
           {:ok, Provider.provisioned()} | {:error, Provider.reason()}
   def provision(state, selector) when is_binary(selector) and selector != "" do
+    scope_ref = Reference.derive(state.reference_subkey, selector)
     key_id = key_id(state, selector)
 
-    case Api.create_crypto_key(state, key_id) do
-      {:ok, _created_or_existing} ->
-        mint(state, Reference.derive(state.reference_subkey, selector), key_id, selector)
-
-      {:error, _failure} ->
-        {:error, {:key_unavailable, selector}}
+    with :ok <- unused(state, scope_ref, selector) do
+      case Api.create_crypto_key(state, key_id) do
+        {:ok, _created_or_existing} -> mint(state, scope_ref, key_id, selector)
+        {:error, _failure} -> {:error, {:key_unavailable, selector}}
+      end
     end
   end
 
   def provision(_state, selector), do: {:error, {:unknown_key, selector}}
+
+  # ADR-0001 Amendment C's refusal, where this provider can see the name in
+  # use: any stored row for the scope, since every row this provider writes
+  # is the version-1 name `mint/4` would write again. The rows are not
+  # validated here - a row of any shape is a scope already provisioned - and
+  # the store's own failure term is never carried.
+  @spec unused(state(), String.t(), Provider.selector()) :: :ok | {:error, Provider.reason()}
+  defp unused(state, scope_ref, selector) do
+    case state.store.(scope_ref) do
+      {:ok, []} -> :ok
+      {:ok, [_ | _]} -> {:error, {:key_name_in_use, selector}}
+      {:error, {:unknown_key, _key}} -> :ok
+      _unanswered -> {:error, {:key_unavailable, selector}}
+    end
+  end
 
   # The plaintext exists here and nowhere else.
   @spec mint(state(), String.t(), String.t(), Provider.selector()) ::
