@@ -44,9 +44,13 @@ SUMS
 - `hkdf_sha256_test.json`: `test/encryptor/vectors/wycheproof_hkdf_sha256_test.exs`
   runs every case through `Encryptor.Kdf.extract/2` and `Encryptor.Kdf.expand/3`.
   The case counts are written in that test literally.
-- `hkdf_sha384_test.json`, `hkdf_sha512_test.json` and `aes_gcm_test.json`
-  are kept at the same commit for vector tests over the engine's HKDF and
-  AES-GCM functions; no test reads them yet.
+- `aes_gcm_test.json`, `hkdf_sha384_test.json` and `hkdf_sha512_test.json`:
+  `test/encryptor/vectors/wycheproof_engine_test.exs` runs every AES-GCM
+  case through the engine's `AwsEncryptionSdk.Crypto.AesGcm.encrypt/5` and
+  `decrypt/6` (a case whose IV is not 96 bits is asserted refused by the
+  wrapper's guard), and every HKDF case through the engine's
+  `AwsEncryptionSdk.Crypto.HKDF.extract/3` and `expand/4`. The case counts
+  are written in that test literally.
 
 `Encryptor.Wycheproof` in `test/support/wycheproof.ex` decodes a file and
 lists its cases without filtering any.
