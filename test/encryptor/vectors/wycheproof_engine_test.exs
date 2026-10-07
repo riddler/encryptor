@@ -9,7 +9,15 @@ defmodule Encryptor.Vectors.WycheproofEngineTest do
   `AwsEncryptionSdk.Crypto.AesGcm.encrypt/5` and `decrypt/6`, so Wycheproof
   runs against those two functions, at the `aws_encryption_sdk` version
   `mix.lock` pins. encryptor's message path picks its own IVs, which a
-  vector file cannot fix, so that path is not covered by this module.
+  vector file cannot fix, so that path is not covered by this module. It is
+  covered by the AWS Encryption SDK decrypt vectors run through
+  `Encryptor.Vault.decrypt/3`
+  (`test/encryptor/vectors/aws_vectors_vault_decrypt_test.exs`, in the CI job
+  "AWS Encryption SDK decrypt vectors"), by the cross-SDK interop job
+  "Interop with the Python AWS Encryption SDK"
+  (`test/encryptor/interop/python_interop_test.exs`), and by the NIST
+  SP 800-38D IV and tag construction tests in
+  `test/encryptor/gcm_construction_test.exs`.
 
   `test/fixtures/wycheproof/` holds the published files, unedited, at the
   commit its README names. Every AES-GCM case runs. A case with a 96-bit IV
