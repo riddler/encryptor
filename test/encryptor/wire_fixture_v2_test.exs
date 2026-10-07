@@ -36,10 +36,12 @@ defmodule Encryptor.WireFixtureV2Test do
       assert name == "s/" <> Fixture.reference() <> "/v1"
     end
 
-    # Rows 3, 4 and 5, read out of the recorded blob rather than from the
-    # module under test, so this pins the record, not `lib/`. sabotage:
-    # respelled the purpose value in the expected map as "tenant-key-wrap" -
-    # red, the recorded header carries the v2 spelling.
+    # Rows 3, 4 and 5. The bytes are the recorded blob and the expected map
+    # writes the A1 spellings out, so the spellings pinned are the record's;
+    # the `lib/` code this runs is `Message.describe/1` reporting the
+    # header's context whole. sabotage: made `Encryptor.Message`'s `info/1`
+    # drop the "encryptor-purpose" pair from the context it reports - red,
+    # the described context lacks the v2 purpose.
     test "carries the v2 binding in its own header" do
       assert {:ok, info} = Message.describe(Fixture.row().wrapped)
 
