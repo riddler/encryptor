@@ -140,3 +140,95 @@ jobs:
 
       - name: Run the test suite
         run: mix test
+
+  # The AWS Encryption SDK's published decrypt vectors, beside the gate.
+  #
+  # The corpus is fetched, never committed: awslabs/aws-encryption-sdk-test-vectors
+  # at one commit, b6a6c91 (b6a6c91e62cc67f891b5dc3d11b0f047d10baf76 below),
+  # never at its default branch. Only vectors/awses-decrypt/python-2.3.0.zip is
+  # used, and its SHA-256 is checked on every run before it is unzipped, so a
+  # cached or re-fetched zip that is not the reviewed one fails here.
+  # Encryptor.AwsVectors (test/support/aws_vectors.ex) carries the same commit
+  # and checksum for a local fetch; move them together.
+  #
+  # ENCRYPTOR_REQUIRE_AWS_VECTORS=1 makes an absent corpus a failure of the
+  # tagged tests rather than a skip. The toolchain is read out of mise.toml
+  # the way the gate job reads it.
+  aws-vectors:
+    name: AWS Encryption SDK decrypt vectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      AWS_VECTORS_SHA: b6a6c91e62cc67f891b5dc3d11b0f047d10baf76
+      AWS_VECTORS_ZIP_SHA256: 99b01e3bd61dfec2fc945392a0e374f510d055229fe6bb8d14ef993527164b05
+      ENCRYPTOR_REQUIRE_AWS_VECTORS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the toolchain out of mise.toml
+        id: toolchain
+        run: |
+          set -euo pipefail
+          erlang="$(sed -n 's/^erlang *= *"\(.*\)".*$/\1/p' mise.toml | head -1)"
+          elixir="$(sed -n 's/^elixir *= *"\(.*\)".*$/\1/p' mise.toml | head -1)"
+          test -n "$erlang" || { echo "no erlang version in mise.toml" >&2; exit 1; }
+          test -n "$elixir" || { echo "no elixir version in mise.toml" >&2; exit 1; }
+          echo "erlang=$erlang" >> "$GITHUB_OUTPUT"
+          echo "elixir=$elixir" >> "$GITHUB_OUTPUT"
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ steps.toolchain.outputs.erlang }}
+          elixir-version: ${{ steps.toolchain.outputs.elixir }}
+
+      # Its own key prefix, so it never shares an entry with the gate job's
+      # cache (this job builds the test env only).
+      - name: Cache deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-aws-vectors-${{ runner.os }}-otp${{ steps.toolchain.outputs.erlang }}-ex${{ steps.toolchain.outputs.elixir }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-aws-vectors-${{ runner.os }}-otp${{ steps.toolchain.outputs.erlang }}-ex${{ steps.toolchain.outputs.elixir }}-
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      # Keyed on the corpus commit alone, with no fallback key: a cache never
+      # restores a zip from another commit, and an edit to this file does not
+      # throw the zip away.
+      - name: Cache the vectors zip
+        id: vectors-cache
+        uses: actions/cache@v4
+        with:
+          path: test/fixtures/aws_vectors/python-2.3.0.zip
+          key: aws-vectors-${{ env.AWS_VECTORS_SHA }}
+
+      - name: Fetch the vectors at the pinned commit
+        if: steps.vectors-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/aws-vectors"
+          git init -q "$src"
+          git -C "$src" fetch -q --depth 1 https://github.com/awslabs/aws-encryption-sdk-test-vectors.git "$AWS_VECTORS_SHA"
+          git -C "$src" checkout -q FETCH_HEAD
+          head="$(git -C "$src" rev-parse HEAD)"
+          test "$head" = "$AWS_VECTORS_SHA" || { echo "fetched $head, pinned $AWS_VECTORS_SHA" >&2; exit 1; }
+          mkdir -p test/fixtures/aws_vectors
+          cp -f "$src/vectors/awses-decrypt/python-2.3.0.zip" test/fixtures/aws_vectors/python-2.3.0.zip
+
+      - name: Check the zip's SHA-256
+        run: echo "$AWS_VECTORS_ZIP_SHA256  test/fixtures/aws_vectors/python-2.3.0.zip" | sha256sum -c -
+
+      - name: Unzip the vectors
+        run: |
+          set -euo pipefail
+          rm -rf test/fixtures/aws_vectors/python-2.3.0
+          unzip -q test/fixtures/aws_vectors/python-2.3.0.zip -d test/fixtures/aws_vectors/python-2.3.0
+
+      - name: Run the aws_vectors tests
+        run: mix test --only aws_vectors
