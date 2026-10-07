@@ -1156,7 +1156,8 @@ Provenance: bead `enc-jwkn`.
 Status: **proposed (2026-10-07)**. This amendment only adds: no line above is
 edited. It amends decision 7's formula for the read side, Amendment B's B1
 formula for the write side, and decision 10's vocabulary, which gains one
-reason term. It is a cryptographic decision - a value derived from wrapping
+reason term. It also supersedes Amendment B's B3 ("The read side is
+unchanged", through `stack/3`) and B4's "Read-side ids do not change". It is a cryptographic decision - a value derived from wrapping
 key material is computed and folded into a cache key - so it stays proposed
 until the maintainer's own reading flips it. The lib/ cites below name
 functions this change adds or edits, so they are anchors, not line numbers;
@@ -1289,6 +1290,12 @@ Every partition id for an AES key changes once, when a node first runs this
 change, so every warm entry on that node, encryption and decryption, is a miss
 after the deploy. B4's "read-side ids do not change" no longer holds. A deploy
 that restarts the node starts cold anyway; a hot code upgrade pays this once.
+
+Any change to a scope's candidate list makes that scope's reads cold once:
+a P2 mint, a P4 retire, or a re-provision each changes the list, so the next
+read of every message for the scope misses the cache and unwraps its data key
+again. This is a performance cost, not a correctness one.
+
 A provision that answered `{:ok, row}` for a scope its GCP store already held
 a row for now answers `{:error, %Encryptor.Error{reason: {:key_name_in_use, selector}}}`.
 

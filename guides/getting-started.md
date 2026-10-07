@@ -217,19 +217,20 @@ about 107 KB under these defaults (ADR-0001 amendment A, A1 to A3).
 
 There is no default for `max_age` because it is the answer to a question this
 package cannot answer for you: **how long a data key may stay in this node's
-memory, and therefore how long a key rotation or a version retire takes to
-actually take effect.** Deleting one version's wrapping (the runbook's P4) does
-not stop a running node from decrypting rows written under it for up to
-`max_age` afterwards, and after a rotation mints a new version a warm cache
+memory.** Deleting one version's wrapping (the runbook's P4) is not bounded
+by it for readability: the provider's shorter candidate list is a new cache
+partition, so a running node stops decrypting rows written under that version
+at once (ADR-0001 Amendment C), and `max_age` bounds only how long the cached
+data keys stay resident. After a rotation mints a new version a warm cache
 keeps wrapping new data keys under the old one for up to `max_age` - which is
-why cache drainage is an explicit step in both procedures in the
+why cache drainage is an explicit step in the
 [rotation runbook](rotation-runbook.md). Deleting every wrapping a scope has
 (the runbook's P3) is not bounded by it, for a provider that reads its store
 on every call: the next call answers `{:unknown_key, selector}`.
 
 Naming a number forces you to have decided. A shorter `max_age` means more
-data-key generations and keyring wraps, and a faster retire; a longer one
-means fewer of both and a longer tail on every retire and rotation.
+data-key generations and keyring wraps, and a shorter residency; a longer
+one means fewer of both and a longer tail on every rotation.
 
 That whole paragraph assumes deleting the wrapping is what destroys the key,
 which is true of every provider in this guide and **not** true of a
