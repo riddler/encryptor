@@ -232,3 +232,86 @@ jobs:
 
       - name: Run the aws_vectors tests
         run: mix test --only aws_vectors
+
+  # The AWS Encryption SDK for Python against this package's messages, beside
+  # the gate: Encryptor.PythonInteropTest
+  # (test/encryptor/interop/python_interop_test.exs) has a vault write
+  # messages Python reads and Python write messages a vault reads, at suites
+  # 0x0478 and 0x0578, for a :single and a :scoped vault. Its moduledoc says
+  # which directions pass today and which are asserted as known failures of
+  # the engine.
+  #
+  # Python 3.12 comes from actions/setup-python at a full commit SHA, and the
+  # SDK from test/interop/python/requirements.txt, where every package is
+  # pinned by version and sha256 and pip runs with --require-hashes. Both
+  # sides use a raw AES keyring under a key the test generates for the run;
+  # no key is committed, no AWS account is involved, and the job fails if any
+  # AWS_ variable is set. ENCRYPTOR_REQUIRE_PYTHON_INTEROP=1 makes a missing
+  # interpreter a failure of the tagged tests rather than a skip. The
+  # toolchain is read out of mise.toml the way the gate job reads it.
+  python-interop:
+    name: Interop with the Python AWS Encryption SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ENCRYPTOR_REQUIRE_PYTHON_INTEROP: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the toolchain out of mise.toml
+        id: toolchain
+        run: |
+          set -euo pipefail
+          erlang="$(sed -n 's/^erlang *= *"\(.*\)".*$/\1/p' mise.toml | head -1)"
+          elixir="$(sed -n 's/^elixir *= *"\(.*\)".*$/\1/p' mise.toml | head -1)"
+          test -n "$erlang" || { echo "no erlang version in mise.toml" >&2; exit 1; }
+          test -n "$elixir" || { echo "no elixir version in mise.toml" >&2; exit 1; }
+          echo "erlang=$erlang" >> "$GITHUB_OUTPUT"
+          echo "elixir=$elixir" >> "$GITHUB_OUTPUT"
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ steps.toolchain.outputs.erlang }}
+          elixir-version: ${{ steps.toolchain.outputs.elixir }}
+
+      # Its own key prefix, so it never shares an entry with another job's
+      # cache (this job builds the test env only).
+      - name: Cache deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-python-interop-${{ runner.os }}-otp${{ steps.toolchain.outputs.erlang }}-ex${{ steps.toolchain.outputs.elixir }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-python-interop-${{ runner.os }}-otp${{ steps.toolchain.outputs.erlang }}-ex${{ steps.toolchain.outputs.elixir }}-
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned Python SDK
+        run: |
+          set -euo pipefail
+          venv="$RUNNER_TEMP/interop-venv"
+          python -m venv "$venv"
+          "$venv/bin/python" -m pip install --require-hashes -r test/interop/python/requirements.txt
+          "$venv/bin/python" -m pip check
+          "$venv/bin/python" --version
+          echo "ENCRYPTOR_INTEROP_PYTHON=$venv/bin/python" >> "$GITHUB_ENV"
+
+      - name: Check no AWS variable is set
+        run: |
+          set -euo pipefail
+          count="$(env | grep -c '^AWS_' || true)"
+          echo "AWS_ variables set: $count"
+          test "$count" = "0" || { echo "::error::an AWS_ variable is set; the interop job runs without one" >&2; exit 1; }
+
+      - name: Run the python_interop tests
+        run: mix test --only python_interop

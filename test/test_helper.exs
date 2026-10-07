@@ -5,4 +5,8 @@ unless Encryptor.AwsVectors.present?() do
   IO.puts("aws_vectors corpus absent: " <> Encryptor.AwsVectors.absent_message())
 end
 
-ExUnit.start(exclude: [:aws_vectors])
+# The Python SDK interop test is excluded the same way (`mix test --only
+# python_interop`, as CI's python-interop job runs it): it needs a Python
+# interpreter with test/interop/python/requirements.txt installed.
+# Encryptor.PythonInterop says how.
+ExUnit.start(exclude: [:aws_vectors, :python_interop])

@@ -15,9 +15,18 @@ encrypted under a data key, the data key is encrypted ("wrapped") under a key
 above it, and the wrapped data key travels inside the message. The engine
 generates the data key, wraps it, and discards it; with the materials cache
 off, which is the default, every message gets a fresh one. The message that
-comes out is a standard AWS Encryption SDK message, which is why the
-ciphertext you store is one self-describing binary and why another language's
-official SDK can read it.
+comes out is in the AWS Encryption SDK's message format, which is why the
+ciphertext you store is one self-describing binary, and why another
+language's official SDK can read it - in part, today. A CI job
+([python-interop](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml)) checks this package against the official SDK for
+Python: a single-key vault's messages cross both ways at suite 0x0478, and
+Python's messages reach a single-key vault at 0x0578. A per-scope vault's
+messages cross in neither direction, because the engine stores the scope
+reference in the header where the AWS Encryption SDK specification says a
+required context key must not be stored; and at 0x0578 the engine writes the
+signature verification key in a form the Python SDK cannot decode. Both are
+defects in the engine, and [the test](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs) asserts each one exactly, so
+a fix shows up as a change.
 
 This package adds a level above that, so the hierarchy has three:
 

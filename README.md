@@ -24,7 +24,8 @@ an adapter behind one behaviour, so the source can change without the call
 sites changing; each scope you key by (an account, a workspace) gets its own
 key, which a ciphertext names, so rotation is re-encryption against a new
 version and a crypto-shred destroys one scope's key; and the messages stay in
-the AWS format, readable from the official SDKs in other languages.
+the AWS Encryption SDK's format, which the official SDKs in other languages
+read, with two exceptions today that [Compatibility](#compatibility) names.
 
 ## Install
 
@@ -110,9 +111,17 @@ The package needs Elixir 1.18 or later (`elixir: "~> 1.18"` in `mix.exs`). Its
 runtime dependencies are `aws_encryption_sdk ~> 1.0` and `telemetry ~> 1.3`;
 `argon2_elixir ~> 4.0` and `goth ~> 1.4` are optional. CI runs the full
 gate on Erlang/OTP 27 and the test suite on Erlang/OTP 26, both with Elixir
-1.18. Ciphertexts are interoperable with the official AWS Encryption SDKs:
-data written from Elixir is readable from Java, Python, JavaScript or the AWS
-CLI, and the other way round.
+1.18. Ciphertexts are in the AWS Encryption SDK's message format, and a CI job
+([python-interop](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml)) checks them against the official SDK for Python
+([the test](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs)). Today a single-key vault's messages cross both ways
+at suite 0x0478, and Python's messages reach a single-key vault at 0x0578.
+Two defects in the engine keep the rest from crossing. A per-scope vault's
+messages store the scope reference in the header, where the specification
+says a required context key must not be stored, so neither SDK reads the
+other's per-scope messages. And at 0x0578, the default suite, the engine
+writes the signature verification key as an uncompressed point, which the
+Python SDK cannot decode. The test asserts each failure exactly, so a fix
+in the engine shows up as a change rather than passing unnoticed.
 
 Two open engine issues are worked round here until they move:
 [#95](https://github.com/riddler/aws-encryption-sdk-elixir/issues/95), an
