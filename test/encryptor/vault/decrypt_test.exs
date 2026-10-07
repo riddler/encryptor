@@ -6,6 +6,7 @@ defmodule Encryptor.Vault.DecryptTest do
   alias Encryptor.Error
   alias Encryptor.Message
   alias Encryptor.Vault
+  alias Encryptor.Vault.Config
   alias Encryptor.Vault.Reference
 
   @pan "4111111111111111"
@@ -301,6 +302,25 @@ defmodule Encryptor.Vault.DecryptTest do
       result = reader.decrypt(ciphertext, encryption_context: @columns)
 
       assert reason(result) == :decrypt_failed
+    end
+  end
+
+  describe "the suite a message was written under" do
+    # Pins where signing stops, as the threat model states it: the configured
+    # `:algorithm_suite_id` is the suite a vault writes, and decrypt reads a
+    # message under whichever of the two accepted suites it names.
+    #
+    # sabotage: made agree/4 in decrypt.ex refuse a message whose suite differs
+    # from the configured one - red, on the signing vault's read.
+    test "a signing-suite vault reads an unsigned message under the same key" do
+      writer = start_vault(DecryptVaults.Loose)
+      reader = start_vault(EncryptVaults.App)
+
+      ciphertext = writer.encrypt!(@pan, encryption_context: @columns)
+
+      assert {:ok, %Message.Info{algorithm_suite_id: 0x0478}} = Message.describe(ciphertext)
+      assert {:ok, %Config{algorithm_suite_id: 0x0578}} = Config.fetch(reader)
+      assert {:ok, @pan} = reader.decrypt(ciphertext, encryption_context: @columns)
     end
   end
 
