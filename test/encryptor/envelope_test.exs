@@ -516,6 +516,48 @@ defmodule Encryptor.EnvelopeTest do
     end
   end
 
+  describe "rewrap/2 on the signing suite, 0x0578" do
+    # The engine's own pair, written out here rather than read from the engine
+    # or the module under test.
+    @verification_key "aws-crypto-public-key"
+
+    # sabotage: passed `stored` to the rekey's re-encrypt instead of
+    # `writable(stored)` - red, because the engine refuses its own
+    # verification-key pair from a caller, so a root rotation on the default
+    # suite fails at the first wrapping it rewraps.
+    test "moves the wrapping onto the new root, and it unwraps to the identical descriptor" do
+      root = start_vault(EnvelopeVaults.SignedRoot)
+      staged = start_vault(EnvelopeVaults.SignedStaged)
+      rotated = start_vault(EnvelopeVaults.SignedRotated)
+
+      original = provisioned(root, @merchant, version: 4, namespace: "acme-scope")
+      assert Map.has_key?(context(original.wrapped), @verification_key)
+
+      assert {:ok, rewrapped} = Envelope.rewrap(staged, original)
+
+      assert %WrappedKey{original | wrapped: rewrapped.wrapped} == rewrapped
+      assert reason(Envelope.unwrap(rotated, original)) == :decrypt_failed
+      assert Envelope.unwrap(root, original) == Envelope.unwrap(rotated, rewrapped)
+    end
+
+    # sabotage: passed `stored` to the rekey's re-encrypt instead of
+    # `writable(stored)` - red on the rewrap itself; the assertion below then
+    # pins that the binding survives and only the engine's pair is renewed.
+    test "the binding is carried across, and only the engine's pair is renewed" do
+      root = start_vault(EnvelopeVaults.SignedRoot)
+      staged = start_vault(EnvelopeVaults.SignedStaged)
+
+      original = provisioned(root, @merchant, version: 7)
+      assert {:ok, rewrapped} = Envelope.rewrap(staged, original)
+
+      assert Map.delete(context(rewrapped.wrapped), @verification_key) ==
+               Map.delete(context(original.wrapped), @verification_key)
+
+      refute context(rewrapped.wrapped)[@verification_key] ==
+               context(original.wrapped)[@verification_key]
+    end
+  end
+
   describe "scope_ref/2" do
     # sabotage: truncated the HMAC tag to 8 bytes instead of 16 - red against
     # the record's own formula, computed here independently.

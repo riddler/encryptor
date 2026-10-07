@@ -2,7 +2,8 @@ defmodule Encryptor.Vault.Rekey do
   @moduledoc false
 
   # The rekey path: a decrypt and an encrypt, in that order, with the message's
-  # own encryption context carried across untouched.
+  # own encryption context carried across untouched - less the one pair the
+  # engine owns, which the encrypt writes afresh.
   #
   # `Encryptor.Vault.rekey/3` is the door; this module is the body behind it,
   # as `Encryptor.Vault.Encrypt` and `Encryptor.Vault.Decrypt` are for the two
@@ -75,12 +76,31 @@ defmodule Encryptor.Vault.Rekey do
   #   7. The decrypt, reproducing the stored context.
   #   8. `encryption_key/2` and its single keyring: the write half goes under
   #      the vault's **currently** resolved materials, which is the whole point.
-  #   9. The re-encrypt, under the stored context.
+  #   9. The re-encrypt, under the stored context less the engine's own pair.
   #
   # Steps 4 and 8 are two different provider callbacks answering two different
   # questions, and their independence is the rotation window itself
   # (ADR-0005 decision 2): minting a new version changes step 8 immediately and
   # changes step 4 not at all, so a rekey pass can run for as long as it takes.
+  #
+  # ## The engine's own pair is not carried
+  #
+  # Under a signing suite (`0x0578`, the default) the engine adds a pair of its
+  # own to every message it writes: the verification key for that message's
+  # signature, under the key `Cmm.Behaviour.reserved_encryption_context_key/0`
+  # names. The header stores it with the rest, so the stored context carries
+  # it, and the engine refuses that key from a caller on encrypt
+  # (`:reserved_encryption_context_key`). Writing the stored context back
+  # unchanged would fail every rekey, and every `rewrap/2` built on it, on the
+  # default suite.
+  #
+  # So the write half drops that one key and nothing else, and the engine adds
+  # a fresh pair for the fresh signing key it generates for the write. The
+  # read half keeps it: it is part of what the message is, and the decrypt
+  # reads the verification key from it. The key is the engine's own constant,
+  # not a spelling kept here, so this cannot drift from the refusal it
+  # answers. Every other key is carried as it was; `Encryptor.Context` refuses
+  # the whole `aws-crypto-` prefix from a host, so no host pair is dropped.
   #
   # ## What it does not do
   #
@@ -91,6 +111,7 @@ defmodule Encryptor.Vault.Rekey do
   # rotation and a format or context change, and this function is by definition
   # wrong for the second.
 
+  alias AwsEncryptionSdk.Cmm.Behaviour, as: CmmBehaviour
   alias Encryptor.Context
   alias Encryptor.Error
   alias Encryptor.Message
@@ -145,7 +166,7 @@ defmodule Encryptor.Vault.Rekey do
       # wrapped under the version before it (ADR-0001 Amendment B).
       config
       |> Encrypt.client(writer, selector, descriptor)
-      |> Encrypt.engine_encrypt(config, plaintext, stored, :rekey)
+      |> Encrypt.engine_encrypt(config, plaintext, writable(stored), :rekey)
     end
   end
 
@@ -173,6 +194,14 @@ defmodule Encryptor.Vault.Rekey do
         {:error, Error.decrypt_failed(config.vault, :rekey, engine)}
     end
   end
+
+  # The context the write half writes: the stored one less the engine's own
+  # verification-key pair, which the engine refuses from a caller and writes
+  # afresh for the new message's signing key ("The engine's own pair is not
+  # carried", above). A message written under `0x0478` has no such pair, and
+  # there this is the identity.
+  @spec writable(Context.context()) :: Context.context()
+  defp writable(stored), do: Map.delete(stored, CmmBehaviour.reserved_encryption_context_key())
 
   # The read half. The stack is the writer's stack, built by
   # `Encryptor.Vault.Encrypt.client/3`, for the reason that module records: this

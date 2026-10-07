@@ -295,6 +295,59 @@ defmodule Encryptor.Vault.RekeyTest do
     end
   end
 
+  describe "on the signing suite, 0x0578" do
+    # The engine's own pair, written out here rather than read from the engine
+    # or the module under test, so a test agrees with neither by construction.
+    @verification_key "aws-crypto-public-key"
+
+    # sabotage: passed `stored` to the re-encrypt instead of
+    # `writable(stored)` - red, because the engine refuses a context that
+    # carries its own verification-key pair and every rekey on the default
+    # suite fails with :reserved_encryption_context_key.
+    test "moves a message off a retired key, and it opens under the new one" do
+      writer = start_vault(RekeyVaults.SignedRetired)
+      rotator = start_vault(RekeyVaults.SignedBound)
+
+      old = writer.encrypt!(@pan, encryption_context: @columns)
+      assert Map.has_key?(context(old), @verification_key)
+
+      assert {:ok, new} = rotator.rekey(old)
+
+      assert key_names(old) == ["app/v1"]
+      assert key_names(new) == ["app/v2"]
+      assert {:ok, @pan} = rotator.decrypt(new, encryption_context: @columns)
+    end
+
+    # sabotage: passed `stored` to the re-encrypt instead of
+    # `writable(stored)` - red on the rekey itself, as above; the assertions
+    # below then pin what a fixed rekey writes: the host's pairs exactly, and
+    # a verification key the engine generated for this write, not the old one.
+    test "carries the host's pairs across, and the engine writes a fresh verification key" do
+      writer = start_vault(RekeyVaults.SignedRetired)
+      rotator = start_vault(RekeyVaults.SignedBound)
+
+      old = writer.encrypt!(@pan, encryption_context: @columns)
+      assert {:ok, new} = rotator.rekey(old)
+
+      assert Map.delete(context(new), @verification_key) == @columns
+      assert Map.keys(context(new)) == Map.keys(context(old))
+      refute context(new)[@verification_key] == context(old)[@verification_key]
+    end
+
+    # sabotage: passed `stored` to the re-encrypt instead of
+    # `writable(stored)` - red on a scoped vault too, where the stored context
+    # also carries the `scope_ref` the vault supplied.
+    test "round trips on a scoped vault, with the pair the vault supplied itself" do
+      vault = start_vault(RekeyVaults.SignedMerchant)
+
+      old = vault.encrypt!(@pan, key: "merchant_a", encryption_context: @columns)
+      assert {:ok, new} = vault.rekey(old, key: "merchant_a")
+
+      assert Map.delete(context(new), @verification_key) == merchant_context("merchant_a")
+      assert {:ok, @pan} = vault.decrypt(new, key: "merchant_a", encryption_context: @columns)
+    end
+  end
+
   describe "the door" do
     # sabotage: made the generated rekey/2 pass `[]` instead of `opts` - red,
     # because the selector arrives that way and a scope rekey that dropped it

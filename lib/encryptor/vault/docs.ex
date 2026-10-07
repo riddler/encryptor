@@ -119,6 +119,13 @@ defmodule Encryptor.Vault.Docs do
     `{:reserved_context_key, key}`, since the only correct value is the one
     already in the message.
 
+    One pair is not the host's and is not carried: under a signing suite
+    (`0x0578`, the default) the engine stores the message's signature
+    verification key under its own reserved `aws-crypto-public-key` key, and
+    refuses that key from a caller. The re-encrypt leaves it out and the
+    engine writes a fresh one for the new message's signature, so every
+    other pair comes back exactly as it was and that one carries a new value.
+
     This behaviour depends on the engine storing the full encryption context
     in the message header, which is a deviation from the AWS Encryption SDK
     specification in this package's favour. If the engine is ever corrected
