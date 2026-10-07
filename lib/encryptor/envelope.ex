@@ -42,6 +42,16 @@ defmodule Encryptor.Envelope do
   is redacted from `inspect/2`. There is no function in this package that
   returns a bare scope master key as a binary.
 
+  That includes the root vault's own doors. A wrapping is an ordinary
+  message, so without a refusal the root vault's `decrypt/2` would open it
+  and return the bare key. It does not: a message whose stored context
+  carries a pair under this package's `encryptor-` prefix is
+  `:decrypt_failed` from `Encryptor.Vault.decrypt/3` and
+  `Encryptor.Vault.rekey/3`, and their bang forms, because neither door
+  reproduces such a pair. `unwrap/2` and `rewrap/2` reach the same decrypt
+  and rekey paths with the binding reproduced, and they are the only callers
+  that can open a wrapping.
+
   **The wrapping's encryption context is package-owned** (decision 4). See
   below.
 
@@ -175,11 +185,11 @@ defmodule Encryptor.Envelope do
   alias Encryptor.Key.Aes
   alias Encryptor.Message
   alias Encryptor.Message.Info
-  alias Encryptor.Vault
   alias Encryptor.Vault.Decrypt
   alias Encryptor.Vault.Encrypt
   alias Encryptor.Vault.Keyring
   alias Encryptor.Vault.Reference
+  alias Encryptor.Vault.Rekey
 
   # ADR-0003 decision 4's four context keys and the one fixed value, spelled
   # here and nowhere else. They are the constants the operator's crypto read
@@ -393,9 +403,11 @@ defmodule Encryptor.Envelope do
   leaves every identity column alone, which is why decision 6's split of the
   two root labels was worth making.
 
-  It is built on `Encryptor.Vault.rekey/2` and adds nothing cryptographic of
-  its own - ADR-0005 decision 7 settles that `rekey/2` stays on the vault
-  precisely because this is its canonical caller. The context is carried
+  It is built on the rekey path behind `Encryptor.Vault.rekey/2` and adds
+  nothing cryptographic of its own - ADR-0005 decision 7 settles that
+  `rekey/2` stays on the vault precisely because this is its canonical
+  caller. It enters that path with the binding reproduced, which the public
+  `rekey/2` does not do and so refuses a wrapping. The context is carried
   across byte for byte, so the returned wrapping carries the same binding, and
   every identity field of the struct is unchanged. Only `:wrapped` moves.
 
@@ -414,7 +426,7 @@ defmodule Encryptor.Envelope do
   def rewrap(root_vault, %WrappedKey{} = wrapped) when is_atom(root_vault) do
     with {:ok, binding} <- binding_for(root_vault, :rekey, wrapped),
          :ok <- require_binding(root_vault, :rekey, wrapped.wrapped, binding),
-         {:ok, rewrapped} <- Vault.rekey(root_vault, wrapped.wrapped) do
+         {:ok, rewrapped} <- Rekey.call(root_vault, wrapped.wrapped, [], binding) do
       {:ok, %WrappedKey{wrapped | wrapped: rewrapped}}
     end
   end

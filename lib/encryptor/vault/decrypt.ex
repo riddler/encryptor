@@ -69,6 +69,26 @@ defmodule Encryptor.Vault.Decrypt do
   # Required keys are what close the gap for the keys that matter, and on a
   # `:scoped` vault `"scope_ref"` is always in the required set.
   #
+  # ## One stored key a reader may not omit: a package pair
+  #
+  # The one exception to "a key the claim omits is ignored" is a key under
+  # this package's own prefix, `Encryptor.Context.package_key?/1`. No host
+  # can write one, so a message carrying one was written by this package for
+  # itself - today, a scope-key wrapping, whose binding is four such pairs -
+  # and only the reader that reproduces the pair may open it. A reader that
+  # does not is refused with `:decrypt_failed`, before the engine is called,
+  # carrying `{:encryption_context_mismatch, key}` in `:engine` like any
+  # other disagreement.
+  #
+  # The public doors reproduce no package pair: `Encryptor.Vault.decrypt/3`
+  # passes no reserved layer and `Encryptor.Context` refuses the prefix from
+  # a caller. So a root vault's own `decrypt/2` refuses a wrapping, where
+  # without this it opened the wrapping and returned the bare scope master
+  # key, which ADR-0003 decision 3 says no function in this package returns.
+  # `Encryptor.Envelope.unwrap/2` is the reader that reproduces the binding,
+  # through `call/4` below; the rekey path applies the same rule, and
+  # `Encryptor.Envelope.rewrap/2` reproduces the binding there likewise.
+  #
   # ## The reader's stack is the writer's stack
   #
   # `Encryptor.Vault.Encrypt.client/3` builds it, and this module calls that
@@ -123,9 +143,11 @@ defmodule Encryptor.Vault.Decrypt do
   # `reserved` is the package-reserved context layer the reader reproduces,
   # positional for the reason `Encryptor.Vault.Resolve.context/5` gives. Its
   # only caller is `Encryptor.Envelope.unwrap/2`, reproducing ADR-0003
-  # decision 4's binding. Note that reproducing it here is not the same as
-  # *requiring* it: `agree/4` below compares only keys present in both maps,
-  # so the envelope performs its own presence check before calling in.
+  # decision 4's binding; `Encryptor.Vault.decrypt/3` passes none, which is
+  # what makes `agree/4` refuse a wrapping on the public door. Note that
+  # reproducing it here is not the same as *requiring* it: `agree/4` compares
+  # only keys present in both maps, so the envelope performs its own presence
+  # check before calling in.
   @spec call(module(), binary(), keyword(), Context.context()) ::
           {:ok, binary()} | {:error, Error.t()}
   def call(vault, ciphertext, opts, reserved \\ %{})
@@ -190,24 +212,38 @@ defmodule Encryptor.Vault.Decrypt do
     end
   end
 
-  # Sorted before it reports, so a reproduced context disagreeing on two keys
-  # names the same one on every run. `Map.get(stored, key, value)` is what
-  # makes "only keys present in both" literal: a key the message does not
+  # Two scans, each sorted before it reports, so a message failing on two
+  # keys names the same one on every run. The first is the package pair the
+  # reader did not reproduce ("One stored key a reader may not omit", above).
+  # The second is the value comparison, where `Map.get(stored, key, value)` is
+  # what makes "only keys present in both" literal: a key the message does not
   # carry compares equal to itself and is skipped.
   @spec compare(Config.t(), Context.context(), Context.context(), Error.operation()) ::
           :ok | {:error, Error.t()}
   defp compare(config, stored, reproduced, operation) do
-    reproduced
-    |> Enum.sort()
-    |> Enum.find(fn {key, value} -> Map.get(stored, key, value) != value end)
-    |> case do
+    case unreproduced_package_key(stored, reproduced) || disagreeing_key(stored, reproduced) do
       nil ->
         :ok
 
-      {key, _value} ->
+      key ->
         {:error,
          Error.decrypt_failed(config.vault, operation, {:encryption_context_mismatch, key})}
     end
+  end
+
+  @spec unreproduced_package_key(Context.context(), Context.context()) :: String.t() | nil
+  defp unreproduced_package_key(stored, reproduced) do
+    stored
+    |> Map.keys()
+    |> Enum.sort()
+    |> Enum.find(&(Context.package_key?(&1) and not Map.has_key?(reproduced, &1)))
+  end
+
+  @spec disagreeing_key(Context.context(), Context.context()) :: String.t() | nil
+  defp disagreeing_key(stored, reproduced) do
+    reproduced
+    |> Enum.sort()
+    |> Enum.find_value(fn {key, value} -> if Map.get(stored, key, value) != value, do: key end)
   end
 
   @doc false

@@ -131,8 +131,10 @@ defmodule Encryptor.WireFixtureVaults do
 
     Its provider does not unwrap the row - the current build refuses that,
     which is its own test - but reads the material out of the wrapping
-    through the root vault's plain decrypt, and names it with the row's
-    stored namespace and name. So a decrypt that fails here fails on what
+    through the root vault's decrypt path with the row's own v1 binding
+    reproduced as the package-reserved layer (the public `decrypt/2`
+    refuses a wrapping, which is a test of its own too), and names it with
+    the row's stored namespace and name. So a decrypt that fails here fails on what
     the ciphertext itself carries: its context pair spelled in v1 and its
     reference derived under the retired label.
     """
@@ -144,6 +146,9 @@ defmodule Encryptor.WireFixtureVaults do
       required_context: ["table", "column"],
       cache: false
 
+    alias Encryptor.Context
+    alias Encryptor.Message
+    alias Encryptor.Vault.Decrypt
     alias Encryptor.WireFixtureVaults
 
     @impl true
@@ -164,7 +169,14 @@ defmodule Encryptor.WireFixtureVaults do
     defp unwrap(selector) do
       row = WireFixtureVaults.row()
 
-      case WireFixtureVaults.RootVault.decrypt(row.wrapped) do
+      {:ok, info} = Message.describe(row.wrapped)
+
+      binding =
+        Map.filter(info.encryption_context, fn {key, _value} ->
+          Context.package_key?(key)
+        end)
+
+      case Decrypt.call(WireFixtureVaults.RootVault, row.wrapped, [], binding) do
         {:ok, material} ->
           {:ok,
            %Encryptor.Key.Aes{

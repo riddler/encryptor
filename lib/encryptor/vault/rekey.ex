@@ -61,6 +61,14 @@ defmodule Encryptor.Vault.Rekey do
   # path makes, on purpose: a second copy of it would be a second thing to keep
   # in step with upstream issue #96.
   #
+  # The same call is what refuses a scope-key wrapping on the public door. A
+  # stored pair under this package's own prefix that the composed context
+  # does not reproduce is `:decrypt_failed` there (`Encryptor.Vault.Decrypt`,
+  # "One stored key a reader may not omit"), and `Encryptor.Vault.rekey/3`
+  # composes no package pair. So a root vault's own `rekey/2` cannot open a
+  # wrapping, and `Encryptor.Envelope.rewrap/2` - which reproduces the binding
+  # as the `reserved` layer of `call/4` - is the one caller that can.
+  #
   # ## The order
   #
   #   1. `Encryptor.Vault.ready/2`, stamped `:rekey`.
@@ -70,7 +78,8 @@ defmodule Encryptor.Vault.Rekey do
   #      **every** key the message might have been written under, which is what
   #      makes a rekey the mechanism that moves a message off a retired key
   #      (ADR-0002 decision 7, ADR-0005 decision 1's R2).
-  #   5. The vault-composed context.
+  #   5. The vault-composed context, with the `reserved` layer when the
+  #      caller is `Encryptor.Envelope.rewrap/2`.
   #   6. The stored context, parsed from the header, and the value comparison
   #      of the two described above.
   #   7. The decrypt, reproducing the stored context.
@@ -124,15 +133,22 @@ defmodule Encryptor.Vault.Rekey do
   alias Encryptor.Vault.Resolve
 
   @doc false
-  @spec call(module(), binary(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
-  def call(vault, ciphertext, opts) when is_binary(ciphertext) and is_list(opts) do
+  # `reserved` is the package-reserved layer the composed context reproduces,
+  # positional for the reason `Encryptor.Vault.Resolve.context/5` gives, as on
+  # `Encryptor.Vault.Decrypt.call/4`. Its only caller is
+  # `Encryptor.Envelope.rewrap/2`, reproducing ADR-0003 decision 4's binding;
+  # `Encryptor.Vault.rekey/3` passes none.
+  @spec call(module(), binary(), keyword(), Context.context()) ::
+          {:ok, binary()} | {:error, Error.t()}
+  def call(vault, ciphertext, opts, reserved \\ %{})
+      when is_binary(ciphertext) and is_list(opts) and is_map(reserved) do
     opened = Resolve.open(vault, opts, :rekey)
     scope_ref = Resolve.telemetry_reference(opened)
     span = Telemetry.operation_start(vault, :rekey, scope_ref)
 
     result =
       with {:ok, config, selector, reference} <- opened do
-        rekey(config, selector, reference, ciphertext, opts, scope_ref)
+        rekey(config, selector, reference, ciphertext, opts, reserved, scope_ref)
       end
 
     Telemetry.operation_stop(vault, :rekey, span, scope_ref, result)
@@ -143,7 +159,7 @@ defmodule Encryptor.Vault.Rekey do
   # Two provider round trips, so two nested provider spans: a rekey reads
   # under every candidate and writes under the current one, and an operator
   # watching a `key_unavailable` rate wants both.
-  defp rekey(config, selector, reference, ciphertext, opts, scope_ref) do
+  defp rekey(config, selector, reference, ciphertext, opts, reserved, scope_ref) do
     vault = config.vault
 
     with :ok <- refuse_context(config, opts),
@@ -152,7 +168,7 @@ defmodule Encryptor.Vault.Rekey do
              Resolve.decryption_keys(config, selector, :rekey)
            end),
          {:ok, readers} <- Keyring.build_all(vault, :rekey, candidates),
-         {:ok, composed} <- Resolve.context(config, reference, [], :rekey),
+         {:ok, composed} <- Resolve.context(config, reference, [], :rekey, reserved),
          {:ok, stored} <- stored_context(config, ciphertext),
          :ok <- Decrypt.agree(config, ciphertext, composed, :rekey),
          {:ok, plaintext} <- open(config, readers, selector, ciphertext, stored),

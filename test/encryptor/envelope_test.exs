@@ -44,6 +44,14 @@ defmodule Encryptor.EnvelopeTest do
   defp reason({:error, %Error{reason: reason}}), do: reason
   defp engine({:error, %Error{engine: engine}}), do: engine
 
+  # A decrypt's outcome, rendering an `{:ok, _}` as `:opened` and never as its
+  # value: where a test expects a refusal, a sabotage turns that value into
+  # key material, and key material must not reach a failure report.
+  defp refusal({:ok, _material}), do: :opened
+
+  defp refusal({:error, %Error{reason: reason, engine: engine, operation: operation}}),
+    do: {reason, engine, operation}
+
   defp context(blob) do
     {:ok, info} = Message.describe(blob)
     info.encryption_context
@@ -684,6 +692,106 @@ defmodule Encryptor.EnvelopeTest do
       end
 
       assert_raise ArgumentError, fn -> Envelope.subkey(descriptor, "v1/blind-index") end
+    end
+  end
+
+  describe "a root vault's public decrypt and rekey refuse a wrapping" do
+    # A review found that a root vault's own decrypt opened a wrapping and
+    # returned the bare scope master key, which decision 3 says no function
+    # in this package does. These tests are that reproduction.
+
+    @refused_decrypt {:decrypt_failed, {:encryption_context_mismatch, @namespace_key}, :decrypt}
+    @refused_rekey {:decrypt_failed, {:encryption_context_mismatch, @namespace_key}, :rekey}
+
+    # sabotage: removed the package-reserved clause from `compare/4` in
+    # `Encryptor.Vault.Decrypt` - red: the decrypt returns `{:ok, material}`,
+    # the 32-byte scope master key.
+    test "decrypt/2 refuses it, naming the first binding key in :engine" do
+      root = start_vault(EnvelopeVaults.Root)
+      wrapped = provisioned(root)
+
+      assert refusal(root.decrypt(wrapped.wrapped)) == @refused_decrypt
+    end
+
+    # sabotage: the same removal - red: a claim the wrapping does not carry is
+    # ignored by the present-in-both comparison, so the key comes back.
+    test "decrypt/2 refuses it under a table and column claim too" do
+      root = start_vault(EnvelopeVaults.Root)
+      wrapped = provisioned(root)
+
+      claim = %{"table" => "accounts", "column" => "notes"}
+
+      assert refusal(root.decrypt(wrapped.wrapped, encryption_context: claim)) ==
+               @refused_decrypt
+
+      assert refusal(Encryptor.Vault.decrypt(root, wrapped.wrapped, encryption_context: claim)) ==
+               @refused_decrypt
+
+      assert %Error{reason: :decrypt_failed} =
+               assert_raise(Error, fn -> root.decrypt!(wrapped.wrapped) end)
+    end
+
+    # sabotage: the same removal - red: the rekey opens the wrapping and
+    # re-encrypts it, so a rekey is a decrypt of the wrapping one step removed.
+    test "rekey/2 refuses it, stamped :rekey" do
+      root = start_vault(EnvelopeVaults.Root)
+      wrapped = provisioned(root)
+
+      assert refusal(root.rekey(wrapped.wrapped)) == @refused_rekey
+      assert refusal(Encryptor.Vault.rekey(root, wrapped.wrapped)) == @refused_rekey
+
+      assert %Error{reason: :decrypt_failed} =
+               assert_raise(Error, fn -> root.rekey!(wrapped.wrapped) end)
+    end
+
+    # sabotage: made the guard refuse every stored key the reader did not
+    # reproduce, not only the package-reserved ones - red: the signing suite's
+    # own `aws-crypto-public-key` pair then refuses every ordinary decrypt.
+    test "an ordinary message on the same root vault still decrypts and rekeys" do
+      for vault <- [EnvelopeVaults.Root, EnvelopeVaults.SignedRoot] do
+        root = start_vault(vault)
+        ciphertext = root.encrypt!(@pan, encryption_context: %{"table" => "cards"})
+
+        assert root.decrypt(ciphertext, encryption_context: %{"table" => "cards"}) == {:ok, @pan}
+        assert {:ok, rekeyed} = root.rekey(ciphertext)
+        assert root.decrypt(rekeyed) == {:ok, @pan}
+      end
+    end
+
+    # sabotage: had unwrap/2 and rewrap/2 call the public decrypt and rekey
+    # without reproducing the binding - red: both then refuse every wrapping.
+    test "unwrap/2 and rewrap/2 still open it, through the internal path" do
+      root = start_vault(EnvelopeVaults.Root)
+      staged = start_vault(EnvelopeVaults.Staged)
+      wrapped = provisioned(root)
+
+      assert refusal(root.decrypt(wrapped.wrapped)) == @refused_decrypt
+      assert refusal(staged.rekey(wrapped.wrapped)) == @refused_rekey
+
+      assert {:ok, %Aes{bits: 256}} = Envelope.unwrap(root, wrapped)
+      assert {:ok, rewrapped} = Envelope.rewrap(staged, wrapped)
+      assert Envelope.unwrap(staged, rewrapped) == Envelope.unwrap(root, wrapped)
+    end
+
+    # sabotage: the same removal - red: the signing suite's wrapping opens.
+    test "a wrapping on the signing suite is refused too" do
+      root = start_vault(EnvelopeVaults.SignedRoot)
+      wrapped = provisioned(root)
+
+      assert refusal(root.decrypt(wrapped.wrapped)) == @refused_decrypt
+      assert refusal(root.rekey(wrapped.wrapped)) == @refused_rekey
+    end
+
+    # The guard and the binding answer one set: every key of the binding is
+    # under the prefix the guard refuses. sabotage: respelled
+    # `@namespace_key` in `Encryptor.Envelope` without the prefix - red.
+    test "every key of the binding is under the package-reserved prefix" do
+      for key <- Map.keys(Envelope.binding("ref", 1, "ns")) do
+        assert Encryptor.Context.package_key?(key)
+      end
+
+      refute Encryptor.Context.package_key?("aws-crypto-public-key")
+      refute Encryptor.Context.package_key?("table")
     end
   end
 
