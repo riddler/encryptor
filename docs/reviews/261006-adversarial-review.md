@@ -308,9 +308,9 @@ until each one is FIXED or the maintainer accepts it.
   Every rekey and envelope test fixture uses 0x0478.
 - **Severity:** High.
 - **Claim broken:** `lib/encryptor/envelope.ex:35`, "root rotation is
-  `rewrap/2` and nothing else". Also the rotation runbook's root-rotation step,
-  which calls `Encryptor.Envelope.rewrap/2` against the guide's root vault on
-  the default suite.
+  `rewrap/2` and nothing else", for a root vault left on the default suite.
+  The rotation runbook's root-rotation step works only because the
+  getting-started guide's root vault sets `algorithm_suite_id: 0x0478`.
 - **Disposition:** PENDING the maintainer's disposition. The pass suggested a
   fix: drop `aws-crypto-public-key` from the context written back, and add
   rekey and rewrap tests on 0x0578.
