@@ -198,7 +198,8 @@ defmodule Encryptor.ErrorTest do
                  "#Encryptor.Error<reason: #{rendered}, vault: nil, operation: nil, engine: nil>"
       end
 
-      # Every other reason is this package's own term and renders as it is.
+      # Every other reason renders as it is: what a vault lets into one is its
+      # own selector, or atoms (Encryptor.Vault.InspectRedactionTest).
       for reason <- [{:unknown_key, "tenant_a"}, {:missing_config, [:my_app, MyApp.Vault]}] do
         assert inspect(%Error{reason: reason}) =~ inspect(reason)
       end

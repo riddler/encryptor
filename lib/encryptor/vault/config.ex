@@ -616,17 +616,21 @@ defmodule Encryptor.Vault.Config do
   # A provider that fails at start in this package's own vocabulary keeps its
   # term - `Encryptor.Provider.Static` and `Encryptor.Provider.Function` both
   # answer with `{:missing_config, path}` and `{:invalid_config, key, detail}`
-  # already. Anything else is carried in `:engine`, which is never rendered,
+  # already - but only in the shape the vocabulary types it: a path of option
+  # names, a configuration key and a dependency name are atoms, and an
+  # `:invalid_config` detail is never rendered by `Exception.message/1` or
+  # `inspect/2`. Anything else, an atom tag with some other value beside it
+  # included, is carried in `:engine`, which is never rendered either,
   # because a provider's own failure term can hold key material.
-  @provider_init_reasons [:missing_config, :invalid_config, :missing_optional_dependency]
-
   defp provider_init_error(vault, reason) do
     if own_reason?(reason),
       do: error(vault, reason),
       else: engine_error(vault, {:invalid_config, :provider, :init}, reason)
   end
 
-  defp own_reason?(reason) when is_tuple(reason), do: elem(reason, 0) in @provider_init_reasons
+  defp own_reason?({:missing_config, path}) when is_list(path), do: Enum.all?(path, &is_atom/1)
+  defp own_reason?({:invalid_config, key, _detail}) when is_atom(key), do: true
+  defp own_reason?({:missing_optional_dependency, dep}) when is_atom(dep), do: true
   defp own_reason?(_reason), do: false
 
   # ADR-0010 decision 2: the store is a `{module, keyword}` pair naming a

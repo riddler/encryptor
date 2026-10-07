@@ -27,18 +27,6 @@ defmodule Encryptor.Vault.Resolve do
   alias Encryptor.Vault.Reference
   alias Encryptor.Vault.Suspension
 
-  # ADR-0002 decision 6's provider vocabulary. A provider answering with one
-  # of these is answering in contract, and its term is carried through
-  # unchanged; anything else is a defect in the provider.
-  @provider_reasons [
-    :unknown_key,
-    :key_unavailable,
-    :invalid_key_descriptor,
-    :provider_not_started,
-    :missing_optional_dependency,
-    :not_provisionable
-  ]
-
   # ADR-0004 decision 3: the profile fixes the selector type, and both
   # refusals are caller-argument failures that depend on no ciphertext.
   #
@@ -70,7 +58,7 @@ defmodule Encryptor.Vault.Resolve do
           {:ok, term()} | {:error, Error.t()}
   def encryption_key(config, selector, operation) do
     with :ok <- allowed(config, selector, operation) do
-      ask(config, operation, fn module ->
+      ask(config, selector, operation, fn module ->
         module.encryption_key(config.provider_state, selector)
       end)
     end
@@ -85,7 +73,7 @@ defmodule Encryptor.Vault.Resolve do
           {:ok, term()} | {:error, Error.t()}
   def decryption_keys(config, selector, operation) do
     with :ok <- allowed(config, selector, operation) do
-      ask(config, operation, fn module ->
+      ask(config, selector, operation, fn module ->
         module.decryption_keys(config.provider_state, selector)
       end)
     end
@@ -136,7 +124,7 @@ defmodule Encryptor.Vault.Resolve do
           {:ok, term()} | {:error, Error.t()}
   def provision(%Config{provider: {module, _opts}} = config, selector, operation) do
     if provisionable?(module) do
-      ask(config, operation, fn provider ->
+      ask(config, selector, operation, fn provider ->
         provider.provision(config.provider_state, selector)
       end)
     else
@@ -152,28 +140,53 @@ defmodule Encryptor.Vault.Resolve do
   # The provider is called on the caller's process, with the state frozen at
   # start, and it sees a selector and nothing else - no plaintext, no
   # ciphertext, no context, no configuration (ADR-0002 decision 1).
-  @spec ask(Config.t(), Error.operation(), (module() -> term())) ::
+  @spec ask(Config.t(), Error.selector(), Error.operation(), (module() -> term())) ::
           {:ok, term()} | {:error, Error.t()}
-  defp ask(%Config{provider: {module, _opts}} = config, operation, callback) do
+  defp ask(%Config{provider: {module, _opts}} = config, selector, operation, callback) do
     case callback.(module) do
       {:ok, answer} ->
         {:ok, answer}
 
       {:error, reason} ->
-        if provider_reason?(reason),
-          do: {:error, error(config, operation, reason)},
-          else: {:error, off_contract(config, operation, reason)}
+        case in_contract(reason, selector) do
+          {:ok, reason} -> {:error, error(config, operation, reason)}
+          :off_contract -> {:error, off_contract(config, operation, reason)}
+        end
 
       other ->
         {:error, off_contract(config, operation, other)}
     end
   end
 
-  @spec provider_reason?(term()) :: boolean()
-  defp provider_reason?(reason) when is_tuple(reason) and tuple_size(reason) == 2,
-    do: elem(reason, 0) in @provider_reasons
+  # ADR-0002 decision 6's provider vocabulary. A provider answering with one
+  # of these terms is answering in contract, but what reaches `:reason` is
+  # never a value only the provider supplied, because `Exception.message/1`
+  # renders it and a provider's return can hold anything, key material
+  # included. A selector term carries the selector this vault asked about,
+  # not whatever the provider wrote beside the tag. A module or dependency
+  # term is carried only when its name is an atom, as the vocabulary types
+  # it; any other shape is a defect in the provider. A descriptor's detail
+  # is carried as it is, because neither `Exception.message/1` nor
+  # `inspect/2` renders it.
+  @spec in_contract(term(), Error.selector()) :: {:ok, Error.reason()} | :off_contract
+  defp in_contract({:unknown_key, _provider_selector}, selector),
+    do: {:ok, {:unknown_key, selector}}
 
-  defp provider_reason?(_reason), do: false
+  defp in_contract({:key_unavailable, _provider_selector}, selector),
+    do: {:ok, {:key_unavailable, selector}}
+
+  defp in_contract({:invalid_key_descriptor, _detail} = reason, _selector), do: {:ok, reason}
+
+  defp in_contract({:provider_not_started, module} = reason, _selector) when is_atom(module),
+    do: {:ok, reason}
+
+  defp in_contract({:missing_optional_dependency, dep} = reason, _selector) when is_atom(dep),
+    do: {:ok, reason}
+
+  defp in_contract({:not_provisionable, module} = reason, _selector) when is_atom(module),
+    do: {:ok, reason}
+
+  defp in_contract(_reason, _selector), do: :off_contract
 
   # A provider that answers outside its contract is a bug in the provider, not
   # in the caller, which is exactly what `{:invalid_key_descriptor, detail}`

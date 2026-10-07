@@ -56,12 +56,22 @@ defmodule Encryptor.Error do
   wrapping key material never reach a message, a log line, or a failure
   report.
 
+  The rest of a reason is safe because of what a vault lets into it. A
+  provider's answer reaches `:reason` only as a term of this vocabulary: a
+  selector term carries the selector the vault asked the provider about,
+  never a value the provider wrote beside the tag; a module, dependency,
+  configuration key or option path is carried only as atoms; and any other
+  shape is carried in `:engine` instead, under
+  `{:invalid_key_descriptor, :provider_off_contract}` at resolution or
+  `{:invalid_config, :provider, :init}` at start.
+
   `inspect/2` keeps the same rule. It renders the struct as
   `#Encryptor.Error<...>`, with a non-`nil` `:engine` and those two details
   replaced by `"[redacted]"`, so a log line, a crash report or the exit a
-  supervisor reports when a vault fails to start carries no term a provider
-  or the engine supplied. The fields themselves are unchanged: code that
-  needs the term reads `error.engine`.
+  supervisor reports when a vault fails to start renders neither a
+  provider's or the engine's own term nor a detail that can hold key
+  material. The fields themselves are unchanged: code that needs the term
+  reads `error.engine`.
 
       iex> inspect(%Encryptor.Error{reason: {:invalid_config, :provider, :init}, operation: :start, engine: {:own_term, "detail"}})
       ~s(#Encryptor.Error<reason: {:invalid_config, :provider, "[redacted]"}, vault: nil, operation: :start, engine: "[redacted]">)
