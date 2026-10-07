@@ -10,7 +10,10 @@ defmodule Encryptor.Context do
     * every pair is public to anyone holding a ciphertext, so putting a key in
       the context is a disclosure decision, and
     * no pair can be edited without breaking the tag, which is what binds a
-      message to the row, column and scope it was written for.
+      message to the row, column and scope it was written for. Only a pair
+      the message carries binds it: a decrypt compares the keys present in
+      both contexts, so a key the writer left out binds nothing, and the
+      vault's `:required_context` is what guarantees a key is written.
 
   This module owns the vocabulary and the composition. It does not enforce the
   required set - that is the vault's `:required_context` plus the

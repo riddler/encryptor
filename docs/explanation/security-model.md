@@ -114,6 +114,16 @@ The point is to bind a ciphertext to where it was written, so that bytes moved
 from one column to another, or from one scope's row to another's, fail to
 decrypt instead of decrypting into the wrong place.
 
+That binding reaches only the keys the message carries. A decrypt compares
+the keys present in both the message's stored context and the reader's claim:
+a key the reader adds that the message does not carry is ignored, and so is a
+key of yours the message carries that the reader leaves out. So a value
+written without a `column` key is bound to no column, and it decrypts under
+any column a reader names. The keys that must bind belong in the vault's `:required_context`. The
+vault then refuses a write that leaves one out, a read that leaves one out, and
+a read of a message written without one. A vault without a required set binds
+a key only if every one of its writers passes that key on every call.
+
 The engine checks the context too, so it would be natural to rely on that.
 The reason this package does not is that the engine's check sits below its
 materials cache: on a warm decryption cache it is skipped, and a second read

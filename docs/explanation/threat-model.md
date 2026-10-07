@@ -154,17 +154,26 @@ which values share a scope reference. AES-GCM does not hide length, so the
 reader learns each plaintext's length, to the byte. And the key names in the
 key-store rows and the messages show how many key versions each scope has.
 
-A reader who can also *write* gains little more. A value moved to another
-column, or a wrapping moved to another scope's or version's row, fails to
-decrypt rather than decrypting into the wrong place, because both are bound to
-where they were written.
+A reader who can also *write* gains little more, within one limit. A wrapping
+moved to another scope's or version's row fails to unwrap, because the package
+binds every wrapping to where it was written. A value moved to another column
+fails to decrypt only when the message's context names the column it was
+written for. The vault compares the keys present in both the message's stored
+context and the reader's claim: a key the writer left out binds nothing, so a
+value written without a `column` key decrypts under any `column` a reader
+claims. The binding of a context key holds when the vault's `:required_context`
+names it, which refuses a write that leaves the key out and a read of a message
+written without it, or when every writer of that vault passes the key on every
+call.
 
 Pinned by: ADR-0003 decision 10, the blast radius table
 ([the envelope record](https://github.com/riddler/encryptor/blob/main/docs/adr/0003-per-tenant-envelope.md));
 "a wrapping moved to another scope's row does not unwrap" and "a wrapping moved
 to another version's row does not unwrap"
 ([`test/encryptor/envelope_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/envelope_test.exs));
-"a column swap inside one scope fails, and the engine's term shape is ours"
+"a column swap inside one scope fails, and the engine's term shape is ours",
+"a message written without a column reads under any column claim" and "a vault
+requiring the column refuses a message written without it"
 ([`test/encryptor/vault/decrypt_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/decrypt_test.exs));
 "is ADR-0003 decision 5's derivation, byte for byte" for the keyed reference
 ([`test/encryptor/envelope_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/envelope_test.exs)).
@@ -210,10 +219,14 @@ key-shaped"
 
 The most ordinary adversary is a bug: code that reads a value under the wrong
 table, column or scope. The claim: a decrypt under a context that disagrees
-with the message fails, on a cold cache, a warm cache and with caching off; a
-decrypt that leaves out a required key is a loud error the caller can fix; and
-no caller can claim a scope through the context, because the scope reference is
-the vault's to supply from the `:key` selector.
+with the message on a key the message carries fails, on a cold cache, a warm
+cache and with caching off; a decrypt that leaves out a required key is a loud
+error the caller can fix; and no caller can claim a scope through the context,
+because the scope reference is the vault's to supply from the `:key` selector.
+A key the message does not carry is not compared, so the claim covers a table
+or a column only where the writer passed it, which `:required_context` is the
+way to guarantee (see
+[someone who can read the database](#someone-who-can-read-the-database)).
 
 Two refusals at the edges keep that claim from leaking. A vault refuses to
 start with a required context key no caller could ever supply, rather than
