@@ -1,0 +1,5 @@
+# This host is resolved fresh in CI, the way a real host would be; it
+# never commits a lock.
+/_build/
+/deps/
+/mix.lock
