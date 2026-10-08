@@ -1,3 +1,0 @@
-### Fixed
-
-- A vault whose `:required_context` names a key a caller is refused on its profile now refuses to start with `{:invalid_config, :required_context, {:reserved_key, key}}`, instead of starting and then failing every encrypt a caller makes. On a `:scoped` vault that newly covers `"scope_id"`, `"tenant_id"` and keys under the reserved `aws-crypto-` and `encryptor-` prefixes, while `"scope_ref"` stays allowed because the vault supplies it. On a `:single` vault it newly covers keys under the `aws-crypto-` prefix and every `encryptor-` key other than the four `Encryptor.Envelope` binds a wrapped key to (`"encryptor-purpose"`, `"encryptor-scope-ref"`, `"encryptor-key-version"` and `"encryptor-key-namespace"`), which a root vault may still require.
