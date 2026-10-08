@@ -24,6 +24,7 @@ defmodule Encryptor.GuidesTest do
 
   use ExUnit.Case, async: false
 
+  alias Encryptor.EngineReader
   alias Encryptor.Envelope
   alias Encryptor.Envelope.WrappedKey
   alias Encryptor.Error
@@ -152,14 +153,21 @@ defmodule Encryptor.GuidesTest do
       assert info.committed?
     end
 
-    # sabotage: dropped the static layer from `Context.merge/4`; red.
-    test "carries the static app pair and the caller's pairs in the clear" do
+    # The guide's vault requires `table` and `column`, so on the 1.1 engine
+    # those two are bound without being stored, and the static `app` pair,
+    # which is not required, rides in the clear. sabotage: dropped the static
+    # layer from `Context.merge/4`; red.
+    test "carries the static app pair in the clear, and binds the required pairs" do
       {:ok, ciphertext} = Vault.encrypt(@pan, encryption_context: @column_context)
       {:ok, info} = Message.describe(ciphertext)
 
-      assert info.encryption_context["app"] == "acme_payments"
-      assert info.encryption_context["table"] == "payment_methods"
-      assert info.encryption_context["column"] == "number"
+      assert info.encryption_context == %{"app" => "acme_payments"}
+      assert {:ok, @pan} = Vault.decrypt(ciphertext, encryption_context: @column_context)
+
+      assert {:error, %Error{reason: :decrypt_failed}} =
+               Vault.decrypt(ciphertext,
+                 encryption_context: %{@column_context | "column" => "other"}
+               )
     end
 
     # sabotage: blanked `provider_id` in `Message.describe/1`'s edk; red.
@@ -253,14 +261,19 @@ defmodule Encryptor.GuidesTest do
     # sabotage: dropped the vault-supplied `"scope_ref"` pair in
     # `Resolve.vault_supplied/2`; red. ADR-0009 Amendment A, A1 row 1:
     # respelled `Encryptor.Context`'s @scope_ref to "tenant_ref"; red.
-    test "the vault supplies the scope reference pair and the caller may not" do
+    test "the vault supplies the scope reference pair and the caller may not", %{
+      wrapped: wrapped
+    } do
       {:ok, ciphertext} =
         MerchantVault.encrypt(@pan, key: @merchant, encryption_context: @column_context)
 
-      {:ok, info} = Message.describe(ciphertext)
       {:ok, expected} = Envelope.scope_ref(GuideVaults.reference_subkey(), @merchant)
+      {:ok, key} = Envelope.unwrap(RootVault, wrapped)
 
-      assert info.encryption_context["scope_ref"] == expected
+      # Bound, not stored, on the 1.1 engine: the engine's own read opens the
+      # message under the reference the guide derives.
+      assert {:ok, %{plaintext: @pan}} =
+               EngineReader.read(ciphertext, key, Map.put(@column_context, "scope_ref", expected))
 
       result =
         MerchantVault.encrypt(@pan,

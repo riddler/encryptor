@@ -185,6 +185,7 @@ defmodule Encryptor.Envelope do
   alias Encryptor.Key.Aes
   alias Encryptor.Message
   alias Encryptor.Message.Info
+  alias Encryptor.Vault.Config
   alias Encryptor.Vault.Decrypt
   alias Encryptor.Vault.Encrypt
   alias Encryptor.Vault.Keyring
@@ -415,8 +416,8 @@ defmodule Encryptor.Envelope do
   `rekey/2` stays on the vault precisely because this is its canonical
   caller. It enters that path with the binding reproduced, which the public
   `rekey/2` does not do and so refuses a wrapping. The context is carried
-  across byte for byte, so the returned wrapping carries the same binding, and
-  every identity field of the struct is unchanged. Only `:wrapped` moves.
+  across, so the same binding is bound to the returned wrapping, and every
+  identity field of the struct is unchanged. Only `:wrapped` moves.
 
   **Idempotent in effect, not in bytes.** A wrapping already under the current
   root rewraps to an equivalent wrapping: different bytes, because a fresh
@@ -456,10 +457,12 @@ defmodule Encryptor.Envelope do
   ciphertexts belong to the same scope without disclosing which scope that
   is - which an unkeyed hash of a short slug would not.
 
-  The output is not secret: it travels in the clear in every message header,
-  both as the `"scope_ref"` context pair and inside the encrypted data key's
-  name. The **input** is, and it never reaches a message, a log line, or a
-  failure report.
+  The output is not secret: it travels in the clear inside the encrypted data
+  key's name in every message a scope key provisioned here writes, and as the
+  `"scope_ref"` context pair in a message whose header stores it (one the
+  `aws_encryption_sdk` 1.0.x engine wrote; the 1.1 engine binds a required
+  pair without storing it). The **input** is secret, and it never reaches a
+  message, a log line, or a failure report.
 
   The derivation lives in one place for all three callers - the vault's
   start-time known-answer check, the encrypt path's context injection, and
@@ -677,13 +680,28 @@ defmodule Encryptor.Envelope do
   # it depends on the message (ADR-0001 decision 10's oracle rule), carrying
   # the same `{:encryption_context_mismatch, key}` term in `:engine` the vault
   # carries, so an operator's log line reads the same either way.
+  #
+  # One pair is not read from the header: a binding key the root vault
+  # requires. The 1.1 engine does not store a required pair in the header it
+  # writes; it binds it into the encrypted data key and the header
+  # authentication instead (ADR-0004 Amendment B). For such a key the binding
+  # is passed to the decrypt as the reproduced context, which `unwrap/2` and
+  # `rewrap/2` do in any case, and the engine checks it there: a wrapping
+  # written under another binding fails the unwrap, as it fails this check when
+  # the pair is stored. A wrapping the 1.0.x engine wrote stores every pair, so
+  # this check still reads all four for it. This settles ADR-0004 Amendment B's
+  # open question B-1 without refusing a root vault that requires the
+  # binding's keys at start.
   @spec require_binding(root_vault(), Error.operation(), binary(), %{String.t() => String.t()}) ::
           :ok | {:error, Error.t()}
   defp require_binding(vault, operation, blob, binding) do
     case Message.describe(blob) do
       {:ok, %Info{encryption_context: stored}} ->
+        required = required_keys(vault)
+
         binding
         |> Enum.sort()
+        |> Enum.reject(fn {key, _value} -> key in required and not Map.has_key?(stored, key) end)
         |> Enum.find(fn {key, value} -> Map.get(stored, key) != value end)
         |> case do
           nil -> :ok
@@ -692,6 +710,17 @@ defmodule Encryptor.Envelope do
 
       {:error, %Error{engine: engine}} ->
         {:error, Error.decrypt_failed(vault, operation, engine)}
+    end
+  end
+
+  # The root vault's required set. A vault that is not running has none to
+  # read, and it answers `{:vault_not_started, vault}` from the decrypt this
+  # check precedes, so every pair is read from the header here, as before.
+  @spec required_keys(root_vault()) :: [String.t()]
+  defp required_keys(vault) do
+    case Config.fetch(vault) do
+      {:ok, %Config{required_keys: required}} -> required
+      {:error, %Error{}} -> []
     end
   end
 

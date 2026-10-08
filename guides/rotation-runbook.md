@@ -47,7 +47,7 @@ a runbook step for restarting the vault.
 
 **R3 is not this package's at all.** A change of format, algorithm or
 encryption context is a re-encrypt that these functions cannot express:
-`rekey/2` preserves the context byte for byte, and the suite is vault
+`rekey/2` binds the same context to the message it writes, and the suite is vault
 configuration rather than a per-call option. It belongs entirely downstream.
 
 ## What this package ships, and what it only documents
@@ -664,7 +664,8 @@ Read this before promising anyone that your offboarding crypto-shreds.
 
 **A shred destroys plaintext, not attribution.** Every message header carries
 the scope's permanent pseudonym - its scope reference, in the encrypted data
-key's name and in the encryption context under `"scope_ref"` - and deleting
+key's name, and in the encryption context under `"scope_ref"` where the header
+stores it (a message written on `aws_encryption_sdk` 1.0.x) - and deleting
 the wrapping does not touch it. Outsiders cannot resolve the pseudonym. **The holder of the reference
 subkey can, by guess-and-confirm, forever, in every retained backup**: derive
 the reference for a candidate scope id, compare it against the header, and the

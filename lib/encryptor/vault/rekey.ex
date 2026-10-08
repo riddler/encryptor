@@ -12,37 +12,49 @@ defmodule Encryptor.Vault.Rekey do
   # modules already exports, and the value of this module is the order and the
   # one refusal, not new machinery.
   #
-  # ## The context comes from the message, and only from the message
+  # ## The context comes from the message, then the vault, then the row
   #
-  # ADR-0001 decision 4 requires a rekey to preserve the context byte for byte,
-  # and ADR-0004 decision 5 requires every decrypt to reproduce the required
-  # keys. A rekey caller cannot satisfy both: it holds a ciphertext, not a row,
-  # so it has no independent copy of what the message was bound to.
+  # ADR-0001 decision 4 requires a rekey to preserve the context, which ADR-0004
+  # Amendment B reads as the authenticated map: the same pairs are bound to the
+  # rekeyed message. ADR-0004 decision 5 requires every decrypt to reproduce the
+  # required keys. A rekey caller holds a ciphertext, not a row.
   #
-  # It does not need one. This engine stores the **full** context in the header
-  # - `Crypto.HeaderAuth.build_header/4` copies `materials.encryption_context`
-  # into it whole - so `Encryptor.Message.describe/1` recovers
-  # it, and that map is used twice: as the reproduced context for the decrypt
-  # half, and as the context the re-encrypt writes. That is ADR-0004 decision
-  # 11, and it is the one decision in the family that depends on the engine
-  # deviating from the specification, which has required keys stripped from the
-  # header instead. ADR-0004 open question 5 records the remedy if the engine is
-  # ever corrected: `rekey/2` would take the context as an argument, supplied by
-  # whatever owns the row. Until then, this module is the only place that
-  # assumption is made, and `Encryptor.Message` is the only place the header is
-  # read.
+  # Where the header stores a pair, the header is the copy: a message the 1.0.x
+  # engine wrote stores its whole context, `Encryptor.Message.describe/1`
+  # recovers it, and such a message rekeys with nothing from the caller, as
+  # ADR-0004 decision 11 has it. The 1.1 engine this package requires follows
+  # the specification and stores no required pair in a message it writes; the
+  # pairs are bound into the encrypted data key and the header authentication
+  # instead. For such a message the decrypt half reproduces, per Amendment B's
+  # B1:
   #
-  # ## Why `:encryption_context` is refused rather than merged
+  #   * the stored context, as before;
+  #   * each required key the header does not store that the vault composes
+  #     itself - the static layer, and `"scope_ref"` from `:key` on a `:scoped`
+  #     vault (`reproduce/3`);
+  #   * each required key the header does not store that the caller passes in
+  #     `:encryption_context`, which is what the option is for now.
   #
-  # The only correct value is the one already in the message, so accepting a
-  # second copy buys nothing and risks everything: a rotation job that passes a
-  # context rewrites what a million rows are bound to while believing it is
-  # rotating keys. Changing the context is an encrypt of new data - ADR-0005
-  # decision 1's R3 - and a context-preserving rekey is by definition the wrong
-  # operation for it. So the option is `{:reserved_context_key, key}`
-  # (ADR-0004 decision 11), refused before the provider is consulted, because
-  # like the selector check it depends on the caller's own arguments and on
-  # nothing else.
+  # The re-encrypt writes under that same map, so what is bound to the new
+  # message is what was bound to the old one. A value that disagrees with the
+  # one the message was written under fails the unwrap in the engine, which is
+  # `:decrypt_failed`, and nothing is rebound. A required key nobody supplies is
+  # the required-context CMM's `{:missing_required_context_keys, keys}`.
+  #
+  # ## Why the option still refuses almost everything
+  #
+  # Where the message already says what a pair is, a second copy buys nothing
+  # and risks everything: a rotation job that passes a context rewrites what a
+  # million rows are bound to while believing it is rotating keys. Changing the
+  # context is an encrypt of new data - ADR-0005 decision 1's R3 - and a
+  # context-preserving rekey is by definition the wrong operation for it. So the
+  # option accepts a key only when the vault requires it, the header does not
+  # store it, the vault does not compose it, and it is under no reserved prefix
+  # (`accept_pairs/4`); every other key is `{:reserved_context_key, key}`
+  # (ADR-0004 decision 11 as Amendment B replaces its second paragraph). The
+  # check runs before the provider is consulted, because it depends on the
+  # caller's arguments, the vault's configuration and the header, and on no key
+  # material.
   #
   # ## The vault-side comparison still runs, and it is not redundant
   #
@@ -57,7 +69,10 @@ defmodule Encryptor.Vault.Rekey do
   # it, a caller naming scope A could hand this function scope B's ciphertext
   # and, wherever the two selectors resolve to overlapping key material, get
   # back a message re-encrypted under A's current key with B's binding still
-  # inside it. The comparison is one call, and it is the same call the decrypt
+  # inside it. For a message whose header does not store `"scope_ref"`, the
+  # composed pair is reproduced into the decrypt instead, and the engine's
+  # unwrap refuses a scope the message was not bound to. The comparison is one
+  # call, and it is the same call the decrypt
   # path makes, on purpose: a second copy of it would be a second thing to keep
   # in step with upstream issue #96.
   #
@@ -73,21 +88,24 @@ defmodule Encryptor.Vault.Rekey do
   #
   #   1. `Encryptor.Vault.ready/2`, stamped `:rekey`.
   #   2. The selector profile check (ADR-0004 decision 3).
-  #   3. The `:encryption_context` refusal (ADR-0004 decision 11).
-  #   4. `decryption_keys/2` and the `Multi` keyring: the read half resolves to
+  #   3. The vault-composed context, with the `reserved` layer when the
+  #      caller is `Encryptor.Envelope.rewrap/2`.
+  #   4. The `:encryption_context` check (Amendment B's B1), and the accepted
+  #      pairs validated over the composed context.
+  #   5. `decryption_keys/2` and the `Multi` keyring: the read half resolves to
   #      **every** key the message might have been written under, which is what
   #      makes a rekey the mechanism that moves a message off a retired key
   #      (ADR-0002 decision 7, ADR-0005 decision 1's R2).
-  #   5. The vault-composed context, with the `reserved` layer when the
-  #      caller is `Encryptor.Envelope.rewrap/2`.
   #   6. The stored context, parsed from the header, and the value comparison
-  #      of the two described above.
-  #   7. The decrypt, reproducing the stored context.
+  #      of it against the composed context described above.
+  #   7. The decrypt, reproducing the stored context plus the required pairs
+  #      the header does not store.
   #   8. `encryption_key/2` and its single keyring: the write half goes under
   #      the vault's **currently** resolved materials, which is the whole point.
-  #   9. The re-encrypt, under the stored context less the engine's own pair.
+  #   9. The re-encrypt, under the reproduced context less the engine's own
+  #      pair.
   #
-  # Steps 4 and 8 are two different provider callbacks answering two different
+  # Steps 5 and 8 are two different provider callbacks answering two different
   # questions, and their independence is the rotation window itself
   # (ADR-0005 decision 2): minting a new version changes step 8 immediately and
   # changes step 4 not at all, so a rekey pass can run for as long as it takes.
@@ -97,8 +115,8 @@ defmodule Encryptor.Vault.Rekey do
   # Under a signing suite (`0x0578`, the default) the engine adds a pair of its
   # own to every message it writes: the verification key for that message's
   # signature, under the key `Cmm.Behaviour.reserved_encryption_context_key/0`
-  # names. The header stores it with the rest, so the stored context carries
-  # it, and the engine refuses that key from a caller on encrypt
+  # names. The header stores it, so the stored context carries it, and the
+  # engine refuses that key from a caller on encrypt
   # (`:reserved_encryption_context_key`). Writing the stored context back
   # unchanged would fail every rekey, and every `rewrap/2` built on it, on the
   # default suite.
@@ -162,16 +180,18 @@ defmodule Encryptor.Vault.Rekey do
   defp rekey(config, selector, reference, ciphertext, opts, reserved, scope_ref) do
     vault = config.vault
 
-    with :ok <- refuse_context(config, opts),
+    with {:ok, composed} <- Resolve.context(config, reference, [], :rekey, reserved),
+         {:ok, accepted} <- accept_context(config, opts, composed, ciphertext),
+         {:ok, supplied} <- supplied(config, reference, accepted, reserved),
          {:ok, candidates} <-
            Telemetry.provider_span(config, :decryption_keys, :rekey, scope_ref, fn ->
              Resolve.decryption_keys(config, selector, :rekey)
            end),
          {:ok, readers} <- Keyring.build_all(vault, :rekey, candidates),
-         {:ok, composed} <- Resolve.context(config, reference, [], :rekey, reserved),
-         {:ok, stored} <- stored_context(config, ciphertext),
-         :ok <- Decrypt.agree(config, ciphertext, composed, :rekey),
-         {:ok, plaintext} <- open(config, {readers, candidates}, selector, ciphertext, stored),
+         {:ok, stored} <- Decrypt.agreed_stored(config, ciphertext, composed, :rekey),
+         reproduced = reproduce(config, stored, supplied),
+         {:ok, plaintext} <-
+           open(config, {readers, candidates}, selector, ciphertext, reproduced),
          {:ok, descriptor} <-
            Telemetry.provider_span(config, :encryption_key, :rekey, scope_ref, fn ->
              Resolve.encryption_key(config, selector, :rekey)
@@ -182,45 +202,46 @@ defmodule Encryptor.Vault.Rekey do
       # wrapped under the version before it (ADR-0001 Amendments B and C).
       config
       |> Encrypt.client(writer, selector, descriptor)
-      |> Encrypt.engine_encrypt(config, plaintext, writable(stored), :rekey)
+      |> Encrypt.engine_encrypt(config, plaintext, writable(reproduced), :rekey)
     end
   end
 
-  # The header is parsed twice on a rekey: once here, which owns the
-  # reproduction, and once inside `agree/4`, which owns the comparison. The
-  # duplicated work is a header parse with no key material and no vault state,
-  # and the alternative is a second spelling of one of the two - which is
-  # exactly what this package avoids by having one module read the engine's
-  # message format at all.
-  #
-  # It runs *before* `agree/4` rather than after, so that a header this package
-  # cannot parse is reported from the step that needed it, and neither branch
-  # of either function is a branch no call can reach.
-  @spec stored_context(Config.t(), binary()) :: {:ok, Context.context()} | {:error, Error.t()}
-  defp stored_context(config, ciphertext) do
-    case Message.describe(ciphertext) do
-      {:ok, %Info{encryption_context: stored}} ->
-        {:ok, stored}
+  # ADR-0004 Amendment B, B1: the decrypt half reproduces the stored context,
+  # plus each required key the header does not store, from what the vault
+  # composes or the caller supplied. A required key absent from both stays
+  # absent, and the required-context CMM reports it as
+  # `{:missing_required_context_keys, keys}`. A message the 1.0.x engine
+  # wrote stores every required key, so for it this is the stored context.
+  # Every pair here is stored or required, so the decrypt's B3 filter
+  # (`Encryptor.Vault.Decrypt`) would keep all of it.
+  @spec reproduce(Config.t(), Context.context(), Context.context()) :: Context.context()
+  defp reproduce(%Config{required_keys: required}, stored, supplied) do
+    unstored = Enum.reject(required, &Map.has_key?(stored, &1))
 
-      # It depends on the bytes, so it collapses like every other
-      # message-dependent failure, carrying the engine's own parse term.
-      # `Encryptor.Message` reports the same reason with no vault and no
-      # operation, because it has neither; here both are known.
-      {:error, %Error{engine: engine}} ->
-        {:error, Error.decrypt_failed(config.vault, :rekey, engine)}
-    end
+    Map.merge(stored, Map.take(supplied, unstored))
   end
 
-  # The context the write half writes: the stored one less the engine's own
-  # verification-key pair, which the engine refuses from a caller and writes
-  # afresh for the new message's signing key ("The engine's own pair is not
-  # carried", above). A message written under `0x0478` has no such pair, and
-  # there this is the identity.
+  # What the vault composes, with the accepted option pairs as the per-call
+  # layer, so the values are validated as any caller's are. The accepted keys
+  # are none of the composed context's, so the layers cannot conflict; with
+  # no accepted pair this is the composed context again.
+  @spec supplied(Config.t(), String.t() | nil, Context.context(), Context.context()) ::
+          {:ok, Context.context()} | {:error, Error.t()}
+  defp supplied(config, reference, accepted, reserved) do
+    Resolve.context(config, reference, [encryption_context: accepted], :rekey, reserved)
+  end
+
+  # The context the write half writes: the reproduced one less the engine's
+  # own verification-key pair, which the engine refuses from a caller and
+  # writes afresh for the new message's signing key ("The engine's own pair is
+  # not carried", above). A message written under `0x0478` has no such pair,
+  # and there this is the identity.
   @spec writable(Context.context()) :: Context.context()
-  defp writable(stored), do: Map.delete(stored, CmmBehaviour.reserved_encryption_context_key())
+  defp writable(reproduced),
+    do: Map.delete(reproduced, CmmBehaviour.reserved_encryption_context_key())
 
   # The read half. The stack is the writer's stack, built by
-  # `Encryptor.Vault.Encrypt.client/4`, for the reason that module records: this
+  # `Encryptor.Vault.Encrypt.client/4`, for the reason that module records: the
   # engine mixes the serialization of the required subset of the context into
   # the header AAD, so a reader that does not know which keys were required
   # fails header authentication rather than anything more legible.
@@ -231,45 +252,86 @@ defmodule Encryptor.Vault.Rekey do
           binary(),
           Context.context()
         ) :: {:ok, binary()} | {:error, Error.t()}
-  defp open(config, {readers, candidates}, selector, ciphertext, stored) do
+  defp open(config, {readers, candidates}, selector, ciphertext, reproduced) do
     config
     |> Encrypt.client(readers, selector, candidates)
-    |> Decrypt.engine_decrypt(config, ciphertext, stored, :rekey)
+    |> Decrypt.engine_decrypt(config, ciphertext, reproduced, :rekey)
   end
 
-  # ADR-0004 decision 11. An empty map is accepted rather than refused: the
-  # refusal exists to stop a caller *rewriting* a binding, an empty map rewrites
-  # nothing, and there is no key in it to name. A value that is not a map is
-  # reported the way `Encryptor.Context.compose/3` reports one, under the
-  # option's own name, because that is the only part of it safe to render.
-  @spec refuse_context(Config.t(), keyword()) :: :ok | {:error, Error.t()}
-  defp refuse_context(config, opts) do
+  # ADR-0004 Amendment B, B1. An empty map is accepted, as decision 11 had
+  # it: it supplies nothing and there is no key in it to name. A value that is
+  # not a map is reported the way `Encryptor.Context.compose/3` reports one,
+  # under the option's own name, because that is the only part of it safe to
+  # render. A non-empty map is checked against the header, which is parsed
+  # here only then, so a rekey with no option parses it once, in
+  # `Decrypt.agreed_stored/4`.
+  @spec accept_context(Config.t(), keyword(), Context.context(), binary()) ::
+          {:ok, Context.context()} | {:error, Error.t()}
+  defp accept_context(config, opts, composed, ciphertext) do
     case Keyword.fetch(opts, :encryption_context) do
       :error ->
-        :ok
+        {:ok, %{}}
+
+      {:ok, per_call} when is_map(per_call) and map_size(per_call) == 0 ->
+        {:ok, %{}}
 
       {:ok, per_call} when is_map(per_call) ->
-        refuse_pairs(config, per_call)
+        with {:ok, stored} <- stored_context(config, ciphertext) do
+          accept_pairs(config, per_call, composed, stored)
+        end
 
       {:ok, _other} ->
         {:error, error(config, {:invalid_context_value, "encryption_context"})}
     end
   end
 
-  @spec refuse_pairs(Config.t(), Context.context()) :: :ok | {:error, Error.t()}
-  defp refuse_pairs(_config, per_call) when map_size(per_call) == 0, do: :ok
+  # B1's table. A key is accepted only when the vault requires it, the header
+  # does not store it, the vault does not compose it, and it is not under a
+  # prefix this package or the engine reserves; every other key is
+  # `{:reserved_context_key, key}`. Sorted before it reports, as every scan in
+  # `Encryptor.Context` is, so a caller passing two refused keys is told about
+  # the same one on every run.
+  @spec accept_pairs(Config.t(), map(), Context.context(), Context.context()) ::
+          {:ok, Context.context()} | {:error, Error.t()}
+  defp accept_pairs(config, per_call, composed, stored) do
+    per_call
+    |> Map.keys()
+    |> Enum.sort_by(&inspect/1)
+    |> Enum.find(&(not acceptable?(config, &1, composed, stored)))
+    |> case do
+      nil -> {:ok, per_call}
+      key -> {:error, error(config, {:reserved_context_key, render(key)})}
+    end
+  end
 
-  # Sorted before it reports, as every scan in `Encryptor.Context` is, so a
-  # caller passing two keys is told about the same one on every run.
-  defp refuse_pairs(config, per_call) do
-    key =
-      per_call
-      |> Map.keys()
-      |> Enum.sort_by(&inspect/1)
-      |> hd()
-      |> render()
+  @spec acceptable?(Config.t(), term(), Context.context(), Context.context()) :: boolean()
+  defp acceptable?(
+         %Config{required_keys: required, context_profile: profile},
+         key,
+         composed,
+         stored
+       )
+       when is_binary(key) do
+    key in required and not Map.has_key?(stored, key) and not Map.has_key?(composed, key) and
+      not Context.reserved_key?(key, profile)
+  end
 
-    {:error, error(config, {:reserved_context_key, key})}
+  defp acceptable?(_config, _key, _composed, _stored), do: false
+
+  # The header parse the option check needs. A header this package cannot
+  # parse depends on the bytes, so it collapses like every other
+  # message-dependent failure, carrying the engine's own parse term.
+  # `Encryptor.Message` reports the same reason with no vault and no
+  # operation, because it has neither; here both are known.
+  @spec stored_context(Config.t(), binary()) :: {:ok, Context.context()} | {:error, Error.t()}
+  defp stored_context(config, ciphertext) do
+    case Message.describe(ciphertext) do
+      {:ok, %Info{encryption_context: stored}} ->
+        {:ok, stored}
+
+      {:error, %Error{engine: engine}} ->
+        {:error, Error.decrypt_failed(config.vault, :rekey, engine)}
+    end
   end
 
   # A key is the only part of a rejected pair that reaches a failure report. A

@@ -114,17 +114,33 @@ defmodule Encryptor.Vault.Docs do
     Decrypts with whatever this vault's provider says the message's own
     encrypted data keys might resolve to, then encrypts the result under the
     one key the provider currently writes with, **preserving the message's
-    encryption context byte for byte**. Returns `{:ok, new_ciphertext}`.
+    encryption context**: the same pairs are bound to the new message.
+    Returns `{:ok, new_ciphertext}`.
 
     A rekey never changes the context. Changing what a ciphertext is bound
     to is an encrypt of new data, not a rotation of old data, and conflating
     the two is how a rotation job silently unbinds a million rows.
 
-    The context is reproduced from the message's own header rather than from
-    the caller, because a rekey caller holds a ciphertext and not a row.
-    `:encryption_context` is therefore **not** an option: passing one is
-    `{:reserved_context_key, key}`, since the only correct value is the one
-    already in the message.
+    The context is reproduced from the message's own header wherever the
+    header stores it, because a rekey caller holds a ciphertext and not a
+    row. A message written on `aws_encryption_sdk` 1.0.x stores every pair,
+    and rekeys with no context from the caller.
+
+    The 1.1 engine follows the AWS Encryption SDK specification and leaves
+    the vault's required pairs out of the header it writes: they are still
+    authenticated and bound to the message, but a rekey cannot read them back.
+    For such a message the vault supplies what it composes itself (the static
+    layer, and `"scope_ref"` from `:key` on a `:scoped` vault), and the caller
+    supplies the rest through `:encryption_context` - the required pairs the
+    header does not store, from whatever owns the row (ADR-0004 Amendment B).
+    Every other key is `{:reserved_context_key, key}`: a key the vault does
+    not require, a key the header stores, a key the vault composes, and a
+    key under a reserved prefix. An empty map is accepted.
+
+    A required pair that neither the vault nor the caller supplies is
+    `{:missing_required_context_keys, keys}`. A supplied value that
+    disagrees with the one the message was written under is
+    `:decrypt_failed`, and nothing is rebound.
 
     A message whose stored context carries a pair under this package's own
     `encryptor-` prefix - a scope-key wrapping - is `:decrypt_failed`, as it
@@ -137,12 +153,6 @@ defmodule Encryptor.Vault.Docs do
     refuses that key from a caller. The re-encrypt leaves it out and the
     engine writes a fresh one for the new message's signature, so every
     other pair comes back exactly as it was and that one carries a new value.
-
-    This behaviour depends on the engine storing the full encryption context
-    in the message header, which is a deviation from the AWS Encryption SDK
-    specification in this package's favour. If the engine is ever corrected
-    to strip required keys from the header, `rekey/2` will need the context
-    as an argument from whatever owns the row.
 
     ## What this is for, and what it is not for
 
@@ -163,8 +173,14 @@ defmodule Encryptor.Vault.Docs do
       * `:key` - the selector handed to the key provider, typed by the
         vault's profile exactly as `encrypt/2` and `decrypt/2` type it. On a
         `:scoped` vault the pair the vault derives from it is compared
-        against the message's own before anything is decrypted, so a rekey
-        cannot move a message between scopes.
+        against the message's own before anything is decrypted where the
+        header stores it, and is bound into the decrypt where it does not,
+        so a rekey cannot move a message between scopes.
+
+      * `:encryption_context` - the vault's required pairs that the
+        message's header does not store and the vault does not compose, as
+        a map of string to string. Any other key is
+        `{:reserved_context_key, key}`.
 
     ## When a rekey changes nothing
 

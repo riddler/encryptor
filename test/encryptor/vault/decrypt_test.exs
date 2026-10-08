@@ -3,10 +3,12 @@ defmodule Encryptor.Vault.DecryptTest do
 
   alias Encryptor.DecryptVaults
   alias Encryptor.EncryptVaults
+  alias Encryptor.EngineReader
   alias Encryptor.Error
   alias Encryptor.Message
   alias Encryptor.Vault
   alias Encryptor.Vault.Config
+  alias Encryptor.Vault.Decrypt
   alias Encryptor.Vault.Reference
 
   @pan "4111111111111111"
@@ -65,18 +67,30 @@ defmodule Encryptor.Vault.DecryptTest do
                vault.decrypt(ciphertext, key: "merchant_a", encryption_context: @columns)
     end
 
-    # sabotage: passed `supplied: %{}` from Resolve.context/4 - red, because the
-    # scope pair is then in neither the message nor the claim, and the binding
-    # the whole scope profile exists for is gone.
-    test "the message the vault wrote carries the context the reader reproduces" do
+    # On the 1.1 engine the required pairs are bound to the message and not
+    # stored in its header (ADR-0004 Amendment B); the engine reader opens it
+    # under exactly the context the vault reproduces, and not under another
+    # scope's reference.
+    #
+    # sabotage: passed `supplied: %{}` from Resolve.context/5 - red, because
+    # the scope pair is then in neither the message nor the claim, and the
+    # write the binding exists for is refused.
+    test "the message the vault wrote is bound to the context the reader reproduces" do
       vault = start_vault(EncryptVaults.Merchant)
 
       {:ok, ciphertext} =
         vault.encrypt(@pan, key: "merchant_a", encryption_context: @columns)
 
       {:ok, info} = Message.describe(ciphertext)
+      descriptor = EncryptVaults.merchant_descriptor("merchant_a")
 
-      assert info.encryption_context == merchant_context("merchant_a")
+      assert info.encryption_context == %{}
+
+      assert {:ok, %{plaintext: @pan}} =
+               EngineReader.read(ciphertext, descriptor, merchant_context("merchant_a"))
+
+      assert {:error, _} =
+               EngineReader.read(ciphertext, descriptor, merchant_context("merchant_b"))
     end
 
     # sabotage: returned the engine's whole result map from engine_decrypt/4 -
@@ -163,11 +177,15 @@ defmodule Encryptor.Vault.DecryptTest do
   end
 
   describe "the vault-side reproduced-context value check" do
-    # sabotage: inverted the comparison in compare/4 - red. Note this one is red
-    # for the cold read only; the warm-cache test below is the one that fails
-    # when the check is removed outright.
+    # The comparison covers every key the header stores (ADR-0004 decision 6,
+    # kept unchanged by Amendment B's B2). On the 1.1 engine a stored key is an
+    # advisory one; the `Cached` vault requires nothing, so its column is
+    # stored.
+    #
+    # sabotage: inverted the comparison in compare/4 - red, the agreeing
+    # `table` is then the key reported.
     test "a column swap inside one scope fails, and the engine's term shape is ours" do
-      vault = start_vault(EncryptVaults.Bound)
+      vault = start_vault(EncryptVaults.Cached)
 
       ciphertext = vault.encrypt!(@pan, encryption_context: @columns)
 
@@ -180,23 +198,74 @@ defmodule Encryptor.Vault.DecryptTest do
       assert engine(result) == {:encryption_context_mismatch, "column"}
     end
 
-    # sabotage: dropped the agree/4 step from call/3's with-chain - red, and red
-    # here ALONE of the whole project suite (301 tests, 42 doctests, checked):
-    # with the check gone the engine still catches the cold read one layer down,
-    # so every other test stays green and this one returns `{:ok, @pan}` to a
-    # reader claiming a column the message was never bound to. That is upstream
-    # issue #96 reproduced, and it is the reason the step exists. Deleting it
-    # would look free from the suite; it is not.
+    # The same swap after a legitimate read has populated the decryption
+    # cache. The 1.1 engine's cache hit check refuses it too, so this pins the
+    # outcome on a warm cache rather than which layer refuses; the direct test
+    # of agree/4 below is the one that fails when the vault's comparison is
+    # removed. sabotage: inverted the comparison in compare/4 - red, as above.
     test "the same swap fails on a warm decryption cache, which is the whole point" do
+      vault = start_vault(EncryptVaults.Cached)
+
+      ciphertext = vault.encrypt!(@pan, encryption_context: @columns)
+
+      assert {:ok, @pan} = vault.decrypt(ciphertext, encryption_context: @columns)
+
+      result =
+        vault.decrypt(ciphertext,
+          encryption_context: %{"table" => "payment_methods", "column" => "notes"}
+        )
+
+      assert reason(result) == :decrypt_failed
+      assert engine(result) == {:encryption_context_mismatch, "column"}
+    end
+
+    # sabotage: made compare/4 answer :ok for every pair - red: the vault's own
+    # comparison is then gone, which no read through the 1.1 engine shows,
+    # since its cold read and its cache hit check both refuse the swap too.
+    test "agree/4 refuses a stored pair the reader disagrees with, before the engine" do
+      vault = start_vault(EncryptVaults.Cached)
+      {:ok, config} = Config.fetch(vault)
+
+      ciphertext = vault.encrypt!(@pan, encryption_context: @columns)
+      swapped = %{"table" => "payment_methods", "column" => "notes"}
+
+      assert Decrypt.agree(config, ciphertext, @columns) == :ok
+
+      assert {:error, %Error{reason: :decrypt_failed} = error} =
+               Decrypt.agree(config, ciphertext, swapped)
+
+      assert error.engine == {:encryption_context_mismatch, "column"}
+    end
+
+    # A required pair is bound, not stored, so a swap of it is refused by the
+    # engine's unwrap on a cold read (ADR-0004 Amendment B, B2's first bullet).
+    # sabotage: handed the engine only the stored pairs (engine_context/3
+    # dropping the `key in required` clause) - red, the read then reports the
+    # missing pairs instead of a refused value.
+    test "a column swap on a required column fails on a cold read" do
+      vault = start_vault(EncryptVaults.Bound)
+
+      ciphertext = vault.encrypt!(@pan, encryption_context: @columns)
+
+      result =
+        vault.decrypt(ciphertext,
+          encryption_context: %{"table" => "payment_methods", "column" => "notes"}
+        )
+
+      assert reason(result) == :decrypt_failed
+    end
+
+    # The same swap of a required pair after a legitimate read has populated
+    # the decryption cache: the cache id hashes the stored context, which no
+    # longer carries the column, so it is the engine's hit check that refuses
+    # (ADR-0004 Amendment B, B2's second bullet; engine issue #96). sabotage:
+    # the same engine_context/3 change - red, as above.
+    test "a column swap on a required column fails on a warm decryption cache" do
       vault = start_vault(EncryptVaults.Merchant)
 
       ciphertext =
         vault.encrypt!(@pan, key: "merchant_a", encryption_context: @columns)
 
-      # The legitimate read that populates the decryption cache. The cache id
-      # is derived from the message's own stored context, so the read below
-      # hits this entry and never reaches the CMM the engine's own comparison
-      # lives in.
       assert {:ok, @pan} =
                vault.decrypt(ciphertext, key: "merchant_a", encryption_context: @columns)
 
@@ -207,7 +276,23 @@ defmodule Encryptor.Vault.DecryptTest do
         )
 
       assert reason(result) == :decrypt_failed
-      assert engine(result) == {:encryption_context_mismatch, "column"}
+
+      assert {:ok, @pan} =
+               vault.decrypt(ciphertext, key: "merchant_a", encryption_context: @columns)
+    end
+
+    # ADR-0004 Amendment B, B3: decision 6's "a claim the message does not
+    # carry is ignored", on a message whose required pairs are not stored.
+    # sabotage: made engine_context/3 return the whole reproduced context -
+    # red, the engine appends the extra key, the unwrap under it fails, its
+    # retry under the stored context alone fails too, and the read is refused.
+    test "an extra claim beside the required pairs is ignored" do
+      vault = start_vault(EncryptVaults.Bound)
+
+      ciphertext = vault.encrypt!(@pan, encryption_context: @columns)
+      claim = Map.put(@columns, "purpose", "pii")
+
+      assert {:ok, @pan} = vault.decrypt(ciphertext, encryption_context: claim)
     end
 
     # sabotage: replaced `Map.get(stored, key, value)` with `Map.get(stored, key)`
@@ -291,9 +376,13 @@ defmodule Encryptor.Vault.DecryptTest do
       assert %Error{vault: DecryptVaults.Loose, operation: :decrypt} = elem(result, 1)
     end
 
-    # sabotage: returned `{:ok, ""}` from engine_decrypt/4's catch-all - red,
-    # because a header-authentication failure is exactly the failure that must
-    # never come back as a plausible-looking value.
+    # On the 1.1 engine the writer's required pairs are not stored, and the
+    # reader hands the engine only the pairs its own required set names
+    # (Amendment B's B3), so a reader that does not require them cannot open
+    # the message even when it claims them. sabotage: returned `{:ok, ""}`
+    # from engine_result/3's error clause - red, because a failed read is
+    # exactly the failure that must never come back as a plausible-looking
+    # value.
     test "a reader whose required set differs from the writer's fails authentication" do
       writer = start_vault(EncryptVaults.Bound)
       reader = start_vault(DecryptVaults.Unbound)
@@ -325,16 +414,36 @@ defmodule Encryptor.Vault.DecryptTest do
   end
 
   describe "an engine return outside its contract" do
-    # sabotage: carried the engine's own return in `:engine` from
-    # engine_result/3's catch-all instead of `:unexpected_engine_result` - red,
-    # because the parsed message then rides into every log line that inspects
-    # the error. Deleting the clause is red too, with the CaseClauseError whose
-    # text renders that same term.
-    test "a message followed by one trailing byte is decrypt_failed, carrying no engine term" do
+    # The 1.1 engine answers a message followed by trailing bytes inside its
+    # contract, with `{:error, :trailing_bytes}`. sabotage: carried `:other`
+    # in `:engine` from engine_result/3's error clause - red.
+    test "a message followed by one trailing byte is decrypt_failed" do
       vault = start_vault(EncryptVaults.App)
 
       {:ok, ciphertext} = vault.encrypt(@pan)
       result = vault.decrypt(ciphertext <> <<0>>)
+
+      assert {:error,
+              %Error{
+                reason: :decrypt_failed,
+                vault: EncryptVaults.App,
+                operation: :decrypt,
+                engine: :trailing_bytes
+              }} = result
+    end
+
+    # The 1.0.x engine's answer to the same message, a three-element tuple
+    # holding the parsed message, handed to the mapping directly since no
+    # engine this package accepts returns it now. sabotage: carried the
+    # engine's own return in `:engine` from engine_result/3's catch-all
+    # instead of `:unexpected_engine_result` - red, because the parsed message
+    # then rides into every log line that inspects the error. Deleting the
+    # clause is red too, with a CaseClauseError.
+    test "a return outside the pair is decrypt_failed, carrying no engine term" do
+      vault = start_vault(EncryptVaults.App)
+      {:ok, config} = Config.fetch(vault)
+
+      result = Decrypt.engine_result({:ok, %{parsed: :message}, <<0>>}, config, :decrypt)
 
       assert {:error,
               %Error{

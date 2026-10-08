@@ -672,3 +672,37 @@ Provenance: bead `enc-a9ah`.
 
 No decision changes, no line above is edited other than Amendment A's Status
 line, and this Note carries no status of its own.
+
+## Note (2026-10-07): Amendment A's worked example reads `scope_ref` from a header the 1.0.x engine wrote
+
+One reading, which changes no decision. Amendment A's worked example, "a
+fresh scoped vault on 0.7.0", reads the scope reference back through
+`Encryptor.Message.describe/1`:
+
+    info.encryption_context["scope_ref"] == ref
+
+That line describes a message written on `aws_encryption_sdk` 1.0.x, which
+stored every pair of the context in the header, and it holds for every
+message encryptor 0.7.0 wrote. From the encryptor release that requires
+`aws_encryption_sdk` 1.1, the engine follows the AWS Encryption SDK
+specification and stores no required pair in the header it writes
+(ADR-0004 Amendment B). A `:scoped` vault always requires `"scope_ref"`, so
+for a message that release writes `describe/1` returns no `"scope_ref"` pair
+and the line above reads `nil`. ADR-0004 Amendment B's consequence that
+`describe/1` returns fewer pairs for such a message says the same.
+
+A1 row 1 still pins the spelling: the pair is authenticated in the header
+and bound into the encrypted data key under the key `"scope_ref"`, and a
+reader reproduces it under that key, so a respelling still leaves every
+stored message unreadable. The reference also still travels in the clear in
+the key name, `"s/" <> ref <> "/v1"` (A1 row 2), which the example's
+`wrapped.name` line shows and which a header of either engine carries.
+
+What pins the earlier form: `test/encryptor/wire_fixture_v2_test.exs`, "carries
+the reference under the v2 context key and the v2 key name", reads
+`"scope_ref"` from the header of a ciphertext encryptor 0.7.0 wrote.
+
+Provenance: beads `enc-wqbc` and `enc-3bbw`.
+
+No decision changes, no line above is edited, and this Note carries no
+status of its own.

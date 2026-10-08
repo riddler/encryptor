@@ -128,14 +128,58 @@ defmodule Encryptor.WireFixtureV2Test do
       assert key_name == "s/" <> Fixture.reference() <> "/v1"
     end
 
-    # Row 1. sabotage: same respelling - red, the rekey reproduces the context
-    # before it re-encrypts and the stored pair no longer matches.
-    test "rekeys under the current build, keeping the stored context" do
+    # Row 1. These bytes were written by encryptor 0.7.0 on the 1.0.x engine,
+    # whose header stores the required pairs; the current build reads them on
+    # the 1.1 engine with no pair from the caller (ADR-0004 Amendment B,
+    # "Which messages this amendment is about"). sabotage: same respelling -
+    # red, the rekey compares the vault's pair with the stored one and the
+    # two no longer match.
+    test "rekeys under the current build, binding the stored context" do
       assert {:ok, rekeyed} = ScopedVault.rekey(Fixture.ciphertext(), key: Fixture.selector())
 
-      assert {:ok, before} = Message.describe(Fixture.ciphertext())
+      # The 1.1 engine writes the rekeyed message: the same pairs are bound to
+      # it, and none of them is stored, since all three are required.
       assert {:ok, after_rekey} = Message.describe(rekeyed)
-      assert after_rekey.encryption_context == before.encryption_context
+      assert after_rekey.encryption_context == %{}
+
+      assert {:ok, plaintext} =
+               ScopedVault.decrypt(rekeyed,
+                 key: Fixture.selector(),
+                 encryption_context: Fixture.context()
+               )
+
+      assert plaintext == Fixture.plaintext()
+
+      assert {:error, %Encryptor.Error{reason: :decrypt_failed}} =
+               ScopedVault.decrypt(rekeyed,
+                 key: Fixture.selector(),
+                 encryption_context: %{Fixture.context() | "column" => "other"}
+               )
+    end
+
+    # The rekeyed message rekeys again once the row supplies the pairs the
+    # vault does not compose (ADR-0004 Amendment B, B1), and without them is
+    # the caller-fixable refusal. sabotage: made the rekey path reproduce the
+    # stored context alone - red on the second rekey.
+    test "rekeys again on the current build with the row's pairs" do
+      assert {:ok, rekeyed} = ScopedVault.rekey(Fixture.ciphertext(), key: Fixture.selector())
+
+      assert {:error, %Encryptor.Error{reason: {:missing_required_context_keys, _keys}}} =
+               ScopedVault.rekey(rekeyed, key: Fixture.selector())
+
+      assert {:ok, again} =
+               ScopedVault.rekey(rekeyed,
+                 key: Fixture.selector(),
+                 encryption_context: Fixture.context()
+               )
+
+      assert {:ok, plaintext} =
+               ScopedVault.decrypt(again,
+                 key: Fixture.selector(),
+                 encryption_context: Fixture.context()
+               )
+
+      assert plaintext == Fixture.plaintext()
     end
   end
 end

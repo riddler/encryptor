@@ -228,8 +228,9 @@ story is erasure has to chase one key.
 **Why it is not deletion.** Three limits, each with somewhere to read more:
 
 1. **It destroys plaintext, not attribution.** Every message header carries
-   the scope's permanent pseudonym - its scope reference, under the context
-   key `"scope_ref"` and inside the key name - and deleting a
+   the scope's permanent pseudonym - its scope reference, inside the key name,
+   and under the context key `"scope_ref"` in a header that stores it (one
+   written on `aws_encryption_sdk` 1.0.x) - and deleting a
    wrapping does not touch it. The holder of the reference subkey can confirm
    a candidate identifier against a header by guess-and-confirm, forever, in
    every retained backup, and the reference subkey is never rotated. Deleting

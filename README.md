@@ -109,27 +109,26 @@ and there is no second column to keep in step with it.
 ## Compatibility
 
 The package needs Elixir 1.18 or later (`elixir: "~> 1.18"` in `mix.exs`). Its
-runtime dependencies are `aws_encryption_sdk ~> 1.0` and `telemetry ~> 1.3`;
+runtime dependencies are `aws_encryption_sdk ~> 1.1` and `telemetry ~> 1.3`;
 `argon2_elixir ~> 4.0` and `goth ~> 1.4` are optional. CI runs the full
 gate on Erlang/OTP 27 and the test suite on Erlang/OTP 26, both with Elixir
 1.18. Ciphertexts are in the AWS Encryption SDK's message format, and a CI job
 ([python-interop](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml)) checks them against the official SDK for Python
-([the test](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs)). Today a single-key vault's messages cross both ways
-at suite 0x0478, and Python's messages reach a single-key vault at 0x0578.
-Two defects in the engine keep the rest from crossing. A per-scope vault's
-messages store the scope reference in the header, where the specification
-says a required context key must not be stored, so neither SDK reads the
-other's per-scope messages. And at 0x0578, the default suite, the engine
-writes the signature verification key as an uncompressed point, which the
-Python SDK cannot decode. The test asserts each failure exactly, so a fix
-in the engine shows up as a change rather than passing unnoticed.
+([the test](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs)). A single-key and a per-scope vault's messages cross both
+ways, at suites 0x0478 and 0x0578. `aws_encryption_sdk` 1.1 follows the
+specification and stores no required context key in a message's header, so
+`Encryptor.Message.describe/1` does not show a vault's required pairs for a
+message it writes; messages written on 1.0.x still decrypt and rekey. A 1.0.x
+reader cannot read a message the 1.1 engine writes with required context, so
+upgrade every reader before any writer.
 
-Two open engine issues are worked round here until they move:
+One open engine issue is worked round here until it moves:
 [#95](https://github.com/riddler/aws-encryption-sdk-elixir/issues/95), an
-unbounded materials cache, which the vault bounds by recycling it, and
+unbounded materials cache, which the vault bounds by recycling it.
 [#96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96), a warm
-decryption cache that skips context validation, which the vault replaces with
-its own comparison.
+decryption cache that skipped context validation, is fixed in
+`aws_encryption_sdk` 1.1; the vault keeps its own comparison for every key a
+header stores.
 
 Until 1.0, the public surface may change between minor releases: a release may
 rename modules, callbacks, telemetry events or error vocabulary with no

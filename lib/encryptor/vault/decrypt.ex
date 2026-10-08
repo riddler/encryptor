@@ -30,7 +30,10 @@ defmodule Encryptor.Vault.Decrypt do
   #      injected by the vault on a `:scoped` vault and refused from a caller
   #      (ADR-0004 decision 4).
   #   6. **The value comparison** (ADR-0004 decision 6), below.
-  #   7. The CMM stack, then the client, then the engine call.
+  #   7. The context the engine is handed: the reproduced pairs whose key the
+  #      header stores or the vault requires, and no other (ADR-0004
+  #      Amendment B, B3), below.
+  #   8. The CMM stack, then the client, then the engine call.
   #
   # ## The value comparison is ours, and it is not an optimization
   #
@@ -53,12 +56,14 @@ defmodule Encryptor.Vault.Decrypt do
   # behaviour it happens to inherit: it holds identically on a cold cache, a
   # warm cache, and with caching switched off.
   #
-  # **This is a workaround for an open upstream defect**
+  # **This began as a workaround for an upstream defect**
   # (riddler/aws-encryption-sdk-elixir issue #96) and it may not be simplified
-  # away by a reader who notices the engine "already does that". The engine
-  # does it in the cold-cache case only, and the warm case is the one that
-  # dominates real traffic. Even if upstream moves, this package has to work
-  # against v1.0.0.
+  # away by a reader who notices the engine "already does that". The 1.0.x
+  # engine did it in the cold-cache case only, and the warm case is the one
+  # that dominates real traffic. The 1.1 engine this package requires checks a
+  # cache hit against the reproduced context too, and this comparison stays,
+  # unchanged, for every key the header stores (ADR-0004 Amendment B, B2): it
+  # is this package's guarantee, not one it inherits.
   #
   # The reach of the comparison is deliberately the engine's, not tighter:
   # only keys present in **both** maps are compared. A reader may claim a key
@@ -68,6 +73,24 @@ defmodule Encryptor.Vault.Decrypt do
   # moment a host added an advisory key to a vault's static configuration.
   # Required keys are what close the gap for the keys that matter, and on a
   # `:scoped` vault `"scope_ref"` is always in the required set.
+  #
+  # ## A required key the header does not store is the engine's to check
+  #
+  # The 1.1 engine follows the specification and leaves the required pairs
+  # out of the header it writes. They are still authenticated (the tail of the
+  # header-authentication AAD) and still bound into the encrypted data key, so
+  # the engine appends a reproduced pair the header does not store before it
+  # unwraps, and a wrong value fails the unwrap. The comparison above has
+  # nothing to compare for such a key; agreement on it is the engine's cold
+  # read and its cache hit check, which is why this package requires that
+  # engine (ADR-0004 Amendment B, B2 and B4).
+  #
+  # Because the engine appends every reproduced pair the header lacks, a key
+  # a reader claims that the message never carried would fail the unwrap of
+  # such a message, where decision 6 says it is ignored. So the engine is
+  # handed only the reproduced pairs whose key the header stores or the vault
+  # requires (`engine_context/3`, Amendment B's B3). The comparison still sees
+  # the whole reproduced context.
   #
   # ## One stored key a reader may not omit: a package pair
   #
@@ -93,11 +116,11 @@ defmodule Encryptor.Vault.Decrypt do
   #
   # `Encryptor.Vault.Encrypt.client/4` builds it, and this module calls that
   # function rather than assembling a second one. The reason is not tidiness:
-  # this engine appends the serialization of the *required subset* of the
-  # context to the header AAD (`Crypto.HeaderAuth.compute_header_auth_tag/4`,
-  # `Map.take(full_encryption_context, required_ec_keys)`), so a reader that
-  # does not know which keys were required computes a different tag and fails
-  # header authentication rather than a context comparison. A second spelling
+  # the engine appends the serialization of the *required subset* of the
+  # context to the header AAD (`Crypto.HeaderAuth.compute_header_auth_tag/4`),
+  # so a reader of a message the 1.0.x engine wrote that does not know which
+  # keys were required computes a different tag and fails header
+  # authentication rather than a context comparison. A second spelling
   # of the stack that drifted from the first would not fail loudly; it would
   # make correct messages unreadable.
   #
@@ -124,9 +147,10 @@ defmodule Encryptor.Vault.Decrypt do
   # whether the check fired above the engine or below it.
   #
   # An engine return that is neither `{:ok, %{plaintext: _}}` nor
-  # `{:error, _}` - a message followed by trailing bytes is one today - also
-  # collapses to `:decrypt_failed`, carrying `:unexpected_engine_result` in
-  # `:engine` rather than the term, which would hold the parsed message.
+  # `{:error, _}` also collapses to `:decrypt_failed`, carrying
+  # `:unexpected_engine_result` in `:engine` rather than the term, which could
+  # hold the parsed message. The 1.0.x engine answered a message followed by
+  # trailing bytes that way; the 1.1 engine answers `{:error, :trailing_bytes}`.
 
   alias AwsEncryptionSdk.Client
   alias Encryptor.Context
@@ -179,11 +203,21 @@ defmodule Encryptor.Vault.Decrypt do
            end),
          {:ok, keyring} <- Keyring.build_all(config.vault, :decrypt, candidates),
          {:ok, context} <- Resolve.context(config, reference, opts, :decrypt, reserved),
-         :ok <- agree(config, ciphertext, context) do
+         {:ok, stored} <- agreed_stored(config, ciphertext, context, :decrypt) do
       config
       |> Encrypt.client(keyring, selector, candidates)
-      |> engine_decrypt(config, ciphertext, context, :decrypt)
+      |> engine_decrypt(config, ciphertext, engine_context(config, stored, context), :decrypt)
     end
+  end
+
+  # ADR-0004 Amendment B, B3: decision 6's "a key the message does not carry
+  # is ignored", kept on an engine that appends every reproduced pair the
+  # header does not store. A pair passes when the header stores its key or the
+  # vault requires it; any other key a reader claims is one the message does
+  # not carry, and it is left out rather than appended.
+  @spec engine_context(Config.t(), Context.context(), Context.context()) :: Context.context()
+  defp engine_context(%Config{required_keys: required}, stored, reproduced) do
+    Map.filter(reproduced, fn {key, _value} -> Map.has_key?(stored, key) or key in required end)
   end
 
   @doc false
@@ -198,9 +232,19 @@ defmodule Encryptor.Vault.Decrypt do
   @spec agree(Config.t(), binary(), Context.context(), Error.operation()) ::
           :ok | {:error, Error.t()}
   def agree(config, ciphertext, reproduced, operation \\ :decrypt) do
+    with {:ok, _stored} <- agreed_stored(config, ciphertext, reproduced, operation), do: :ok
+  end
+
+  @doc false
+  # `agree/4`, returning the stored context it compared against, so a caller
+  # that goes on to use that map parses the header once. Public for the rekey
+  # path, which reproduces its decrypt half from it.
+  @spec agreed_stored(Config.t(), binary(), Context.context(), Error.operation()) ::
+          {:ok, Context.context()} | {:error, Error.t()}
+  def agreed_stored(config, ciphertext, reproduced, operation) do
     case Message.describe(ciphertext) do
       {:ok, %Info{encryption_context: stored}} ->
-        compare(config, stored, reproduced, operation)
+        with :ok <- compare(config, stored, reproduced, operation), do: {:ok, stored}
 
       # A header this package cannot parse is not a message it can compare
       # against. It depends on the bytes, so it collapses like every other
@@ -267,8 +311,9 @@ defmodule Encryptor.Vault.Decrypt do
   @doc false
   # The failure mapping itself, taking `term()` rather than the engine's
   # `@spec` on purpose. `Client.decrypt/3` is specified to return
-  # `{:ok, decrypt_result}` or `{:error, term}`, and it does not: a message
-  # followed by trailing bytes comes back as `{:ok, parsed_message, rest}`.
+  # `{:ok, decrypt_result}` or `{:error, term}`, and the 1.0.x engine did
+  # not: a message followed by trailing bytes came back as
+  # `{:ok, parsed_message, rest}`.
   # Matched inside `engine_decrypt/5` against the spec, the last clause
   # below is one a type checker calls unreachable; matched here, against
   # what the engine actually returns, it is the clause that keeps a decrypt
@@ -302,9 +347,10 @@ defmodule Encryptor.Vault.Decrypt do
       {:error, engine} ->
         {:error, Error.decrypt_failed(config.vault, operation, engine)}
 
-      # Any return outside the engine's documented pair. The engine answers a
-      # message followed by trailing bytes with `{:ok, parsed_message, rest}`,
-      # and a future engine may answer something else again. It depends on the
+      # Any return outside the engine's documented pair. The 1.0.x engine
+      # answered a message followed by trailing bytes with
+      # `{:ok, parsed_message, rest}`, and a future engine may answer outside
+      # the pair again. It depends on the
       # message, so it collapses like every other message-dependent failure; and
       # the term itself is NOT carried, because a parsed message holds the header,
       # the wrapped data keys and the body ciphertext, and `:engine` is printed

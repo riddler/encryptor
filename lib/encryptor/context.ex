@@ -3,12 +3,18 @@ defmodule Encryptor.Context do
   The encryption context: the canonical vocabulary, the four-layer
   composition, and the bounds the engine does not check.
 
-  The context is a flat map of `String.t()` to `String.t()` that rides every
-  message **in the clear** and is covered by the header authentication tag. Two
-  properties follow, and both are load-bearing:
+  The context is a flat map of `String.t()` to `String.t()` that is covered by
+  every message's header authentication tag. A pair the vault does not require
+  rides the message **in the clear**; a required pair is bound to it without
+  being stored, as the AWS Encryption SDK specification has it and the
+  `aws_encryption_sdk` 1.1 engine writes it (a message the 1.0.x engine wrote
+  stores its required pairs too). Two properties follow, and both are
+  load-bearing:
 
-    * every pair is public to anyone holding a ciphertext, so putting a key in
-      the context is a disclosure decision, and
+    * a pair in the clear is public to anyone holding a ciphertext, and a
+      required pair is not secret either - whoever reads the message
+      reproduces it - so putting a key in the context is a disclosure
+      decision, and
     * no pair can be edited without breaking the tag, which is what binds a
       message to the row, column and scope it was written for. Only a pair
       the message carries binds it: a decrypt compares the keys present in

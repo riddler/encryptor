@@ -30,14 +30,13 @@ defmodule Encryptor.PythonInteropTest do
   caller context with non-ASCII keys and values. Python compares the plaintext
   and the context it reads back; this side compares the plaintext.
 
-  ## What passes today, and the two known failures
+  ## Every direction passes
 
-  `:single` at 0x0478 passes both ways, and Python to a `:single` vault passes
-  at 0x0578. Every other direction fails today because of one of two defects
-  in the engine this package runs on (aws_encryption_sdk 1.0.x). Each is
-  asserted here as a KNOWN failure with its exact error - not skipped, not
-  deleted - so the day the engine is fixed these tests go red and are turned
-  into passes, rather than the fix going unnoticed.
+  Every direction, profile and suite passes, both ways. On the 1.0.x engine
+  two defects failed every direction but `:single` at 0x0478 both ways and
+  Python to a `:single` vault at 0x0578; they were asserted here as known
+  failures with their exact errors, and `aws_encryption_sdk` 1.1, which this
+  package requires, fixes both. What the two were, for the record:
 
   **The stored required context.** The AWS Encryption SDK specification, at
   commit f95ae385f2e5388d0c5e1dca9d7b592e7329dc2a
@@ -49,21 +48,23 @@ defmodule Encryptor.PythonInteropTest do
   > value pairs listed in the encryption material's required encryption
   > context keys.
 
-  A required key is authenticated but not stored. The engine stores it and
-  also authenticates it, so a `:scoped` message (where `scope_ref` is always
-  required) fails Python's header authentication. The other way, Python
-  stores no `scope_ref` and wraps the data key under the full context, while
-  the engine unwraps under the stored context alone, so a `:scoped` vault
-  cannot open the data key. Directions 3 and 4.
+  A required key is authenticated but not stored. The 1.0.x engine stored it
+  and also authenticated it, so a `:scoped` message (where `scope_ref` is
+  always required) failed Python's header authentication. The other way,
+  Python stores no `scope_ref` and wraps the data key under the full context,
+  while the 1.0.x engine unwrapped under the stored context alone, so a
+  `:scoped` vault could not open the data key. The 1.1 engine stores no
+  required pair and appends the reproduced ones before it unwraps. Python's
+  comparison of the context it reads back therefore covers the pairs the
+  header stores; a required pair is checked by the decrypt itself, and this
+  side asserts that the header Python reads stores no `scope_ref`.
 
   **The signature verification key's encoding.** On a signing suite (0x0578,
-  this package's default) the engine writes the ECDSA P-384 verification key
-  as an uncompressed point, where the specification
+  this package's default) the 1.0.x engine wrote the ECDSA P-384
+  verification key as an uncompressed point, where the specification
   (`framework/transitive-requirements.md`) requires the SEC 1 compressed
-  form. The Python SDK decodes only the compressed form, so it cannot read any
-  message the engine writes at 0x0578, `:single` or `:scoped`; this is the
-  failure a 0x0578 `:scoped` message reaches first. The engine reads both
-  forms, so Python to a `:single` vault at 0x0578 passes.
+  form, and the Python SDK decodes only the compressed form. The 1.1 engine
+  writes it compressed and still reads both forms.
   """
 
   use ExUnit.Case, async: false
@@ -99,20 +100,16 @@ defmodule Encryptor.PythonInteropTest do
   # one key; what it changes is the `scope_ref` in the context.
   @selector "interop-scope"
 
-  # The exact errors the known failures are asserted with.
-  @python_header_auth "aws_encryption_sdk.exceptions.SerializationError: Header authorization failed"
-  @python_point_decode "builtins.KeyError: b'\\x04'"
-
   # direction, profile, suite => the expected outcome, for every plaintext.
   @expected %{
     {:to_python, :single, 0x0478} => :pass,
-    {:to_python, :single, 0x0578} => {:python_error, @python_point_decode},
-    {:to_python, :scoped, 0x0478} => {:python_error, @python_header_auth},
-    {:to_python, :scoped, 0x0578} => {:python_error, @python_point_decode},
+    {:to_python, :single, 0x0578} => :pass,
+    {:to_python, :scoped, 0x0478} => :pass,
+    {:to_python, :scoped, 0x0578} => :pass,
     {:from_python, :single, 0x0478} => :pass,
     {:from_python, :single, 0x0578} => :pass,
-    {:from_python, :scoped, 0x0478} => {:vault_error, :unable_to_decrypt_data_key},
-    {:from_python, :scoped, 0x0578} => {:vault_error, :unable_to_decrypt_data_key}
+    {:from_python, :scoped, 0x0478} => :pass,
+    {:from_python, :scoped, 0x0578} => :pass
   }
 
   setup_all do
@@ -173,38 +170,38 @@ defmodule Encryptor.PythonInteropTest do
   # One test per direction, profile, suite and plaintext, each asserting the
   # outcome @expected names for its row.
   #
-  # sabotage: made the 0x0478 vault write suite 0x0578 (Vault.Encrypt.suite/1) -
-  # red, the ten to_python 0x0478 tests get the point-decode error instead.
   # sabotage: made the vault's decrypt append a byte to the plaintext
-  # (Vault.Decrypt.engine_decrypt/5) - red, the ten passing from_python tests.
-  # sabotage: made the engine write the verification key compressed
-  # (ECDSA.encode_public_key/1) - red, the ten to_python 0x0578 known failures.
-  # sabotage: made the engine leave required keys out of the stored header
-  # (HeaderAuth.build_header/4) - red, the five to_python scoped 0x0478 known
-  # failures.
-  # sabotage: made the engine's default CMM unwrap under the reproduced context
-  # too (Cmm.Default.get_decryption_materials/2) - red, the ten from_python
-  # scoped known failures.
+  # (Vault.Decrypt.engine_decrypt/5) - red, the twenty from_python tests.
+  # sabotage: made interop.py compare every pair of the context against the
+  # header it reads back, required ones included - red, the ten to_python
+  # scoped tests, Python reporting context_mismatch: the header stores no
+  # `scope_ref`.
+  # sabotage: made the vault hand the engine only the stored pairs on decrypt
+  # (Vault.Decrypt's engine_context/3 dropping its required-key clause) - red,
+  # the ten from_python scoped tests, the reproduced `scope_ref` never reaching
+  # the unwrap.
   for {direction, profile, suite} = row <- Enum.sort(Map.keys(@expected)),
       {label, _} <- @plaintexts do
     expected = Map.fetch!(@expected, row)
     id = "#{profile}_#{Integer.to_string(suite, 16) |> String.pad_leading(4, "0")}_#{label}"
-    known = if expected == :pass, do: "passes", else: "KNOWN FAILURE"
     suite_hex = "0x" <> String.pad_leading(Integer.to_string(suite, 16), 4, "0")
 
     @tag case_id: id, direction: direction, expected: expected, profile: profile
-    test "#{direction} #{profile} #{suite_hex} #{label}: #{known}", ctx do
+    test "#{direction} #{profile} #{suite_hex} #{label}: passes", ctx do
       assert_case(ctx)
     end
   end
 
-  defp assert_case(%{direction: :to_python, case_id: id, expected: expected, python_read: read}) do
+  # A `:scoped` message's header, as Python parses it, stores no `scope_ref`:
+  # the required pair is authenticated and bound, not stored, both in what a
+  # vault writes and in what Python writes.
+  defp assert_case(
+         %{direction: :to_python, case_id: id, expected: :pass, python_read: read} = ctx
+       ) do
     result = Map.fetch!(read, id)
 
-    case expected do
-      :pass -> assert %{"outcome" => "pass"} = result
-      {:python_error, error} -> assert %{"outcome" => "error", "error" => ^error} = result
-    end
+    assert %{"outcome" => "pass", "stored_context_keys" => stored} = result
+    if ctx.profile == :scoped, do: refute("scope_ref" in stored)
   end
 
   defp assert_case(%{direction: :from_python} = ctx) do
@@ -213,22 +210,15 @@ defmodule Encryptor.PythonInteropTest do
 
     %{suite: suite, plaintext: plaintext, context: context} = Enum.find(ctx.cases, &(&1.id == id))
 
-    assert %{"outcome" => "pass"} = Map.fetch!(wrote, id)
+    assert :pass = expected
+    assert %{"outcome" => "pass", "stored_context_keys" => stored} = Map.fetch!(wrote, id)
+    if profile == :scoped, do: refute("scope_ref" in stored)
 
     ciphertext = File.read!(Path.join(dir, id <> ".ct"))
     vault = Map.fetch!(@vaults, {profile, suite})
-    result = vault.decrypt(ciphertext, call_opts(profile, context))
 
-    case expected do
-      :pass ->
-        assert {:ok, read_back} = result
-        assert read_back == plaintext
-
-      {:vault_error, engine} ->
-        assert {:error,
-                %Encryptor.Error{reason: :decrypt_failed, operation: :decrypt, engine: ^engine}} =
-                 result
-    end
+    assert {:ok, read_back} = vault.decrypt(ciphertext, call_opts(profile, context))
+    assert read_back == plaintext
   end
 
   defp cases(scope_ref) do

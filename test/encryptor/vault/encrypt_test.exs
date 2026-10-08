@@ -9,6 +9,7 @@ defmodule Encryptor.Vault.EncryptTest do
   alias Encryptor.EncryptVaults
   alias Encryptor.Error
   alias Encryptor.Key.Aes
+  alias Encryptor.Message
   alias Encryptor.TestVaults
   alias Encryptor.Vault
   alias Encryptor.Vault.Config
@@ -320,6 +321,11 @@ defmodule Encryptor.Vault.EncryptTest do
     # under the v1 one. sabotage: respelled `Encryptor.Context`'s @scope_ref
     # to "tenant_ref" - red on both the `"scope_ref"` and the `"tenant_ref"`
     # lines.
+    #
+    # The 1.1 engine binds the required pairs without storing them (ADR-0004
+    # Amendment B), so the evidence is the engine's read: it opens under the
+    # pair derived from `:key` and refuses another value for it, and the
+    # header stores nothing under either spelling.
     test "the vault injects scope_ref, derived from the :key selector" do
       vault = start_vault(EncryptVaults.Merchant)
       expected = Reference.derive(EncryptVaults.reference_subkey(), "merchant_a")
@@ -327,12 +333,23 @@ defmodule Encryptor.Vault.EncryptTest do
       assert {:ok, ciphertext} =
                vault.encrypt(@pan, key: "merchant_a", encryption_context: @columns)
 
-      assert {:ok, %{encryption_context: context}} = read_merchant(ciphertext, "merchant_a")
+      assert {:ok, %{plaintext: @pan}} = read_merchant(ciphertext, "merchant_a")
+      assert merchant_context("merchant_a")["scope_ref"] == expected
 
-      assert context["scope_ref"] == expected
-      assert context["table"] == "payment_methods"
-      refute Map.has_key?(context, "tenant_ref")
-      refute Map.has_key?(context, "tenant_id")
+      assert {:error, _} =
+               read(
+                 ciphertext,
+                 EncryptVaults.merchant_key("merchant_a"),
+                 "encryptor-scope",
+                 EncryptVaults.merchant_descriptor("merchant_a").name,
+                 required: ["scope_ref", "table", "column"],
+                 encryption_context: Map.put(@columns, "scope_ref", "not-the-reference")
+               )
+
+      assert {:ok, %{encryption_context: stored}} = Message.describe(ciphertext)
+      refute Map.has_key?(stored, "scope_ref")
+      refute Map.has_key?(stored, "tenant_ref")
+      refute Map.has_key?(stored, "tenant_id")
     end
 
     # sabotage: passed `%{}` to Context.compose/3 in place of the caller's
@@ -344,13 +361,11 @@ defmodule Encryptor.Vault.EncryptTest do
       assert {:ok, a} = vault.encrypt(@pan, key: "merchant_a", encryption_context: @columns)
       assert {:ok, b} = vault.encrypt(@pan, key: "merchant_b", encryption_context: @columns)
 
-      assert {:ok, %{encryption_context: %{"scope_ref" => ref_a}}} =
-               read_merchant(a, "merchant_a")
+      assert {:ok, %{plaintext: @pan}} = read_merchant(a, "merchant_a")
+      assert {:ok, %{plaintext: @pan}} = read_merchant(b, "merchant_b")
 
-      assert {:ok, %{encryption_context: %{"scope_ref" => ref_b}}} =
-               read_merchant(b, "merchant_b")
-
-      refute ref_a == ref_b
+      refute merchant_context("merchant_a")["scope_ref"] ==
+               merchant_context("merchant_b")["scope_ref"]
     end
 
     # sabotage: passed `%{}` to Context.compose/3 in place of the caller's
