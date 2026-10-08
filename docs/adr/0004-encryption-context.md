@@ -1822,7 +1822,7 @@ this Note carries no status of its own.
 
 ## Amendment B (2026-10-06): rekey takes the required pairs the header no longer stores
 
-Status: **proposed (2026-10-06)**. This amendment changes decision 11 and
+Status: **accepted (2026-10-07, encryptor 0.8.0)**, proposed 2026-10-06. This amendment changes decision 11 and
 states how decision 6's guarantee is kept for required keys once the engine
 stops storing them. Decisions 1 to 10 and 12, the two acceptance amendments at
 the top of this record, Amendment A and every Note above stand as written; no
@@ -2212,3 +2212,131 @@ Provenance: beads `enc-wqbc` and `enc-3bbw`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Note (2026-10-07): on the 1.1.0 engine a disagreeing warm read goes cold, and the cold unwrap refuses it
+
+Amendment B was written before the engine release it depends on was
+published, and two of its sentences state that release's warm-read error
+detail in a form the release does not take. The mechanism they describe
+holds; the term they name does not. This Note names them, says what the
+engine does, and changes no decision.
+
+The sentences. B2's second bullet, "Warm read: the caching CMM's hit check",
+says the release
+
+> compares the reproduced context with the keys a cached entry bound (its
+> stored keys and its required set) before it serves a hit, and refuses a
+> disagreement with `{:encryption_context_mismatch, key}`.
+
+and the Consequences bullet "Error detail moves; reasons do not" says that for
+an affected message the `engine:` detail is
+
+> the hit check's `{:encryption_context_mismatch, "column"}` on a warm one.
+
+What the engine does. encryptor at `84f6676` (the commit tagged `v0.8.0`)
+requires `aws_encryption_sdk ~> 1.1` (`mix.exs`), and `mix.lock` resolves
+1.1.0; the requirement moved there in `8c00a1c`. In `aws_encryption_sdk`
+1.1.0, the commit tagged `v1.1.0` (`a668f2d`), `Cmm.Caching`'s
+`handle_decryption_cache_lookup/3` (`lib/aws_encryption_sdk/cmm/caching.ex:287`)
+serves a hit only when `bound_context_agrees?/2` (`:323`) answers `true`. That
+function answers a boolean: the reproduced values for stored keys agree with
+the stored ones, every key in the entry's required set is reproduced, and the
+reproduced pairs the header does not store are exactly the ones the entry
+bound outside the header. When it answers `false` the hit is not served and
+the request goes the cache-miss way, through
+`fetch_and_cache_decryption_materials/3` (`:343`), to the cold read: the
+default CMM's `get_decryption_materials/2` (`cmm/default.ex:215`) appends the
+reproduced pairs the header does not store and unwraps under them, and the
+unwrap refuses a value the data key was not bound to. The caching CMM produces
+no `{:encryption_context_mismatch, key}`. So a disagreeing warm read of an
+affected message ends exactly as a cold one does: `:decrypt_failed`, with the
+cold path's unwrap failure as its `engine:` detail, not the term the two
+sentences name.
+
+What still holds. B2's guarantee - a second reader claiming a different value
+for a required key that is no longer stored is not served the first reader's
+materials - holds, by the cold read rather than by a refusal at the hit. The
+reason a caller sees is `:decrypt_failed` in every case, as the Consequences
+bullet's title says. `test/encryptor/vault/decrypt_test.exs`, "a column swap
+on a required column fails on a warm decryption cache", pins it on a warm
+cache for a required, unstored column; it asserts the reason only, not the
+engine detail. "the same swap fails on a warm decryption cache, which is the
+whole point", in the same file, asserts `{:encryption_context_mismatch,
+"column"}` in `:engine`, but on a vault that requires nothing, where the column
+is stored and the term is the vault's own decision 6 comparison, not the
+engine's hit check.
+
+Two more sentences of Amendment B describe the code it was written against and
+are read with this Note: "The engine cites are `aws_encryption_sdk` 1.0.0, the
+version `mix.lock` resolves" (1.1.0 since `8c00a1c`; the cites name 1.0.0 and
+resolve there as given), and B2's "The read side's partition id is derived
+from the vault and the selector (`Encryptor.Vault.Partition.id/2`, ...)",
+which ADR-0001 Amendment C (2026-10-07) replaced with a read-side id over the
+vault, the selector and every candidate key; the selector is still in that
+pre-image, so its conclusion that a reader naming another scope never shares a
+cache entry still holds.
+
+No decision is amended, no line above is edited, and this Note carries no
+status of its own.
+
+## Note (2026-10-07): Amendment B is accepted on 0.8.0
+
+Amendment B's Status line now reads `accepted (2026-10-07, encryptor
+0.8.0)`. The record's own Status line, `accepted (2026-08-27, with
+amendments)`, and its index row, `accepted (2026-08-27, amended)`, do not
+change.
+
+The amendment's code shipped in encryptor 0.8.0: the commit tagged `v0.8.0`
+(`84f6676`), published on Hex by the release workflow's run
+https://github.com/riddler/encryptor/actions/runs/37709846558, which
+succeeded. Every claim below was re-verified at `84f6676`, which was also the
+tip of `main` when this Note was written; the engine claims against
+`aws_encryption_sdk` 1.1.0 (`a668f2d`), the version `mix.lock` resolves there.
+
+- **B1.** `Encryptor.Vault.Rekey`'s `accept_context/4`
+  (`lib/encryptor/vault/rekey.ex:270`) accepts an empty map, refuses a value
+  that is not a map with `{:invalid_context_value, "encryption_context"}`, and
+  otherwise checks every key with `acceptable?/4` (`:308`): a key is accepted
+  only when the vault requires it, the header does not store it, the vault
+  does not compose it, and `Encryptor.Context.reserved_key?/2` does not
+  reserve it; every other key is `{:reserved_context_key, key}`
+  (`accept_pairs/4`, `:296`). The check runs before the provider's
+  `decryption_keys/2`. `reproduce/3` (`:218`) builds the stored context plus
+  each required key the header does not store from what the vault composes or
+  the caller supplied, the read half decrypts under it (`open/5`, `:255`), and
+  the write half writes it less the engine's own pair (`writable/1`, `:240`).
+  `test/encryptor/vault/rekey_test.exs` pins the table: "a required pair the
+  header does not store is accepted, and rebinds nothing", "a required pair
+  the header stores is refused", "a required pair the vault composes is
+  refused, and supplied by the vault", "a key the vault does not require is
+  refused" and "a required pair nobody supplies is the caller-fixable error".
+- **B2.** The cold read: the 1.1.0 default CMM appends the reproduced pairs
+  the header does not store before it unwraps (`get_decryption_materials/2`,
+  `cmm/default.ex:215`), and `decrypt_test.exs`'s "a column swap on a required
+  column fails on a cold read" pins `:decrypt_failed`. The warm read holds as
+  the Note above, "on the 1.1.0 engine a disagreeing warm read goes cold, and
+  the cold unwrap refuses it" (2026-10-07), states it: the hit is not served
+  and the cold unwrap refuses. The vault's own comparison is unchanged for
+  stored keys (`agreed_stored/4`, `lib/encryptor/vault/decrypt.ex:244`).
+- **B3.** `engine_context/3` (`lib/encryptor/vault/decrypt.ex:219`) keeps a
+  reproduced pair only when the header stores its key or the vault requires
+  it, and the comparison still receives the whole reproduced context.
+- **B4.** `mix.exs` requires `aws_encryption_sdk ~> 1.1`; the 0.8.0 changelog
+  says to upgrade every reader before any writer.
+- **The contract as typespecs.** `Encryptor.Vault` declares `rekey_option`
+  with the typedoc the amendment gives and `@callback rekey(ciphertext ::
+  binary(), opts :: [rekey_option()])`; the generated `rekey/2` and
+  `Encryptor.Vault.rekey/3` keep `keyword()` specs, as the B-1 Note above
+  reconciles.
+- **The B-1 Note.** `require_binding/4` (`lib/encryptor/envelope.ex:702`)
+  reads the root vault's required set through
+  `Encryptor.Vault.ensure_started/2` before the header, and
+  `test/encryptor/envelope_test.exs`'s "a root vault that requires the
+  binding's keys" carries the tests it names.
+
+A sentence that names the amendment's status: the Status paragraph says "this
+amendment is proposed under it". From this Note on, Amendment B is accepted
+under the record's own status line; the sentence is not edited.
+
+No decision changes, no line above is edited other than Amendment B's Status
+line, and this Note carries no status of its own.
