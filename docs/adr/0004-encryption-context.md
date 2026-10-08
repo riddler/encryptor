@@ -2187,11 +2187,26 @@ changed answer at start.
   keys}` from the required-context CMM, and a `rekey/2` that passes one is
   `{:reserved_context_key, key}` under B1's package-reserved row.
 
+- **A stopped root vault answers for itself.** Which pairs the header check
+  exempts depends on the root vault's configuration, so `require_binding/4`
+  reads it through `Encryptor.Vault.ensure_started/2` first, and a root vault
+  that is not running is `{:vault_not_started, vault}`, stamped with the
+  operation, before the header is read.
+
 What pins it: `test/encryptor/envelope_test.exs`, "a root vault that requires
 the binding's keys", whose tests cover the wrapping that stores none of the
 binding and unwraps and rewraps on the binding passed, a blob copied to
-another scope's or another version's row, and the root vault's own decrypt
-and rekey.
+another scope's or another version's row on a cold and on a warm cache, the
+root vault stopped, and the root vault's own decrypt and rekey.
+
+One reconciliation inside Amendment B, which the same code makes. Its
+typespec section says "The callback keeps `opts :: keyword()`", and its code
+block declares `@callback rekey(ciphertext :: binary(), opts ::
+[rekey_option()])`. The code follows the code block: `Encryptor.Vault`
+declares the `rekey_option` type and the callback over a list of it, which is
+a keyword list of the two documented options, so the prose sentence holds of
+the shape and the code block names its members. The generated `rekey/2` and
+`Encryptor.Vault.rekey/3` keep their `keyword()` specs.
 
 Provenance: beads `enc-wqbc` and `enc-3bbw`.
 

@@ -692,36 +692,44 @@ defmodule Encryptor.Envelope do
   # this check still reads all four for it. This settles ADR-0004 Amendment B's
   # open question B-1 without refusing a root vault that requires the
   # binding's keys at start.
+  #
+  # Which pairs are exempt depends on the root vault's configuration, so the
+  # vault must be running to answer: a vault that is not is
+  # `{:vault_not_started, vault}`, stamped with the operation, before the
+  # header is read - the answer the decrypt this check precedes would give.
   @spec require_binding(root_vault(), Error.operation(), binary(), %{String.t() => String.t()}) ::
           :ok | {:error, Error.t()}
   defp require_binding(vault, operation, blob, binding) do
-    case Message.describe(blob) do
-      {:ok, %Info{encryption_context: stored}} ->
-        required = required_keys(vault)
-
-        binding
-        |> Enum.sort()
-        |> Enum.reject(fn {key, _value} -> key in required and not Map.has_key?(stored, key) end)
-        |> Enum.find(fn {key, value} -> Map.get(stored, key) != value end)
-        |> case do
-          nil -> :ok
-          {key, _value} -> {:error, mismatch(vault, operation, key)}
-        end
-
-      {:error, %Error{engine: engine}} ->
-        {:error, Error.decrypt_failed(vault, operation, engine)}
+    with {:ok, %Config{required_keys: required}} <-
+           Encryptor.Vault.ensure_started(vault, operation),
+         {:ok, stored} <- stored_context(vault, operation, blob) do
+      case unbound_pair(binding, stored, required) do
+        nil -> :ok
+        key -> {:error, mismatch(vault, operation, key)}
+      end
     end
   end
 
-  # The root vault's required set. A vault that is not running has none to
-  # read, and it answers `{:vault_not_started, vault}` from the decrypt this
-  # check precedes, so every pair is read from the header here, as before.
-  @spec required_keys(root_vault()) :: [String.t()]
-  defp required_keys(vault) do
-    case Config.fetch(vault) do
-      {:ok, %Config{required_keys: required}} -> required
-      {:error, %Error{}} -> []
+  # The wrapping's stored context, or the parse failure collapsed like every
+  # other message-dependent failure, carrying the engine's own term.
+  @spec stored_context(root_vault(), Error.operation(), binary()) ::
+          {:ok, map()} | {:error, Error.t()}
+  defp stored_context(vault, operation, blob) do
+    case Message.describe(blob) do
+      {:ok, %Info{encryption_context: stored}} -> {:ok, stored}
+      {:error, %Error{engine: engine}} -> {:error, Error.decrypt_failed(vault, operation, engine)}
     end
+  end
+
+  # The first binding key, in sorted order, whose pair the header does not
+  # carry at the row's value, skipping a key the root vault requires that the
+  # header does not store; `nil` when every pair checks.
+  @spec unbound_pair(%{String.t() => String.t()}, map(), [String.t()]) :: String.t() | nil
+  defp unbound_pair(binding, stored, required) do
+    binding
+    |> Enum.sort()
+    |> Enum.reject(fn {key, _value} -> key in required and not Map.has_key?(stored, key) end)
+    |> Enum.find_value(fn {key, value} -> if Map.get(stored, key) != value, do: key end)
   end
 
   @spec mismatch(root_vault(), Error.operation(), String.t()) :: Error.t()
