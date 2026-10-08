@@ -253,6 +253,35 @@ defmodule Encryptor.EnvelopeVaults do
     end
   end
 
+  defmodule CachedRequiredBinding do
+    @moduledoc """
+    `RequiredBinding` with a materials cache, so a second read of one
+    wrapping is served from a warm decryption cache.
+    """
+
+    use Encryptor.Vault,
+      otp_app: :encryptor,
+      context_profile: :single,
+      algorithm_suite_id: 0x0478,
+      cache: [max_age: 60],
+      required_context: [
+        "encryptor-purpose",
+        "encryptor-scope-ref",
+        "encryptor-key-version",
+        "encryptor-key-namespace"
+      ]
+
+    @doc "Layer 5: the key material a config file must not hold."
+    def init(config) do
+      {:ok,
+       Keyword.put(
+         config,
+         :provider,
+         {Encryptor.Provider.Static, Encryptor.EnvelopeVaults.entry(1)}
+       )}
+    end
+  end
+
   defmodule MistypedRoot do
     @moduledoc """
     A root vault a host has configured as a scoped vault by mistake.

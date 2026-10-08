@@ -130,6 +130,50 @@ defmodule Encryptor.EnvelopeTest do
       end
     end
 
+    # The same refusal on a warm decryption cache: the cache id hashes the
+    # stored context, which carries none of the binding, so the copied blob's
+    # read would hit the entry the legitimate read populated; the engine's
+    # cache hit check refuses it (ADR-0004 Amendment B, B2's second bullet).
+    # sabotage: none in this package's lines opens it, as above; the engine's
+    # hit check is what this pins.
+    test "a blob copied to another scope's row is refused on a warm cache too" do
+      root = start_vault(EnvelopeVaults.CachedRequiredBinding)
+      wrapped = provisioned(root)
+      other = provisioned(root, "merchant-43")
+      moved = %WrappedKey{other | wrapped: wrapped.wrapped}
+
+      assert {:ok, %Aes{}} = Envelope.unwrap(root, wrapped)
+      assert {:ok, %Aes{}} = Envelope.unwrap(root, wrapped)
+
+      assert {:decrypt_failed, _engine, :decrypt} = refusal(Envelope.unwrap(root, moved))
+      assert {:ok, %Aes{}} = Envelope.unwrap(root, wrapped)
+    end
+
+    # Which binding pairs the header check exempts depends on the root vault's
+    # configuration, so a stopped root vault answers for itself before the
+    # header is read. sabotage: made require_binding/4 read an empty required
+    # set when the vault is not running - red: the wrapping, which stores none
+    # of the binding, is then refused as a context mismatch.
+    test "with the root vault stopped, unwrap/2 and rewrap/2 answer vault_not_started" do
+      start_vault(EnvelopeVaults.RequiredBinding)
+      wrapped = provisioned(EnvelopeVaults.RequiredBinding)
+      assert context(wrapped.wrapped) == %{}
+
+      :ok = stop_supervised(EnvelopeVaults.RequiredBinding)
+
+      assert {:error,
+              %Error{
+                reason: {:vault_not_started, EnvelopeVaults.RequiredBinding},
+                operation: :decrypt
+              }} = Envelope.unwrap(EnvelopeVaults.RequiredBinding, wrapped)
+
+      assert {:error,
+              %Error{
+                reason: {:vault_not_started, EnvelopeVaults.RequiredBinding},
+                operation: :rekey
+              }} = Envelope.rewrap(EnvelopeVaults.RequiredBinding, wrapped)
+    end
+
     # The public doors still cannot open it: no caller supplies a package
     # pair, so the root vault's own decrypt and rekey are refused for the
     # missing binding, and a rekey that passes one is refused for the key
