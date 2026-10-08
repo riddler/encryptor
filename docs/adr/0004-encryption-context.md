@@ -2236,7 +2236,7 @@ an affected message the `engine:` detail is
 What the engine does. encryptor at `84f6676` (the commit tagged `v0.8.0`)
 requires `aws_encryption_sdk ~> 1.1` (`mix.exs`), and `mix.lock` resolves
 1.1.0; the requirement moved there in `8c00a1c`. In `aws_encryption_sdk`
-1.1.0, the commit tagged `v1.1.0` (`a668f2d`), `Cmm.Caching`'s
+1.1.0, the commit tagged `v1.1.0` (`539633a`; the tag object is `a668f2d`), `Cmm.Caching`'s
 `handle_decryption_cache_lookup/3` (`lib/aws_encryption_sdk/cmm/caching.ex:287`)
 serves a hit only when `bound_context_agrees?/2` (`:323`) answers `true`. That
 function answers a boolean: the reproduced values for stored keys agree with
@@ -2247,7 +2247,13 @@ the request goes the cache-miss way, through
 `fetch_and_cache_decryption_materials/3` (`:343`), to the cold read: the
 default CMM's `get_decryption_materials/2` (`cmm/default.ex:215`) appends the
 reproduced pairs the header does not store and unwraps under them, and the
-unwrap refuses a value the data key was not bound to. The caching CMM produces
+unwrap refuses a value the data key was not bound to. When that unwrap fails,
+the default CMM retries once under the stored context alone and returns the
+first failure if the retry fails too (the comment above
+`unwrap_with_reproduced/6`, `cmm/default.ex:251-260`); for a wrong value of a
+required pair the retry fails as well, because the data key was wrapped under
+the full context, required pair included, and the stored context alone does
+not carry it. The caching CMM produces
 no `{:encryption_context_mismatch, key}`. So a disagreeing warm read of an
 affected message ends exactly as a cold one does: `:decrypt_failed`, with the
 cold path's unwrap failure as its `engine:` detail, not the term the two
@@ -2276,6 +2282,16 @@ vault, the selector and every candidate key; the selector is still in that
 pre-image, so its conclusion that a reader naming another scope never shares a
 cache entry still holds.
 
+One sentence of the B-1 settlement Note above also describes code that has
+since changed: its first bullet says `require_binding/4` reads the root
+vault's required set "(`required_keys/1` there, through
+`Encryptor.Vault.Config.fetch/1`)". At `84f6676` there is no `required_keys/1`
+in `Encryptor.Envelope`: `c9c0f57` ("Refuses a stopped root vault before the
+header") made `require_binding/4` (`lib/encryptor/envelope.ex:702`) read the
+configuration through `Encryptor.Vault.ensure_started/2`, as that Note's last
+bullet, "A stopped root vault answers for itself", already says. What the
+check compares is unchanged.
+
 No decision is amended, no line above is edited, and this Note carries no
 status of its own.
 
@@ -2291,7 +2307,8 @@ The amendment's code shipped in encryptor 0.8.0: the commit tagged `v0.8.0`
 https://github.com/riddler/encryptor/actions/runs/37709846558, which
 succeeded. Every claim below was re-verified at `84f6676`, which was also the
 tip of `main` when this Note was written; the engine claims against
-`aws_encryption_sdk` 1.1.0 (`a668f2d`), the version `mix.lock` resolves there.
+`aws_encryption_sdk` 1.1.0 (the commit `539633a`, tagged `v1.1.0` by the tag
+object `a668f2d`), the version `mix.lock` resolves there.
 
 - **B1.** `Encryptor.Vault.Rekey`'s `accept_context/4`
   (`lib/encryptor/vault/rekey.ex:270`) accepts an empty map, refuses a value
@@ -2312,8 +2329,10 @@ tip of `main` when this Note was written; the engine claims against
   refused" and "a required pair nobody supplies is the caller-fixable error".
 - **B2.** The cold read: the 1.1.0 default CMM appends the reproduced pairs
   the header does not store before it unwraps (`get_decryption_materials/2`,
-  `cmm/default.ex:215`), and `decrypt_test.exs`'s "a column swap on a required
-  column fails on a cold read" pins `:decrypt_failed`. The warm read holds as
+  `cmm/default.ex:215`), its one retry under the stored context alone fails
+  too for a wrong required value (the warm-read Note above), and
+  `decrypt_test.exs`'s "a column swap on a required column fails on a cold
+  read" pins `:decrypt_failed`. The warm read holds as
   the Note above, "on the 1.1.0 engine a disagreeing warm read goes cold, and
   the cold unwrap refuses it" (2026-10-07), states it: the hit is not served
   and the cold unwrap refuses. The vault's own comparison is unchanged for

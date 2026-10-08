@@ -1399,8 +1399,7 @@ behaviour is the one the shipped engine runs.
 
 **A sentence that names the amendment's own status.** The Status paragraph
 says the amendment "stays proposed until the maintainer's own reading flips
-it". The maintainer directed this flip, which is taken on the claim check
-above. That sentence is not edited.
+it". This flip is taken on the claim check above. That sentence is not edited.
 
 No decision changes, no line above is edited other than Amendment C's Status
 line, and this Note carries no status of its own.
