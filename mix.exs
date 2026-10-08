@@ -128,7 +128,7 @@ defmodule Encryptor.MixProject do
 
   defp deps do
     [
-      {:aws_encryption_sdk, "~> 1.0"},
+      {:aws_encryption_sdk, "~> 1.1"},
 
       # Hard runtime dependency, deliberately not optional (ADR-0006 decision
       # 1). An optional telemetry dependency buys two builds with different

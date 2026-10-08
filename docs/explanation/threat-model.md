@@ -385,57 +385,63 @@ are not repeating, not a proof of the 2^32 bound.
 
 ## Known defects in the engine
 
-Four defects in the engine bear on the claims above. They are listed here
-because a threat model that only lists strengths invites the reader to find
-the weaknesses alone.
+Four defects in the 1.0.x engine bore on the claims above, and
+`aws_encryption_sdk` 1.1, which this package requires, fixes all four. They
+are listed here because a threat model that only lists strengths invites the
+reader to find the weaknesses alone, and because messages written before the
+fix are still read.
 
-**The materials cache skips the context comparison
+**The materials cache skipped the context comparison
 ([issue #96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96)).**
-The engine compares the reader's context with the message's inside its default
-materials manager, which sits below its caching materials manager. On a
-decryption cache hit the default manager is never called, so a second read of
-the same message under a disagreeing context would succeed. This package does
-not rely on that comparison: the vault parses the header and compares the
+The 1.0.x engine compared the reader's context with the message's inside its
+default materials manager, which sits below its caching materials manager. On
+a decryption cache hit the default manager was never called, so a second read
+of the same message under a disagreeing context would succeed. This package
+does not rely on that comparison: the vault parses the header and compares the
 context itself, above the cache, before it calls the engine
 (the `agree` step in
-[`lib/encryptor/vault/decrypt.ex`](https://github.com/riddler/encryptor/blob/main/lib/encryptor/vault/decrypt.ex)). The
-test that proves it reads the same message twice, once to warm the cache and
-once under a swapped column, and it is the one test in the suite that goes red
-when the vault's own comparison is removed. ADR-0004 decision 6 records why.
+[`lib/encryptor/vault/decrypt.ex`](https://github.com/riddler/encryptor/blob/main/lib/encryptor/vault/decrypt.ex)), for every key the header
+stores. The 1.1 engine checks a cache hit against the reproduced context too,
+so a read through a vault no longer shows which of the two refused a swap;
+the test that calls the vault's comparison directly, "agree/4 refuses a stored
+pair the reader disagrees with, before the engine", is the one that goes red
+when it is removed. For a required key, which the 1.1 engine does not store,
+the engine's check is the one that holds (ADR-0004 Amendment B, B2).
+ADR-0004 decision 6 records why.
 
-**The engine stores required context keys in the header.** The AWS Encryption
+**The engine stored required context keys in the header.** The AWS Encryption
 SDK specification says the header's stored context must not contain the keys
 the materials list as required: a required key is authenticated, not stored.
-The engine stores it as well, and reads a conforming message's data key under
-the stored context only. Every message a `:scoped` vault writes has a required
-key, `scope_ref`, so `:scoped` messages do not interoperate with the other
-SDKs today, in either direction. A `:single` vault's messages are not affected.
-ADR-0004 Amendment B, proposed, records how this package will move to the
-engine release that corrects this and closes issue #96 on the engine side:
-messages written before the change keep decrypting, and the vault keeps its own
-comparison for every stored key. That release is planned as the engine's next
-minor release; it is not published as this page is written.
+The 1.0.x engine stored it as well, and read a conforming message's data key
+under the stored context only. Every message a `:scoped` vault writes has a
+required key, `scope_ref`, so `:scoped` messages did not interoperate with the
+other SDKs, in either direction. The 1.1 engine stores no required key, and
+appends a reproduced key the header does not store before it unwraps; this
+package moved to it under ADR-0004 Amendment B, proposed: messages written
+before the change keep decrypting and rekeying, the vault keeps its own
+comparison for every stored key, and `rekey/2` takes the required pairs the
+header does not store from whoever owns the row. A 1.0.x reader cannot read
+a message the 1.1 engine writes with required context.
 
-**The signature verification key is written uncompressed.** On a signing suite,
-0x0578, this package's default, the specification requires the ECDSA P-384
-verification key in the message's context in compressed form; the engine
-writes the uncompressed point. Another SDK that decodes only the compressed
-form cannot read 0x0578 messages the engine writes, though the engine reads
-both forms. This is an interoperability defect, not a weakness in the
+**The signature verification key was written uncompressed.** On a signing
+suite, 0x0578, this package's default, the specification requires the ECDSA
+P-384 verification key in the message's context in compressed form; the
+1.0.x engine wrote the uncompressed point, which another SDK that decodes only
+the compressed form cannot read. The 1.1 engine writes the compressed form and
+reads both. This was an interoperability defect, not a weakness in the
 signature: the key is the same point either way.
 
-**The engine returns a parsed message for trailing bytes.** Given a valid
-message followed by extra bytes, the engine returns the parsed message and the
-rest, a shape outside its own contract. Through 0.7.0 the vault crashed on it;
-from the release after 0.7.0 the vault refuses it with `:decrypt_failed`, on
-`decrypt/2` and on `rekey/2`, and the unexpected shape never reaches an error
-message.
+**The engine returned a parsed message for trailing bytes.** Given a valid
+message followed by extra bytes, the 1.0.x engine returned the parsed message
+and the rest, a shape outside its own contract. Through 0.7.0 the vault
+crashed on it; from the release after 0.7.0 the vault refuses it with
+`:decrypt_failed`, on `decrypt/2` and on `rekey/2`, and the 1.1 engine answers
+it inside its contract, with `{:error, :trailing_bytes}`.
 
-The interop test asserts each of the two cross-SDK failures with its
-exact error rather than skipping it, so the day the engine is fixed the test
-goes red and is turned into a pass. The README's
-[Compatibility](../../README.md#compatibility) section says the same for
-readers of the package page.
+The interop test asserted each of the two cross-SDK failures with its exact
+error while the engine had them, and asserts every direction passing now. The
+README's [Compatibility](../../README.md#compatibility) section says the same
+for readers of the package page.
 
 ## What was tested against what
 
@@ -482,10 +488,7 @@ checks the corpus is the one reviewed.
 Python 4.0.7 with the Material Providers Library, on Python 3.12, every package
 pinned by version and hash, with a key generated for the run and no AWS account
 involved. Messages cross in four directions at suites 0x0478 and 0x0578, for a
-`:single` and a `:scoped` vault. Today a `:single` vault's messages cross both
-ways at 0x0478, and Python's messages reach a `:single` vault at 0x0578; every
-other direction fails on one of the engine defects above, and is asserted as a
-known failure
+`:single` and a `:scoped` vault, and every direction passes
 ([`test/encryptor/interop/python_interop_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs)).
 
 **The construction itself**, against SP 800-38D, in the GCM construction test

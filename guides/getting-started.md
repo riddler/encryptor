@@ -260,13 +260,18 @@ nothing else (ADR-0001 decision 4). You store that one binary. It carries its
 own encryption context, its own suite, and the name of the key that wrote it,
 so there is no second column to keep in step with it.
 
-The encryption context rides **in the clear** and is covered by the header
-authentication tag. Two things follow, and both matter:
+The encryption context is covered by the header authentication tag. A pair the
+vault does not require, like the static `app` pair, rides **in the clear** in
+the header. A required pair, like `table` and `column` here, is bound to the
+message without being stored in it, as the AWS Encryption SDK specification
+has it: every reader reproduces it, and a wrong value fails the decrypt. Two
+things follow, and both matter:
 
-- every pair is public to anyone holding the ciphertext, so putting a value in
-  the context is a disclosure decision, and
-- no pair can be edited without breaking the tag, which is what binds a message
-  to the row and column it was written for.
+- no pair is secret - a pair in the clear is public to anyone holding the
+  ciphertext, and a required one is known to every reader - so putting a value
+  in the context is a disclosure decision, and
+- no pair can be edited or swapped without breaking the decrypt, which is what
+  binds a message to the row and column it was written for.
 
 A pair binds the message only if it is in the message. A decrypt compares the
 keys present in both the message and the reader's context, so a value written
@@ -524,10 +529,12 @@ scope reference and its context pair itself:
   )
 ```
 
-The pair's key is `"scope_ref"`. It is authenticated data written into
-every message, so it is a constant rather than a name that follows the API:
-`describe/1` and your support tooling will always read `"scope_ref"`, and
-`Encryptor.Context.scope_ref_key/0` returns it. [Choosing the
+The pair's key is `"scope_ref"`. It is authenticated data bound into every
+message, so it is a constant rather than a name that follows the API: a
+message whose header stores it (one written on `aws_encryption_sdk` 1.0.x)
+stores it under `"scope_ref"`, and `Encryptor.Context.scope_ref_key/0`
+returns it. On the 1.1 engine it is required, so it is bound without being
+stored, and `describe/1` does not show it. [Choosing the
 scope](choosing-the-scope.md#scope-and-the-spellings-that-stay) tables every
 spelling pinned the same way.
 
@@ -619,11 +626,15 @@ vault:
 
 ```elixir
 {:ok, info} = Encryptor.Message.describe(ciphertext)
-info.encryption_context     #=> %{"table" => "payment_methods", ...}
+info.encryption_context     #=> %{}
 info.algorithm_suite_id     #=> 1144
 info.committed?             #=> true
 info.encrypted_data_keys    #=> [%{provider_id: "acme-merchant", key_name: "s/<ref>/v1"}]
 ```
+
+`encryption_context` is what the header stores: the pairs the vault does not
+require. A required pair is bound to the message without being stored, so it
+is not there (a message written on `aws_encryption_sdk` 1.0.x stored it too).
 
 **The return is an unverified claim.** The header authentication tag is not
 checked - checking it needs the data key - so every field is what whoever wrote

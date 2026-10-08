@@ -23,9 +23,9 @@ defmodule Encryptor.Provider.GcpKms do
 
   **The wrapping root moves and nothing else does.** The reference subkey of
   ADR-0003 decision 6 stays local and stays configured on the scoped vault
-  (ADR-0004 decision 4 as amended), because `scope_ref` travels in the clear
-  in every message header and must not depend on a remote service that could
-  be unreachable on the read path.
+  (ADR-0004 decision 4 as amended), because `scope_ref` is bound into every
+  message and every read reproduces it, so it must not depend on a remote
+  service that could be unreachable on the read path.
 
   ## Configuration
 

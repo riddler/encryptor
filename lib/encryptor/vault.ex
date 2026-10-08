@@ -75,7 +75,7 @@ defmodule Encryptor.Vault do
     * `encrypt/2` and `encrypt!/2` - the write half of the door,
     * `decrypt/2` and `decrypt!/2` - the read half,
     * `rekey/2` and `rekey!/2` - the rotation half: one message, re-encrypted
-      under current materials with its context preserved byte for byte,
+      under current materials with the same context bound to it,
     * `child_spec/1` and `start_link/1` - the supervision-tree surface,
     * `stop/0` - stops the vault and erases its frozen configuration,
     * `config/0` - the frozen configuration, or `{:vault_not_started, _}`,
@@ -120,16 +120,17 @@ defmodule Encryptor.Vault do
   ## What the vault stores about a message: nothing
 
   This module reads the engine's header in exactly one place, through
-  `Encryptor.Message`, and `rekey/2` is the reason it has to. A message carries
-  its own encryption context, so a rotation needs no row, no table and no
-  second copy of what the ciphertext was bound to. That property is the
-  engine's deviation from the specification rather than the specification, and
-  the rekey path's implementation (`lib/encryptor/vault/rekey.ex`) records
-  what changes if it is ever corrected (ADR-0004 decision 11 and open
-  question 5).
+  `Encryptor.Message`, and `rekey/2` is the reason it has to. A message
+  carries the encryption context its header stores, so a rotation of a
+  message whose header stores every pair needs no row, no table and no second
+  copy of what the ciphertext was bound to. The `aws_encryption_sdk` 1.1
+  engine this package requires follows the specification and stores no
+  required pair in a message it writes, so a rotation of such a message takes
+  those pairs from whatever owns the row, through `rekey/2`'s
+  `:encryption_context` (ADR-0004 decision 11 and its Amendment B).
 
   Records: ADR-0001 decisions 1, 2, 3, 4, 5 and 10; ADR-0002 decision 6;
-  ADR-0004 decision 11; ADR-0005 decision 7 and amendment A; ADR-0006
+  ADR-0004 decision 11 and Amendment B; ADR-0005 decision 7 and amendment A; ADR-0006
   decisions 2, 3, 7, 8 and 9 and its amendment A.
   """
 
@@ -150,6 +151,18 @@ defmodule Encryptor.Vault do
   copy of it is a second place for it to drift.
   """
   @type selector :: Error.selector()
+
+  @typedoc """
+  An option to `rekey/2`.
+
+  `:encryption_context` carries only the vault's required keys that the
+  message's header does not store and the vault does not compose itself
+  (ADR-0004 Amendment B, B1). Any other key is
+  `{:reserved_context_key, key}`; an empty map is accepted.
+  """
+  @type rekey_option ::
+          {:key, selector()}
+          | {:encryption_context, Encryptor.Context.context()}
 
   @doc """
   Layer 5 of the precedence chain: the runtime configuration escape hatch.
@@ -193,9 +206,11 @@ defmodule Encryptor.Vault do
 
   @doc """
   Re-encrypts a message under this vault's currently resolved materials,
-  preserving its encryption context byte for byte (ADR-0001 decision 4).
+  preserving its encryption context (ADR-0001 decision 4): the same pairs are
+  bound to the new message. `:encryption_context` supplies the required pairs
+  the message's header does not store (ADR-0004 Amendment B).
   """
-  @callback rekey(ciphertext :: binary(), opts :: keyword()) ::
+  @callback rekey(ciphertext :: binary(), opts :: [rekey_option()]) ::
               {:ok, binary()} | {:error, Error.t()}
 
   @doc """

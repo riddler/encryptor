@@ -229,14 +229,14 @@ defmodule Encryptor.Vault.ShredDrainTest do
 
       # Two rewrites before the mint: the second reuses the materials the
       # first cached, so the rekey's write half runs through a warm cache.
-      {:ok, first} = vault.rekey(old, key: @branch)
-      {:ok, second} = vault.rekey(old, key: @branch)
+      {:ok, first} = vault.rekey(old, key: @branch, encryption_context: @columns)
+      {:ok, second} = vault.rekey(old, key: @branch, encryption_context: @columns)
       assert wrapped_under(second) == [key_name(@branch, 1)]
       assert edk_bytes(second) == edk_bytes(first)
 
       put_versions(@branch, [2, 1])
 
-      assert {:ok, rewritten} = vault.rekey(old, key: @branch)
+      assert {:ok, rewritten} = vault.rekey(old, key: @branch, encryption_context: @columns)
       assert wrapped_under(rewritten) == [key_name(@branch, 2)]
       assert {:ok, @email} = vault.decrypt(rewritten, key: @branch, encryption_context: @columns)
     end

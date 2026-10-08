@@ -109,7 +109,16 @@ def main(mode, work_dir):
                     materials_manager=materials_manager(case),
                     encryption_context=context,
                 )
-                context_held = all(header.encryption_context.get(k) == v for k, v in context.items())
+                # The header stores the context less the required pairs, as
+                # the specification has it; a required pair is authenticated
+                # and bound, and the decrypt above succeeding is its check.
+                # So the comparison covers the pairs the header stores.
+                required = set(case["required_keys"])
+                context_held = all(
+                    header.encryption_context.get(k) == v
+                    for k, v in context.items()
+                    if k not in required
+                )
                 if plaintext != expected:
                     result["outcome"] = "plaintext_mismatch"
                 elif not context_held:

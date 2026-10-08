@@ -96,4 +96,23 @@ defmodule Encryptor.RekeyVaults do
        )}
     end
   end
+
+  defmodule StaticBound do
+    @moduledoc """
+    A single-key vault whose required set includes a key of its own static
+    layer, so a rekey has a required pair the vault composes itself.
+    """
+
+    use Encryptor.Vault,
+      otp_app: :encryptor,
+      context_profile: :single,
+      algorithm_suite_id: 0x0478,
+      static_encryption_context: %{"app" => "acme_checkout"},
+      required_context: ["app", "table", "column"]
+
+    @doc "Layer 5: the key material a config file must not hold."
+    def init(config) do
+      {:ok, Keyword.put(config, :provider, Encryptor.EncryptVaults.rotated_provider())}
+    end
+  end
 end

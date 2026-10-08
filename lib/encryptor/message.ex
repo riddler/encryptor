@@ -4,8 +4,11 @@ defmodule Encryptor.Message do
 
   A ciphertext written by this package is an AWS Encryption SDK message, and
   its header carries in the clear - to anyone holding the bytes - the
-  encryption context, the algorithm suite, and the provider and key name of
-  every encrypted data key. This module parses that header and nothing else.
+  encryption context its writer stored, the algorithm suite, and the provider
+  and key name of every encrypted data key. A required pair is bound to the
+  message without being stored when the `aws_encryption_sdk` 1.1 engine wrote
+  it, so the stored context is the message's context less those pairs. This
+  module parses that header and nothing else.
   It holds no state, reads no configuration, touches no vault and no provider,
   and needs no key material.
 

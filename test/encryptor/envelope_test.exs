@@ -2,6 +2,7 @@ defmodule Encryptor.EnvelopeTest do
   use ExUnit.Case, async: false
 
   alias Encryptor.EncryptVaults
+  alias Encryptor.EngineReader
   alias Encryptor.Envelope
   alias Encryptor.Envelope.WrappedKey
   alias Encryptor.EnvelopeVaults
@@ -78,6 +79,80 @@ defmodule Encryptor.EnvelopeTest do
       wrapped = provisioned(EnvelopeVaults.RequiredBinding)
 
       assert {:ok, %Aes{bits: 256}} = Envelope.unwrap(EnvelopeVaults.RequiredBinding, wrapped)
+    end
+
+    # ADR-0004 Amendment B's open question B-1, settled in `require_binding/4`:
+    # on the 1.1 engine a required binding pair is not stored in the wrapping's
+    # header, so the envelope passes its binding as the reproduced context and
+    # the engine checks it, instead of reading it from the header.
+    #
+    # sabotage: dropped the required-key exemption from require_binding/4
+    # (every pair read from the header again) - red: unwrap/2 and rewrap/2
+    # both refuse the wrapping with {:encryption_context_mismatch, _}.
+    test "a wrapping stores none of the binding, and unwraps and rewraps on the binding passed" do
+      start_vault(EnvelopeVaults.RequiredBinding)
+      wrapped = provisioned(EnvelopeVaults.RequiredBinding)
+
+      assert context(wrapped.wrapped) == %{}
+
+      assert {:ok, %Aes{bits: 256} = key} =
+               Envelope.unwrap(EnvelopeVaults.RequiredBinding, wrapped)
+
+      assert {:ok, %WrappedKey{} = rewrapped} =
+               Envelope.rewrap(EnvelopeVaults.RequiredBinding, wrapped)
+
+      refute rewrapped.wrapped == wrapped.wrapped
+      assert context(rewrapped.wrapped) == %{}
+      assert Envelope.unwrap(EnvelopeVaults.RequiredBinding, rewrapped) == {:ok, key}
+    end
+
+    # The binding is still checked, by the engine rather than by the header
+    # read: a row that claims another scope or another version than the one
+    # its blob was wrapped under is refused. The refusal is the engine's
+    # unwrap under the bound pairs (ADR-0004 Amendment B, B2), so no change to
+    # this package's header check opens the copied blob. sabotage: made
+    # require_binding/4 skip every binding pair - not red, which is the
+    # property pinned here: the refusal survives without the header check.
+    test "a blob copied to another scope's or another version's row is refused" do
+      start_vault(EnvelopeVaults.RequiredBinding)
+      wrapped = provisioned(EnvelopeVaults.RequiredBinding)
+      other = provisioned(EnvelopeVaults.RequiredBinding, "merchant-43")
+
+      moved = %WrappedKey{other | wrapped: wrapped.wrapped}
+      bumped = %WrappedKey{wrapped | version: 2}
+
+      for row <- [moved, bumped] do
+        assert {:decrypt_failed, _engine, :decrypt} =
+                 refusal(Envelope.unwrap(EnvelopeVaults.RequiredBinding, row))
+
+        assert {:error, %Error{reason: :decrypt_failed, operation: :rekey}} =
+                 Envelope.rewrap(EnvelopeVaults.RequiredBinding, row)
+      end
+    end
+
+    # The public doors still cannot open it: no caller supplies a package
+    # pair, so the root vault's own decrypt and rekey are refused for the
+    # missing binding, and a rekey that passes one is refused for the key
+    # (Amendment B's B1, the package-reserved row). The row is held twice:
+    # by acceptable?/4 in the rekey path, and by `Encryptor.Context.compose/3`,
+    # which validates the accepted pairs as any caller's. sabotage: dropped
+    # the `Context.reserved_key?/2` clause from acceptable?/4 - not red alone,
+    # compose/3 refuses the same key with the same term. The two missing-pairs
+    # answers are the required-context CMM's; this test pins the outcomes.
+    test "its own decrypt and rekey refuse it, with or without the binding passed" do
+      root = start_vault(EnvelopeVaults.RequiredBinding)
+      wrapped = provisioned(root)
+
+      assert {{:missing_required_context_keys, _keys}, _engine, :decrypt} =
+               refusal(root.decrypt(wrapped.wrapped))
+
+      assert {{:missing_required_context_keys, _keys}, _engine, :rekey} =
+               refusal(root.rekey(wrapped.wrapped))
+
+      binding = Envelope.binding(wrapped.scope_ref, wrapped.version, wrapped.namespace)
+
+      assert {{:reserved_context_key, @namespace_key}, nil, :rekey} =
+               refusal(root.rekey(wrapped.wrapped, encryption_context: binding))
     end
   end
 
@@ -590,19 +665,24 @@ defmodule Encryptor.EnvelopeTest do
     # the formula - red. Three call sites, one derivation: a drifted reference
     # is discovered at decrypt time against a permanent subkey. A1 row 1 (v2
     # `"scope_ref"`): respelled `Encryptor.Context`'s @scope_ref to
-    # "tenant_ref" - red, the pair is then absent under its v2 key.
-    test "agrees with what a scoped vault writes into a message header" do
+    # "tenant_ref" - red, the engine reader below then misses the pair under
+    # its v2 key. The pair is bound to the message and, on the 1.1 engine, not
+    # stored in its header (ADR-0004 Amendment B), so the engine's own read
+    # under the derived reference is the evidence.
+    test "agrees with what a scoped vault binds into a message" do
       merchant = start_vault(EncryptVaults.Merchant)
+      columns = %{"table" => "payment_methods", "column" => "pan"}
 
-      ciphertext =
-        merchant.encrypt!(@pan,
-          key: "merchant_a",
-          encryption_context: %{"table" => "payment_methods", "column" => "pan"}
-        )
+      ciphertext = merchant.encrypt!(@pan, key: "merchant_a", encryption_context: columns)
 
       {:ok, ref} = Envelope.scope_ref(EncryptVaults.reference_subkey(), "merchant_a")
+      descriptor = EncryptVaults.merchant_descriptor("merchant_a")
 
-      assert context(ciphertext)["scope_ref"] == ref
+      assert {:ok, %{plaintext: @pan}} =
+               EngineReader.read(ciphertext, descriptor, Map.put(columns, "scope_ref", ref))
+
+      assert {:error, _} =
+               EngineReader.read(ciphertext, descriptor, Map.put(columns, "scope_ref", "other"))
     end
 
     # sabotage: accepted a short subkey - red. A 16-byte reference subkey is

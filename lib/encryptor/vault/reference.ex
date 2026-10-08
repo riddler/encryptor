@@ -33,8 +33,8 @@ defmodule Encryptor.Vault.Reference do
   #
   # ## What the output is not
   #
-  # It is not secret. It travels in the clear in every message header, both as
-  # the context pair and inside the encrypted data key's name, so nothing here
+  # It is not secret. It travels in the clear inside the encrypted data key's
+  # name, and as the context pair wherever a header stores it, so nothing here
   # is written to resist a timing observation. The **input** is secret, and
   # this module never renders it: no argument reaches a message, a log line,
   # or a failure report.

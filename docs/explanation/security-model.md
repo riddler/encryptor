@@ -17,16 +17,14 @@ generates the data key, wraps it, and discards it; with the materials cache
 off, which is the default, every message gets a fresh one. The message that
 comes out is in the AWS Encryption SDK's message format, which is why the
 ciphertext you store is one self-describing binary, and why another
-language's official SDK can read it - in part, today. A CI job
+language's official SDK can read it. A CI job
 ([python-interop](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml)) checks this package against the official SDK for
-Python: a single-key vault's messages cross both ways at suite 0x0478, and
-Python's messages reach a single-key vault at 0x0578. A per-scope vault's
-messages cross in neither direction, because the engine stores the scope
-reference in the header where the AWS Encryption SDK specification says a
-required context key must not be stored; and at 0x0578 the engine writes the
-signature verification key in a form the Python SDK cannot decode. Both are
-defects in the engine, and [the test](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs) asserts each one exactly, so
-a fix shows up as a change.
+Python: a single-key and a per-scope vault's messages cross both ways, at
+suites 0x0478 and 0x0578 ([the test](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs)). The engine
+release this package requires, `aws_encryption_sdk` 1.1, follows the AWS
+Encryption SDK specification in the two places 1.0.x did not: it stores no
+required context key in the header, and it writes the signature verification
+key in the compressed form.
 
 This package adds a level above that, so the hierarchy has three:
 
@@ -125,13 +123,17 @@ a read of a message written without one. A vault without a required set binds
 a key only if every one of its writers passes that key on every call.
 
 The engine checks the context too, so it would be natural to rely on that.
-The reason this package does not is that the engine's check sits below its
-materials cache: on a warm decryption cache it is skipped, and a second read
-of the same ciphertext under a disagreeing context would succeed. A guarantee
-that holds on a cold cache and not on a warm one is not a guarantee worth
-writing down, so the vault parses the message header itself and compares the
-context before it calls the engine at all. The comparison holds the same way
-with the cache cold, warm, or off.
+The reason this package does not is that the 1.0.x engine's check sat below
+its materials cache: on a warm decryption cache it was skipped, and a second
+read of the same ciphertext under a disagreeing context would succeed. A
+guarantee that holds on a cold cache and not on a warm one is not a guarantee
+worth writing down, so the vault parses the message header itself and
+compares the context before it calls the engine at all, for every key the
+header stores; the comparison holds the same way with the cache cold, warm,
+or off. A required key is not stored in the header the 1.1 engine writes:
+it is bound into the encrypted data key, and the engine checks it on a cold
+read and on a cache hit alike, which is why this package requires that
+engine.
 
 The same binding protects the stored scope keys. A wrapped scope key carries
 a context, owned by the package rather than by you, that names its scope

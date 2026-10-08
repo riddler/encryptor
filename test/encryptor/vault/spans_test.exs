@@ -13,6 +13,7 @@ defmodule Encryptor.Vault.SpansTest do
   use ExUnit.Case, async: false
 
   alias Encryptor.EncryptVaults
+  alias Encryptor.EngineReader
   alias Encryptor.Error
   alias Encryptor.Telemetry
   alias Encryptor.TelemetryVaults
@@ -447,16 +448,24 @@ defmodule Encryptor.Vault.SpansTest do
     # likely to make: ADR-0001 decision 7 truthfully says the partition id is
     # not secret, and it is an unkeyed SHA-256 of the selector, confirmable by
     # anyone who can guess a scope identifier.
+    #
+    # The message binds `scope_ref` without storing it (the 1.1 engine,
+    # ADR-0004 Amendment B), so the engine's own read is the evidence: it
+    # opens the message under the event's value as the reproduced pair.
     test "the value is the one the message's own context carries" do
       start_vault(TelemetryVaults.Merchant)
       capture()
 
       {:ok, ciphertext} = TelemetryVaults.Merchant.encrypt(@plaintext, key: @merchant)
 
-      {:ok, info} = Encryptor.Message.describe(ciphertext)
       {_name, _m, metadata} = event(drain(), [:encryptor, :encrypt, :start])
 
-      assert info.encryption_context[Encryptor.Context.scope_ref_key()] == metadata.scope_ref
+      assert {:ok, %{plaintext: @plaintext}} =
+               EngineReader.read(
+                 ciphertext,
+                 EncryptVaults.merchant_descriptor(@merchant),
+                 %{Encryptor.Context.scope_ref_key() => metadata.scope_ref}
+               )
     end
   end
 

@@ -2150,3 +2150,50 @@ authentication tail carries it. For an affected message the engine derives the
 tail from what the header does not store, so a reader that reproduces the keys
 reads it whatever its own configuration. Whether that relaxation should be
 documented as a property or left as a detail is open.
+
+## Note (2026-10-07): Amendment B's open question B-1 is settled by the envelope passing its binding as the reproduced context
+
+Amendment B's open question B-1 asked what happens to a `:single` root vault
+whose `:required_context` names the four `encryptor-` binding pairs, once the
+engine stops storing required pairs: `Encryptor.Envelope`'s own binding check
+read every pair from the stored header, so `unwrap/2` and `rewrap/2` would
+refuse every wrapping such a vault writes on `aws_encryption_sdk` 1.1. It
+named two answers: the envelope passes its binding as the reproduced context
+instead of reading it from the header, or a root vault is refused a required
+binding key at start.
+
+The first is taken, decided by the conductor under a standing consent,
+2026-10-07. A vault that starts today keeps starting, so no host meets a
+changed answer at start.
+
+- **The header check skips a binding pair the root vault requires and the
+  header does not store.** `require_binding/4` in `Encryptor.Envelope` reads
+  the root vault's required set (`required_keys/1` there, through
+  `Encryptor.Vault.Config.fetch/1`) and compares every other binding pair
+  against the header, as before. A wrapping the 1.0.x engine wrote stores all
+  four pairs, so for it every pair is still read from the header.
+- **The engine checks the pairs it skips.** `unwrap/2` and `rewrap/2` already
+  pass the binding as the `reserved` layer of `Encryptor.Vault.Decrypt.call/4`
+  and `Encryptor.Vault.Rekey.call/4`, so it is the reproduced context; under
+  Amendment B's B3 the decrypt hands the engine every reproduced pair the
+  vault requires (`engine_context/3` in `Encryptor.Vault.Decrypt`), and the
+  1.1 engine appends a pair the header does not store before it unwraps
+  (Amendment B's B2). A blob copied to a row that claims another scope or
+  another version fails that unwrap, and the read is `:decrypt_failed`, as it
+  was from the header check when the pairs were stored.
+- **The public doors still cannot open a wrapping.** No caller can supply an
+  `encryptor-` pair: a root vault's own `decrypt/2` and `rekey/2` reproduce
+  none, so on such a vault they answer `{:missing_required_context_keys,
+  keys}` from the required-context CMM, and a `rekey/2` that passes one is
+  `{:reserved_context_key, key}` under B1's package-reserved row.
+
+What pins it: `test/encryptor/envelope_test.exs`, "a root vault that requires
+the binding's keys", whose tests cover the wrapping that stores none of the
+binding and unwraps and rewraps on the binding passed, a blob copied to
+another scope's or another version's row, and the root vault's own decrypt
+and rekey.
+
+Provenance: beads `enc-wqbc` and `enc-3bbw`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
