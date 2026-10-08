@@ -67,7 +67,8 @@ defmodule Encryptor.MixProject do
         "guides/rotation-runbook.md",
         "guides/choosing-the-scope.md",
         "docs/explanation/security-model.md",
-        "docs/explanation/threat-model.md"
+        "docs/explanation/threat-model.md",
+        "docs/reviews/261006-adversarial-review.md"
       ],
       groups_for_extras: [
         Tutorials: ["guides/getting-started.md"],
@@ -79,9 +80,16 @@ defmodule Encryptor.MixProject do
           "guides/choosing-the-scope.md",
           "docs/explanation/security-model.md",
           "docs/explanation/threat-model.md"
-        ]
+        ],
+        Reviews: ["docs/reviews/261006-adversarial-review.md"]
       ],
-      skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
+      # The review ledger names the internal modules a finding was found in
+      # (`@moduledoc false` ones among them), as the CHANGELOG names past
+      # releases' functions; neither has a page to link to.
+      skip_undefined_reference_warnings_on: [
+        "CHANGELOG.md",
+        "docs/reviews/261006-adversarial-review.md"
+      ],
       # Names the guides and README print as code on purpose but that have
       # no page to link to, so ExDoc renders them as plain code rather than
       # warning. `Encryptor.Envelope.tenant_ref/2` is the 0.4 name the
@@ -118,6 +126,7 @@ defmodule Encryptor.MixProject do
         guides/rotation-runbook.md
         docs/explanation/security-model.md
         docs/explanation/threat-model.md
+        docs/reviews/261006-adversarial-review.md
       ),
       links: %{
         "GitHub" => @source_url,

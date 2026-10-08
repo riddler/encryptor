@@ -25,7 +25,7 @@ sites changing; each scope you key by (an account, a workspace) gets its own
 key, which a ciphertext names, so rotation is re-encryption against a new
 version and a crypto-shred destroys one scope's key; and the messages stay in
 the AWS Encryption SDK's format, which the official SDKs in other languages
-read, with two exceptions today that [Compatibility](#compatibility) names.
+read, as [Compatibility](#compatibility) says.
 
 ## Install
 
@@ -138,6 +138,21 @@ a bold **Breaking** heading that says what to do about it, and pinning to an
 exact minor, `~> X.Y.0`, is the recommended way to take the package until
 then. Do not depend on `encryptor 0.1.0`: it is a name reservation with no
 code in it.
+
+## Security review
+
+Tested against published vectors, self-reviewed, no formal third-party audit.
+The vectors are Wycheproof AES-GCM (316 cases, the 119 with an IV other than
+96 bits asserted refused) and HKDF (86 SHA-256 cases, 83 each for SHA-384 and
+SHA-512), and the AWS Encryption SDK decrypt vectors (of the corpus's 9089,
+661 expected to decrypt and 4240 expected to fail run here, with 2200 RSA and
+1988 KMS vectors excluded by count); messages cross both ways with the AWS
+Encryption SDK for Python 4.0.7 and the Material Providers Library; the
+reviewers are the maintainer, who is the team's security lead, and an LLM
+adversarial pass with fresh context, not an independent engineer. The
+[threat model](docs/explanation/threat-model.md) says what each claim rests on,
+and the [review ledger](docs/reviews/261006-adversarial-review.md) lists every
+finding and its disposition.
 
 ## License
 
