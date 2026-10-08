@@ -1153,7 +1153,7 @@ Provenance: bead `enc-jwkn`.
 
 ## Amendment C (2026-10-07): both partition ids carry a fingerprint of the key material, and a used name is not minted again
 
-Status: **proposed (2026-10-07)**. This amendment only adds: no line above is
+Status: **accepted (2026-10-07, encryptor 0.8.0)**, proposed 2026-10-07. This amendment only adds: no line above is
 edited. It amends decision 7's formula for the read side, Amendment B's B1
 formula for the write side, and decision 10's vocabulary, which gains one
 reason term. It also supersedes Amendment B's B3 ("The read side is
@@ -1310,3 +1310,97 @@ values computed outside the package, and
 once on a warm cache, with no drain" pins C3's second consequence.
 
 Provenance: bead `enc-hqc3`.
+
+## Note (2026-10-07): Amendment C is accepted on 0.8.0
+
+Amendment C's Status line now reads `accepted (2026-10-07, encryptor
+0.8.0)`. The record's own Status line, `accepted (2026-08-27, amended)`, and
+its index row already read amended, and neither changes.
+
+The amendment's code shipped in encryptor 0.8.0: the commit tagged `v0.8.0`
+(`84f6676`), published on Hex by the release workflow's run
+https://github.com/riddler/encryptor/actions/runs/37709846558, which
+succeeded. Every claim below was re-verified at `84f6676`, which was also the
+tip of `main` when this Note was written. The amendment cites `lib/` by
+anchor; the line each anchor resolves to at `84f6676` is given beside it.
+
+- **C1.** `Encryptor.Vault.Partition` computes the fingerprint as the
+  SHA-256 of the length-prefixed label `"encryptor partition fingerprint v1"`
+  (`@fingerprint_label`, `lib/encryptor/vault/partition.ex:94`) followed by
+  the material (`fingerprint/1`, `:198`). `identity/1` (`:191-194`) tags an
+  AES key `0` with its length-prefixed namespace and name and the
+  fingerprint, and a KMS key `1` with its length-prefixed key id. The label
+  does not use the `"encryptor/v1/"` prefix of `Encryptor.Kdf.label/1`. The
+  fingerprint is never returned: only the 16-byte truncation leaves the
+  module, and `Encryptor.Telemetry`'s moduledoc says no event carries a
+  partition id.
+- **C2.** `encryption_id/3` (`:137`) hashes the length-prefixed vault name,
+  the length-prefixed tagged selector and the key's identity, and keeps the
+  first 16 bytes.
+- **C3.** `decryption_id/3` (`:157`) hashes the length-prefixed vault name
+  and selector, the candidate count as a 32-bit big-endian integer, and each
+  candidate's identity in the order given, and keeps the first 16 bytes. Both
+  are `@doc false`. `Encryptor.Vault.Encrypt.stack/4` (`:182` and `:186`)
+  partitions by the candidate list when given a list and by the one key
+  otherwise, and `client/4` (`:211`) builds on it. `Encryptor.Vault.Decrypt`
+  passes the candidates (`decrypt.ex:208`), a rekey's read half passes the
+  candidates (`rekey.ex:257`) and its write half the resolved key
+  (`rekey.ex:204`). `id/2` (`partition.ex:119`) is unchanged, public, and
+  called nowhere else in `lib/`. The candidates are the list
+  `Resolve.decryption_keys/3` answered, in its order.
+- **The pinned values.** The six values `test/encryptor/vault/partition_test.exs`
+  pins were recomputed outside the package from C1 to C3's formulas, with the
+  test vaults' module names as the vault namespace: decision 7's two
+  (`99be8bdb...`, `2e9f88a2...`), the write side's AES and KMS values
+  (`5f295f16...`, `4ed343dd...`) and the read side's two-candidate and KMS
+  values (`c3dc5786...`, `59a8d5a8...`). All six match.
+- **C4.** `{:key_name_in_use, selector}` is a member of `Encryptor.Error`'s
+  reason type (`lib/encryptor/error.ex:133`), which renders the selector and
+  nothing else (`describe/1`, `:250`), and of `Encryptor.Provider`'s
+  (`lib/encryptor/provider.ex:207`); `Encryptor.Telemetry.reason_tag/1`
+  answers `:key_name_in_use` (`lib/encryptor/telemetry.ex:248`); the vault
+  carries its own selector into the term (`in_contract/2`,
+  `lib/encryptor/vault/resolve.ex:178`). The table's rows hold:
+  `Encryptor.Provider.GcpKms.provision/2` (`lib/encryptor/provider/gcp_kms.ex:404`)
+  asks `unused/3` (`:424`) first, which answers the term for any stored row
+  before the `CryptoKey` create; a create answered `409` is
+  `{:ok, :exists}` (`lib/encryptor/provider/gcp_kms/api.ex:59`); a failed
+  `Encrypt` in the mint answers `{:key_unavailable, selector}`.
+  `Encryptor.Envelope.provision/3` (`lib/encryptor/envelope.ex:322`) reads no
+  store and never answers the term. `test/encryptor/provider/gcp_kms_test.exs`,
+  "refuses a scope the store already holds a row for, before any GCP call",
+  and `test/encryptor/vault_provision_test.exs`, "answers key_name_in_use for
+  a scope the provider's store already holds", pin it.
+- **C5.** The 0.8.0 changelog says every AES partition id changes once on
+  both sides, that a single retired version stops decrypting at once on a
+  warm cache, that any change to a scope's candidate list misses the cache
+  once, and that the GCP provision answers the new reason.
+- **What this amendment does not do.** No wire constant, label or algorithm
+  is touched by the change that implements it; `test/encryptor/vault/remint_test.exs`
+  carries "does not revive a message written under the shredded bytes" and
+  "writes a message that still decrypts after the cache is recycled", and
+  `test/encryptor/vault/shred_drain_test.exs` carries "refuses a retired
+  version at once on a warm cache, with no drain". The ADR-0005 Note of
+  2026-09-29 it names is in that record.
+- **Why.** The two engine functions it cites,
+  `compute_encryption_cache_id/3` and `compute_decryption_cache_id/4`, are at
+  `lib/aws_encryption_sdk/cmm/caching.ex:201` and `:224` in
+  `aws_encryption_sdk` 1.0.0, as cited, and `Encryptor.Key.Aes`'s moduledoc
+  says "A name is bound to bytes, forever."
+
+**A sentence that no longer holds as written.** The Status paragraph says
+"the engine cites are `aws_encryption_sdk` 1.0.0, the version `mix.lock`
+resolves". At `84f6676` `mix.lock` resolves 1.1.0: the commit `8c00a1c`
+("Requires the engine that binds required keys"), on `main` before the tag,
+moved the requirement to `~> 1.1`. The cites still name 1.0.0 and resolve
+there as given; in 1.1.0 both functions sit at the same lines, and the only
+change to that file between the two releases is below them, so the cited
+behaviour is the one the shipped engine runs.
+
+**A sentence that names the amendment's own status.** The Status paragraph
+says the amendment "stays proposed until the maintainer's own reading flips
+it". The maintainer directed this flip, which is taken on the claim check
+above. That sentence is not edited.
+
+No decision changes, no line above is edited other than Amendment C's Status
+line, and this Note carries no status of its own.
