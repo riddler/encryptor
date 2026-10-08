@@ -134,8 +134,8 @@ No entries yet.
 
 | Id | Severity | Found by | Disposition |
 |---|---|---|---|
-| F1 | High | the `python-interop` CI job | FIX IN PROGRESS |
-| F2 | High | the `python-interop` CI job | FIX IN PROGRESS |
+| F1 | High | the `python-interop` CI job | FIXED, engine PR 100 (1.1.0) and PR 161 |
+| F2 | High | the `python-interop` CI job | FIXED, engine PR 100 (1.1.0) and PR 161 |
 | F3 | High | the AWS Encryption SDK decrypt vectors | FIXED, PR 148 |
 | F4 | Low | the SP 800-38D reading behind the threat model | DEFERRED to the engine |
 | F5 | Medium | a review read of the 0.7.0 wire-format change | FIXED, PR 146 |
@@ -151,9 +151,9 @@ No entries yet.
 | F15 | Low | the LLM pass | DEFERRED to enc-mo72 |
 | F16 | Low/Info | the LLM pass | DEFERRED to enc-ssfx |
 
-Under the rule above, F1 and F2 keep every release prep from merging until
-each one is FIXED or the maintainer accepts it. They are the only open High
-findings.
+No Critical or High finding is open: each High finding is FIXED, so under the
+rule above none of them holds a release prep. Every Medium and lower
+finding is FIXED or DEFERRED.
 
 ### F1. The engine stores required context keys in the message header
 
@@ -174,18 +174,44 @@ findings.
   specification's rule that this breaks is quoted in the interop test's
   moduledoc: the stored context "MUST NOT contain any key value pairs listed in
   the encryption material's required encryption context keys".
-- **Disposition:** FIX IN PROGRESS. The maintainer's disposition, given
-  2026-10-06, is to fix it in the engine. The fix is merged there, in
-  [aws-encryption-sdk-elixir PR 100](https://github.com/riddler/aws-encryption-sdk-elixir/pull/100),
-  which also closes engine
-  [issue #96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96).
-  It ships in the engine's 1.1.0 release, which is not published yet, and
-  this package does not yet require that release. This package moves to it
-  as ADR-0004 Amendment B (proposed, on `main`) describes, and this entry
-  turns FIXED when it does. Until then the README's
-  Compatibility section and the threat model's "Known defects in the engine"
-  name the failure. The interop test asserts each failing direction with its
-  exact error.
+- **Disposition:** FIXED in the engine and in this package, as the maintainer
+  disposed it on 2026-10-06: fix it in the engine.
+  - The engine fix is
+    [aws-encryption-sdk-elixir PR 100](https://github.com/riddler/aws-encryption-sdk-elixir/pull/100),
+    which also closes engine
+    [issue #96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96).
+    It ships in `aws_encryption_sdk`
+    [1.1.0](https://hex.pm/packages/aws_encryption_sdk/1.1.0), published on
+    Hex. Its changelog: messages with required encryption context keys no
+    longer store those keys in the header, and messages written by earlier
+    versions still decrypt.
+  - This package requires it from
+    [PR 161](https://github.com/riddler/encryptor/pull/161)
+    (`aws_encryption_sdk ~> 1.1`), which implements ADR-0004 Amendment B. The
+    amendment stays proposed until it ships in a published version of this
+    package.
+  - The interop test's `:scoped` known failures are now passing assertions,
+    both directions at both suites: the `to_python scoped` and `from_python
+    scoped` cases in
+    [`test/encryptor/interop/python_interop_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs),
+    named "{direction} scoped {suite} {plaintext}: passes" (for example
+    "to_python scoped 0x0578 one_frame: passes"). Each also asserts that the
+    header Python parses stores no `scope_ref`. Their sabotage notes: making
+    `interop.py` compare every pair of the context against the header it
+    reads back, required ones included, turns the `to_python scoped` tests
+    red; making the vault hand the engine only the stored pairs on decrypt
+    (`engine_context/3` in `Encryptor.Vault.Decrypt` dropping its
+    required-key clause) turns the `from_python scoped` tests red.
+  - Messages already written stay readable. In "a ciphertext written under
+    v2"
+    ([`test/encryptor/wire_fixture_v2_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/wire_fixture_v2_test.exs)),
+    bytes encryptor 0.7.0 wrote on the 1.0.x engine decrypt ("decrypts on a
+    :scoped vault") and rekey on the 1.1 engine ("rekeys under the current
+    build, binding the stored context"). Their sabotage note: respelling
+    `@scope_ref` in `Encryptor.Context` turns each one red. "rekeys again on
+    the current build with the row's pairs" rekeys the output again. Its
+    sabotage note: making the rekey path reproduce the stored context alone
+    turns it red.
 
 ### F2. The engine writes the signature verification key uncompressed
 
@@ -199,11 +225,18 @@ findings.
 - **Severity:** High.
 - **Claim broken:** the same README sentence as F1. The specification
   (`framework/transitive-requirements.md`) requires the compressed form.
-- **Disposition:** FIX IN PROGRESS, in the same engine PR as F1, merged
-  there and shipping in the same unpublished 1.1.0 release, which this
-  package does not yet require. The engine
-  reads both forms, so messages already written stay readable. The signature
-  itself was never weak: either form encodes the same point.
+- **Disposition:** FIXED in the same engine PR as F1, shipped in the same
+  `aws_encryption_sdk` 1.1.0 release, which this package requires from
+  [PR 161](https://github.com/riddler/encryptor/pull/161). The engine's 1.1.0
+  changelog: signed suites write the signature verification key as the SEC 1
+  compressed point the specification requires, and both forms still read,
+  so messages already written stay readable. The signature itself was never
+  weak: either form encodes the same point. The interop test's 0x0578 cases
+  pin it in this package: Python decodes only the compressed form, and the
+  `to_python single 0x0578` and `to_python scoped 0x0578` tests, named as in
+  F1, assert that Python reads every message a vault writes at 0x0578. No
+  sabotage note in this package names the encoding, which is the engine's
+  code: the notes on those tests are the ones F1 quotes.
 
 ### F3. A message followed by trailing bytes raised instead of being refused
 
