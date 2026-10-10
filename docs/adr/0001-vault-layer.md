@@ -1046,7 +1046,7 @@ ADR-0002 Amendment A's A1 settled.
 
 ## Amendment B (2026-09-30): the write side's partition id carries the resolved key
 
-Status: **proposed (2026-09-30)**. This amendment only adds: no line above is
+Status: **accepted (2026-10-10, encryptor 0.8.0)**, proposed 2026-09-30. This amendment only adds: no line above is
 edited. It amends decision 7 for the write side and leaves decision 7's
 formula in force for the read side. The decision, to fold the resolved key
 into the write side's partition id in code rather than leave the gap to a
@@ -1403,3 +1403,86 @@ it". This flip is taken on the claim check above. That sentence is not edited.
 
 No decision changes, no line above is edited other than Amendment C's Status
 line, and this Note carries no status of its own.
+
+## Note (2026-10-10): Amendment B is accepted on 0.8.0
+
+Amendment B's Status line now reads `accepted (2026-10-10, encryptor
+0.8.0)`. The record's own Status line, `accepted (2026-08-27, amended)`, and
+its index row already read amended, and neither changes. The flip was ruled
+by the operator, 2026-10-09.
+
+The amendment's code first shipped in encryptor 0.6.0: the commit `749be99`
+("Carries the resolved key in the write partition") is an ancestor of the
+commit tagged `v0.6.0` (`91e9643`). It is verified here at encryptor 0.8.0,
+the commit tagged `v0.8.0` (`84f6676`), published on Hex by the release
+workflow's run https://github.com/riddler/encryptor/actions/runs/37709846558,
+which succeeded, and again at `eb51243`, the tip of `main` when this Note was
+written; `lib/` and `test/` are byte-identical between the two. The amendment
+cites `lib/` by anchor; the line each anchor resolves to at `eb51243` is
+given beside it.
+
+ADR-0005's "Note (2026-09-30): Amendment B is accepted" flipped that
+record's Amendment B and, under its "Superseded sentences", names the change
+this amendment decides, the write side's cache partition carrying the
+resolved key, as what ended B3's warm-entry sentences there. This Note is
+the flip of that change's own record.
+
+- **The decision: the write side's partition id carries the resolved key.**
+  `Encryptor.Vault.Partition.encryption_id/3`
+  (`lib/encryptor/vault/partition.ex:137`) hashes the length-prefixed vault
+  name, the length-prefixed tagged selector and the resolved key's identity,
+  and keeps the first 16 bytes; it is `@doc false`. `identity/1` (`:191-194`)
+  tags an AES key `0` with its length-prefixed namespace and name, and a KMS
+  key `1` with its length-prefixed key id. That is Amendment C's C2 formula,
+  which keeps B1's shape and adds C1's fingerprint to the AES identity, so the
+  resolved key is still in the write side's pre-image. `Encryptor.Vault.Encrypt.stack/4`'s
+  one-key clause (`lib/encryptor/vault/encrypt.ex:186`) builds the write
+  side's stack, and `maybe_caching/3` (`:228`) hands `encryption_id/3`'s
+  value to the caching CMM as `:partition_id` (`:241-242`). An encrypt passes
+  the resolved key (`client/4`, `:153`), and so does a rekey's write half
+  (`lib/encryptor/vault/rekey.ex:204`). No public function or option is
+  added. Nothing else in `lib/` reads the id, so it reaches no message, no
+  telemetry metadata and no store.
+- **Why now, and B2.** The engine's `compute_encryption_cache_id/3` hashes
+  the partition id, the suite and the context, and its
+  `compute_decryption_cache_id/4` hashes the sorted encrypted data keys; they
+  open with different leading bytes. Both sit at
+  `lib/aws_encryption_sdk/cmm/caching.ex:201` and `:224` in
+  `aws_encryption_sdk` 1.0.0, as cited, and at the same lines in 1.1.0.
+  B2's argument is the one Amendment C's C3 carries over to both sides.
+- **B4's second paragraph.** An engine cache entry expires `max_age` after
+  its creation (`CacheEntry.new/2`,
+  `lib/aws_encryption_sdk/cache/cache_entry.ex:55`, in 1.0.0 and 1.1.0).
+- **What this amendment does not do.** `test/encryptor/vault/shred_drain_test.exs`
+  carries "writes under the new version at once, from a warm cache, with no
+  drain" (`:192`) and "a rekey's write half rewrites under the new version at
+  once, with no drain" (`:223`), and `test/encryptor/vault/partition_test.exs`
+  pins the derivation. ADR-0005's "Note (2026-09-30): what Amendment B's P2
+  step 1 drain still covers" is in that record.
+
+**Sentences a later record already superseded.** Amendment C, accepted on
+2026-10-07 on encryptor 0.8.0, says in its Status paragraph that it amends
+"decision 7's formula for the read side, Amendment B's B1 formula for the
+write side", and that it also supersedes Amendment B's B3 ("The read side is
+unchanged", through `stack/3`) and B4's "Read-side ids do not change". So:
+
+- B1's formula, whose AES identity carries no fingerprint, is superseded by
+  C1 and C2.
+- B3, and B4's "Read-side ids do not change", are superseded by C3 and C5;
+  `Encryptor.Vault.Encrypt.stack/3` no longer exists, and the read side
+  partitions by `decryption_id/3` (`partition.ex:157`).
+- The Status paragraph's "leaves decision 7's formula in force for the read
+  side" is superseded by C3, for the same reason.
+
+**A sentence that no longer holds as written.** The Status paragraph says
+"the engine cites are `aws_encryption_sdk` 1.0.0, the version `mix.lock`
+resolves". At `84f6676` and at `eb51243` `mix.lock` resolves 1.1.0: the
+commit `8c00a1c` ("Requires the engine that binds required keys"), on `main`
+before the `v0.8.0` tag, moved the requirement to `~> 1.1`. Amendment C's
+"Note (2026-10-07): Amendment C is accepted on 0.8.0" records the same drift
+for its identical sentence. The cites still name 1.0.0 and resolve there as
+given, and the cited functions sit at the same lines in 1.1.0.
+
+These sentences are not edited. No decision changes, no line above is edited
+other than Amendment B's Status line, and this Note carries no status of its
+own.

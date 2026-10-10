@@ -1,6 +1,6 @@
 # ADR-0011: A version tag pushed on the default branch publishes the package from the release workflow, and nobody publishes by hand
 
-Status: proposed
+Status: accepted (2026-10-10, encryptor 0.6.1)
 
 ## Context
 
@@ -163,3 +163,79 @@ the fix lands on `main` and `v0.7.1` is prepared and tagged.
 None the record leaves open. The first publish through the workflow is the
 first time its steps from the toolchain on run on a tag; that run is the
 evidence this record is verified against before it is accepted.
+
+## Note (2026-10-10): accepted on 0.6.1; what was verified
+
+This record is accepted on 2026-10-10. The release workflow first published
+this package as encryptor 0.6.1: the tag `v0.6.1` on the commit `cd43908`,
+published by the run
+https://github.com/riddler/encryptor/actions/runs/37309122476, which
+succeeded on its first attempt with every step green, from "Fetch the
+default branch" to "Print the published version's address". The workflow
+has published every version since: 0.7.0 (`v0.7.0` on `cb379b5`, run
+https://github.com/riddler/encryptor/actions/runs/37490975248) and 0.8.0
+(`v0.8.0` on `84f6676`, run
+https://github.com/riddler/encryptor/actions/runs/37709846558), each on its
+first attempt. hex.pm's release resource answers 200 for all three versions,
+and hexdocs.pm serves each one's docs. Every claim below was re-verified at
+`eb51243`, the tip of `main` when this Note was written;
+`.github/workflows/release.yml` is unchanged between `v0.6.1` and `eb51243`.
+That the release-workflow records flip together, with the first publish
+through the workflow as the evidence, was ruled by the operator, 2026-10-06;
+that the Status line names the first version published through the
+workflow, and this Note the later ones, was decided by the conductor under a
+standing consent, 2026-10-10. This Note changes no decision, and it carries
+the record's status rather than one of its own.
+
+- **Decision 1.** `release.yml`'s `on:` is a push of a tag matching
+  `v*.*.*` and nothing else (`:11-14`): no branch, no pull request, no
+  `workflow_dispatch`.
+- **Decision 2.** "Fetch the default branch" (`:41`) reads
+  `github.event.repository.default_branch` and fetches it by that name;
+  "Check the tagged commit is on the default branch" (`:49`) asks
+  `git merge-base --is-ancestor`; "Check the tag names the version in
+  mix.exs" (`:61`) compares the tag without its `v` with `@version`
+  (`mix.exs:4`, read by `project/0` at `:10`). All three precede "Read the
+  toolchain out of mise.toml" (`:91`). The toolchain, cache, dependency and
+  gate steps (`:91-155`) are the steps of `ci.yml`'s `gate` job
+  (`ci.yml:29-93`), carrying the same comments, and "Full quality gate"
+  (`:149`) runs `gate.full` from `.claude/wurk.json`, which is `mix quality`
+  (`.claude/wurk.json:28`). Since `v0.6.1`, `ci.yml` has gained four jobs
+  beside `gate` (`test-otp26`, `aws-vectors`, `python-interop`,
+  `hackney-1x`) and removed no line, so the `gate` job the workflow copies is
+  unchanged; the release workflow runs the gate, not those four jobs, which
+  is what decision 2 says.
+- **Decision 3.** "Check Hex does not already show this version" (`:75`)
+  asks `https://hex.pm/api/packages/encryptor/releases/<version>` before the
+  toolchain: `404` continues, `200` stops with a report, and any other answer
+  stops.
+- **Decision 4.** "Publish to Hex" (`:160`) runs `mix hex.publish --yes`
+  with `HEX_API_KEY` set from the secret in its own `env:` (`:161-162`), and
+  no other step names a secret. The workflow's token is read-only
+  (`permissions: contents: read`, `:18-19`). The last step prints the
+  hex.pm and hexdocs.pm addresses (`:165-172`). No one read the secret; the
+  three publish steps that succeeded are the evidence it is set.
+- **Decision 5.** The publish passes no flag that skips the docs, and
+  hexdocs.pm serves 0.6.1, 0.7.0 and 0.8.0.
+- **Decision 6.** No step retries the publish, and `concurrency` groups
+  runs by `github.ref` with `cancel-in-progress: false` (`:23-25`). Every
+  run so far succeeded on its first attempt, so the hand re-run this
+  decision allows has not been needed.
+- **Decision 7.** `CLAUDE.md`'s row "a release, `mix hex.publish`" and its
+  "Release preps" paragraph say an agent or a session never runs
+  `mix hex.publish` and that a failed workflow is re-run from its Actions
+  page.
+- **Context.** `mix help hex.publish` documents `--yes`, and
+  `mix help hex.config` documents `HEX_API_KEY`.
+- **Consequences.** `mix help hex.publish`, "Reverting a package", says a
+  new version of an existing package can be reverted or updated within one
+  hour. The consequence "This record stays proposed until the workflow has
+  published a version of this package; it is then verified against that
+  run" is met by this Note and is not edited; so is the open-questions
+  paragraph's sentence that the first run is the evidence.
+- **Worked example.** The 0.7.0 release it walks through ran as run
+  https://github.com/riddler/encryptor/actions/runs/37490975248, on
+  `cb379b5`, and published.
+
+No decision changes, and no line above is edited other than the Status
+line.
