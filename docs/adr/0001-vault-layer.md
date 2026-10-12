@@ -1486,3 +1486,20 @@ given, and the cited functions sit at the same lines in 1.1.0.
 These sentences are not edited. No decision changes, no line above is edited
 other than Amendment B's Status line, and this Note carries no status of its
 own.
+
+## Note (2026-10-12): the partition id hand-off cite in the Amendment B acceptance Note
+
+The "Note (2026-10-10): Amendment B is accepted on 0.8.0" says
+`maybe_caching/3` hands `encryption_id/3`'s value to the caching CMM as
+`:partition_id` and cites `:241-242` for that hand-off. At `1e96cdb`
+(`lib/encryptor/vault/encrypt.ex`) the two lines are not the hand-off. The
+hand-off is the `partition_id:` keyword that `maybe_caching/3` passes to
+`Caching.new/3` (`:233`, inside the `maybe_caching/3` clause that starts at
+`:228`). Lines `:241-242` are the write clause of the private `partition_id/2`,
+which `:233` calls and which in turn calls `Partition.encryption_id/3`; that
+clause produces the value the hand-off carries. The anchor that stays true as
+the file moves is the function pair: `maybe_caching/3` passes the id and
+`partition_id/2` derives it. The claim itself, that the write side's id is
+`encryption_id/3`'s value, holds as written.
+
+The earlier Note is not edited; this Note carries no status of its own.
