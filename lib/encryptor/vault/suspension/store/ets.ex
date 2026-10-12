@@ -30,22 +30,10 @@ defmodule Encryptor.Vault.Suspension.Store.Ets do
   def init(_vault, opts), do: {:error, {:unknown_options, Keyword.keys(opts)}}
 
   @impl true
-  def suspend(vault, selector) do
-    with {:ok, tid} <- table(vault) do
-      true = :ets.insert(tid, {selector})
-
-      :ok
-    end
-  end
+  def suspend(vault, selector), do: write(vault, {:suspend, selector})
 
   @impl true
-  def reinstate(vault, selector) do
-    with {:ok, tid} <- table(vault) do
-      true = :ets.delete(tid, selector)
-
-      :ok
-    end
-  end
+  def reinstate(vault, selector), do: write(vault, {:reinstate, selector})
 
   @impl true
   def list(vault) do
@@ -54,8 +42,17 @@ defmodule Encryptor.Vault.Suspension.Store.Ets do
     end
   end
 
-  # The vault checks that its table exists before it writes, so this answers
-  # only for a vault whose `Lifecycle` child restarted in between.
+  # The table is `:protected`, so the write is its owner's, the vault's
+  # `Lifecycle` process. The vault checks that its table exists before it
+  # writes, so `:no_table` answers only for a vault whose `Lifecycle` child
+  # restarted in between.
+  defp write(vault, write) do
+    case Suspension.write_view(vault, write) do
+      :ok -> :ok
+      :none -> {:error, :no_table}
+    end
+  end
+
   defp table(vault) do
     case :ets.whereis(Suspension.table(vault)) do
       :undefined -> {:error, :no_table}

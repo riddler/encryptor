@@ -14,11 +14,11 @@ defmodule Encryptor.Vault.Lifecycle do
   before the cache or the provider starts and a provider's `child_spec/1` can
   read it.
 
-  The process holds no other state and answers no calls. `:persistent_term` is
-  what the hot path reads - lock-free and allocating nothing - and routing
-  configuration reads through a `GenServer` would put a serialization point in
-  front of a pure function, which is the shape ADR-0001 decision 5 exists to
-  avoid.
+  The process holds no other state, and the one call it answers is a write to
+  the suspended set (below). `:persistent_term` is what the hot path reads -
+  lock-free and allocating nothing - and routing configuration reads through a
+  `GenServer` would put a serialization point in front of a pure function,
+  which is the shape ADR-0001 decision 5 exists to avoid.
 
   `:persistent_term.erase/1` triggers a global scan, which is why it happens
   here, on a vault's lifecycle boundary, and never on a call path.
@@ -35,6 +35,13 @@ defmodule Encryptor.Vault.Lifecycle do
   node's view of a set the store agrees, created under a name the gate does
   not read and renamed into place once the store has been read, so the vault
   denies every scope until then (ADR-0010 decisions 3 and 7).
+
+  The table is `:protected`: every process reads it, and only this one writes
+  it. `suspend/2`, `reinstate/2` and a shared store's refresher hand their
+  writes to this process as calls, so no other process in the node can set or
+  lift a suspension behind the vault's back. Those writes are operator verbs
+  and a poll; the gate's read on every encrypt and decrypt stays a direct
+  table lookup on the caller's process, with no call in front of it.
 
   ## Telemetry
 
@@ -67,6 +74,11 @@ defmodule Encryptor.Vault.Lifecycle do
     Config.freeze(config)
     Suspension.create(config)
     {:ok, config}
+  end
+
+  @impl GenServer
+  def handle_call({:suspension_view, write}, _from, %Config{vault: vault} = config) do
+    {:reply, Suspension.owner_write(vault, write), config}
   end
 
   @impl GenServer

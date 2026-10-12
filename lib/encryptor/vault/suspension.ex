@@ -28,9 +28,14 @@ defmodule Encryptor.Vault.Suspension do
   #     of the pure function every encrypt and decrypt runs through - the
   #     shape ADR-0001 decision 5 exists to avoid.
   #
-  # The table is `:public` because the writes are the caller's: `suspend/2` is
-  # invoked from a console or a release task on whatever process the operator
-  # has, not on the `Lifecycle` process. It is `read_concurrency: true`
+  # The table is `:protected`: every process reads it, and only its owner
+  # writes it. `suspend/2` is invoked from a console or a release task on
+  # whatever process the operator has, so every write - the default store's,
+  # a shared store's local write, and the refresher's load - is handed to the
+  # `Lifecycle` process as a call (`write_view/2`) and performed there
+  # (`owner_write/2`). The rejection above is of a call on the *read*: the
+  # gate's lookup stays a direct table read on the caller's process, and only
+  # the operational writes queue on the owner. It is `read_concurrency: true`
   # because the read is on the hot path of every call and the writes are
   # operational, which is exactly the ratio that option is for.
   #
@@ -52,7 +57,8 @@ defmodule Encryptor.Vault.Suspension do
   # store once per poll interval (decision 5). Until its first successful
   # read, a shared store's view exists only under a second name the gate
   # never reads, so the gate finds no view and denies every scope (decision
-  # 7); the refresher renames it into place when the store first answers.
+  # 7); when the store first answers, the refresher has the view's owner
+  # rename it into place.
   # A deny that must bind more than this vault - a second client, a node
   # configured with a different store - still belongs at the provider locus of
   # A3: an IAM binding revoked on the key material itself (decision 9).
@@ -81,6 +87,9 @@ defmodule Encryptor.Vault.Suspension do
   @typedoc false
   @type action :: :suspend | :reinstate
 
+  @typedoc false
+  @type view_write :: {action(), Error.selector()} | {:load, [Error.selector()]}
+
   # How long one refresh waits for the store's list/1 (ADR-0010 decision 5,
   # and the dated Note on decisions 7 and 8).
   @list_timeout 5_000
@@ -104,14 +113,14 @@ defmodule Encryptor.Vault.Suspension do
   #
   # Under a shared store it is born under `unloaded_table/1`, not under the
   # name the gate reads (ADR-0010 decision 7): until the refresher has read
-  # the store and renamed it into place, the gate finds no view and denies
+  # the store and had it renamed into place, the gate finds no view and denies
   # every scope. That covers a cold start and a view recreated empty by a
   # `Lifecycle` restart alike, because both come through here.
   @spec create(Config.t()) :: :ets.table()
   def create(%Config{vault: vault} = config) do
     name = if shared?(config), do: unloaded_table(vault), else: table(vault)
 
-    :ets.new(name, [:set, :public, :named_table, read_concurrency: true])
+    :ets.new(name, [:set, :protected, :named_table, read_concurrency: true])
   end
 
   @doc false
@@ -153,10 +162,51 @@ defmodule Encryptor.Vault.Suspension do
   def members(tid), do: :ets.select(tid, [{{:"$1"}, [], [:"$1"]}])
 
   @doc false
-  # The not-started check, then the write. Under the default store the write
-  # runs here, on the caller's process; under a shared store it is a call into
-  # the refresher, so a local write and a refresh never interleave (ADR-0010
-  # decision 5).
+  # Hands one write to the view's owner, the vault's `Lifecycle` process, and
+  # answers what `owner_write/2` answered there. A view with no owner to take
+  # the write - a `Lifecycle` restart in progress, or a vault that is down -
+  # answers `:none`, as a view with no table always has: the table and its
+  # owner are one lifetime, so an owner that cannot answer has no table.
+  @spec write_view(module(), view_write()) :: :ok | boolean() | :none
+  def write_view(vault, write) do
+    GenServer.call(Vault.lifecycle_name(vault), {:suspension_view, write})
+  catch
+    :exit, _reason -> :none
+  end
+
+  @doc false
+  # One write to the view, on the owner's process: the only process a
+  # `:protected` table lets write it. `{:suspend, selector}` and
+  # `{:reinstate, selector}` land in whichever view exists and answer `:ok`;
+  # `{:load, selectors}` makes the view equal to a store's set and answers
+  # whether its membership changed (`apply_view/4`). Each answers `:none`
+  # when the vault has no view.
+  @spec owner_write(module(), view_write()) :: :ok | boolean() | :none
+  def owner_write(vault, write) do
+    case view(vault) do
+      :none -> :none
+      {state, tid} -> owner_write(vault, state, tid, write)
+    end
+  end
+
+  defp owner_write(_vault, _state, tid, {:suspend, selector}) do
+    true = :ets.insert(tid, {selector})
+    :ok
+  end
+
+  defp owner_write(_vault, _state, tid, {:reinstate, selector}) do
+    true = :ets.delete(tid, selector)
+    :ok
+  end
+
+  defp owner_write(vault, state, tid, {:load, selectors}),
+    do: apply_view(vault, state, tid, selectors)
+
+  @doc false
+  # The not-started check, then the write. Under the default store the store
+  # is handed the write on the caller's process, and the store hands it to
+  # the view's owner; under a shared store it is a call into the refresher,
+  # so a local write and a refresh never interleave (ADR-0010 decision 5).
   @spec suspend(Config.t(), Error.selector()) :: :ok | {:error, Error.t()}
   def suspend(%Config{} = config, selector), do: write(config, :suspend, selector)
 
@@ -196,7 +246,8 @@ defmodule Encryptor.Vault.Suspension do
   # `timeout` bounds the store's write. The refresher passes what is left of
   # the caller's deadline, and a store that has not answered by then is a
   # store that could not answer (ADR-0010 decision 7). The default store's
-  # write runs on the caller's process with no bound, as it always has.
+  # callback runs on the caller's process with no bound, as it always has,
+  # and hands its write to the view's owner (`write_view/2`).
   @spec perform(Config.t(), action(), Error.selector(), timeout()) :: :ok | {:error, Error.t()}
   def perform(
         %Config{vault: vault, suspension_store: {store, _opts}} = config,
@@ -247,7 +298,7 @@ defmodule Encryptor.Vault.Suspension do
   def refresh(%Config{vault: vault, suspension_store: {store, _opts}} = config, failing?) do
     case call_store(store, :list, [config.suspension_store_state], @list_timeout) do
       {:ok, selectors} ->
-        if apply_view(vault, selectors) or failing?,
+        if write_view(vault, {:load, selectors}) == true or failing?,
           do: Telemetry.suspension_changed(vault, :refresh, store, {:ok, count(vault)})
 
         false
@@ -299,12 +350,10 @@ defmodule Encryptor.Vault.Suspension do
   # A local write lands in whichever view exists: the served one, or, before
   # the first load, the unloaded one, which the first load then makes equal
   # to the store's set (which already holds this write) before renaming it.
+  # A view with no table is left to the next refresh, as it always was.
   defp update_view(vault, action, selector) do
-    case view(vault) do
-      :none -> :ok
-      {_state, tid} when action == :suspend -> true = :ets.insert(tid, {selector})
-      {_state, tid} -> true = :ets.delete(tid, selector)
-    end
+    _ = write_view(vault, {action, selector})
+    :ok
   end
 
   # Makes the view equal to the store's set, and answers whether its
@@ -318,36 +367,29 @@ defmodule Encryptor.Vault.Suspension do
   # 7). The order - fill, then rename - is the invariant; no test can force
   # the interleaving it rules out.
   #
-  # The rename names the table by the tid this refresh filled, never by its
-  # name. A `Lifecycle` crash between the fill and the rename deletes that
-  # table, and the restarted `Lifecycle` creates a new, empty one under the
-  # unloaded name: renaming by name would put that empty table in front of
-  # the gate and serve every suspended scope until the next refresh. Renaming
-  # the stale tid raises instead, the refresher crashes and is restarted by
-  # the vault's supervisor, the new table stays under the unloaded name where
-  # the gate denies every scope, and the next refresh fills and renames it.
-  # No test can force that window either.
+  # It runs on the view's owner, inside one `owner_write/2`, so the fill and
+  # the rename are one message to the `Lifecycle` process: a `Lifecycle`
+  # crash takes the table before the fill or after the rename, never between
+  # them, and the restarted `Lifecycle` creates a new, empty view under the
+  # unloaded name where the gate denies every scope until the next refresh
+  # fills and renames it. The refresher reads the store; it never holds the
+  # view's tid across a call.
   #
-  # A view with no table - a `Lifecycle` restart in progress - is left to the
-  # next refresh, which finds the recreated, unloaded view.
-  defp apply_view(vault, selectors) do
-    case view(vault) do
-      :none ->
-        false
+  # A view with no table - a `Lifecycle` restart in progress - answers
+  # `:none` from `owner_write/2`, and is left to the next refresh, which finds
+  # the recreated, unloaded view.
+  defp apply_view(vault, state, tid, selectors) do
+    wanted = MapSet.new(selectors)
+    current = MapSet.new(members(tid))
+    added = MapSet.difference(wanted, current)
+    departed = MapSet.difference(current, wanted)
 
-      {state, tid} ->
-        wanted = MapSet.new(selectors)
-        current = MapSet.new(members(tid))
-        added = MapSet.difference(wanted, current)
-        departed = MapSet.difference(current, wanted)
+    true = :ets.insert(tid, Enum.map(added, &{&1}))
+    Enum.each(departed, &(true = :ets.delete(tid, &1)))
 
-        true = :ets.insert(tid, Enum.map(added, &{&1}))
-        Enum.each(departed, &(true = :ets.delete(tid, &1)))
+    if state == :unloaded, do: :ets.rename(tid, table(vault))
 
-        if state == :unloaded, do: :ets.rename(tid, table(vault))
-
-        state == :unloaded or MapSet.size(added) > 0 or MapSet.size(departed) > 0
-    end
+    state == :unloaded or MapSet.size(added) > 0 or MapSet.size(departed) > 0
   end
 
   defp count(vault) do
@@ -359,8 +401,8 @@ defmodule Encryptor.Vault.Suspension do
 
   # The vault's view under either name. The unloaded name is looked up first,
   # so a rename that lands between the two lookups is still found under the
-  # served one. Only the refresher renames, and the refresher is the only
-  # process that writes a shared view, so its own reads see a stable name.
+  # served one. Only the owner writes or renames the view, so its own reads,
+  # inside `owner_write/2`, see a stable name.
   @spec view(module()) :: {:served | :unloaded, :ets.table()} | :none
   defp view(vault) do
     case :ets.whereis(unloaded_table(vault)) do
