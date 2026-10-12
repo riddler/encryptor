@@ -1,0 +1,3 @@
+### Fixed
+
+- `Encryptor.Envelope.unwrap/2` and `rewrap/2` now refuse a wrapped-key row whose `name` is not the name its `scope_ref` and `version` derive, or whose `bits` is not 256, with `{:invalid_key_descriptor, {:invalid_wrapped_key_field, :name}}` or `{:invalid_key_descriptor, {:invalid_wrapped_key_field, :bits}}`, where a drifted `name` used to unwrap into a descriptor carrying it and rewrap carried both columns forward; a drifted `bits` on `unwrap/2` now names the column instead of `{:key_length_mismatch, bits, 256}`. A row whose blob was wrapped for another scope or version is refused with `:decrypt_failed` as before.

@@ -362,10 +362,10 @@ defmodule Encryptor.Envelope do
   the result is the `%Encryptor.Key.Aes{}` of ADR-0002 decision 3 - never a
   bare binary.
 
-  Three failures are worth naming:
+  Four failures are worth naming:
 
-    * a row whose fields cannot form a descriptor, or a `namespace`, `name` or
-      `bits` the vault would refuse, is `{:invalid_key_descriptor, detail}`.
+    * a row whose fields cannot form a descriptor, or a `namespace` or `name`
+      the vault would refuse, is `{:invalid_key_descriptor, detail}`.
       The detail names the constraint and never the value.
     * a blob that does not carry every pair of the binding, at the value this
       row claims, is `:decrypt_failed` - checked from the header before any
@@ -378,22 +378,33 @@ defmodule Encryptor.Envelope do
       has not reached yet, which is why ADR-0005's P1 keeps the outgoing
       subkey in the root vault's candidate list until the pass finishes.
 
-  `unwrap/2` deliberately does **not** compare the row's `name` column against
-  the blob. ADR-0003 open question 6 records that cross-check as unsettled:
-  the binding already guarantees the blob belongs to the claimed scope and
-  version, and making the denormalized columns authoritative is a thing
-  decision 4 explicitly declined to do.
+    * a row whose blob opens under its binding but whose `name` is not the
+      name its `scope_ref` and `version` derive (the key-name grammar
+      `provision/3` writes), or whose `bits` is not the 256 this path mints,
+      is `{:invalid_key_descriptor, {:invalid_wrapped_key_field, field}}`,
+      with `field` the column that disagrees, `:name` or `:bits`. It is
+      checked after the binding and the decrypt, so a row whose blob is not
+      its own keeps the `:decrypt_failed` above, and the opened material is
+      dropped, never returned.
+
+  The columns are still not authoritative (ADR-0003 decision 4): the blob's
+  binding decides which scope and version a row is, and the `name` and `bits`
+  columns are only checked against what that binding and decision 1 derive. A
+  row that disagrees is refused, never read as a second source of the name or
+  the size; the descriptor is built from the derived values. This answers
+  ADR-0003 open question 6.
   """
   @spec unwrap(root_vault(), WrappedKey.t()) :: {:ok, Aes.t()} | {:error, Error.t()}
   def unwrap(root_vault, %WrappedKey{} = wrapped) when is_atom(root_vault) do
     with {:ok, binding} <- binding_for(root_vault, :decrypt, wrapped),
          :ok <- require_binding(root_vault, :decrypt, wrapped.wrapped, binding),
-         {:ok, material} <- Decrypt.call(root_vault, wrapped.wrapped, [], binding) do
+         {:ok, material} <- Decrypt.call(root_vault, wrapped.wrapped, [], binding),
+         :ok <- require_derived(root_vault, :decrypt, wrapped) do
       descriptor = %Aes{
         namespace: wrapped.namespace,
-        name: wrapped.name,
+        name: key_name(wrapped.scope_ref, wrapped.version),
         material: material,
-        bits: wrapped.bits
+        bits: @bits
       }
 
       case Keyring.validate(root_vault, :decrypt, descriptor) do
@@ -428,13 +439,17 @@ defmodule Encryptor.Envelope do
   The binding is required here for the same reason it is required in
   `unwrap/2`: a rekey of a blob that is not a scope-key wrapping would write
   a foreign message into the wrapped-key population under a row that claims it
-  is a scope key.
+  is a scope key. So is the row's agreement with what the binding derives: a
+  row whose `name` or `bits` disagrees is refused as `unwrap/2` refuses it,
+  and the re-wrapped blob is dropped, so a rewrap pass does not carry a
+  drifted row forward as though it were sound.
   """
   @spec rewrap(root_vault(), WrappedKey.t()) :: {:ok, WrappedKey.t()} | {:error, Error.t()}
   def rewrap(root_vault, %WrappedKey{} = wrapped) when is_atom(root_vault) do
     with {:ok, binding} <- binding_for(root_vault, :rekey, wrapped),
          :ok <- require_binding(root_vault, :rekey, wrapped.wrapped, binding),
-         {:ok, rewrapped} <- Rekey.call(root_vault, wrapped.wrapped, [], binding) do
+         {:ok, rewrapped} <- Rekey.call(root_vault, wrapped.wrapped, [], binding),
+         :ok <- require_derived(root_vault, :rekey, wrapped) do
       {:ok, %WrappedKey{wrapped | wrapped: rewrapped}}
     end
   end
@@ -653,6 +668,36 @@ defmodule Encryptor.Envelope do
         {:ok, binding(wrapped.scope_ref, wrapped.version, wrapped.namespace)}
     end
   end
+
+  # ADR-0003 open question 6, answered: the `name` and `bits` columns are
+  # denormalized (decision 4), and a row whose columns disagree with what its
+  # scope reference and version derive - the name `key_name/2` spells, the
+  # size of decision 1 - is refused, naming the column. It runs after the
+  # binding check and the engine's own decrypt or rekey under the binding, so
+  # a row whose blob was wrapped for another scope or version is refused
+  # there first, with the answer it always had; only a row whose blob is its
+  # own reaches this check.
+  @spec require_derived(root_vault(), Error.operation(), WrappedKey.t()) ::
+          :ok | {:error, Error.t()}
+  defp require_derived(vault, operation, %WrappedKey{} = wrapped) do
+    cond do
+      wrapped.name != key_name(wrapped.scope_ref, wrapped.version) ->
+        invalid_field(vault, operation, :name)
+
+      not minted_size?(wrapped.bits) ->
+        invalid_field(vault, operation, :bits)
+
+      true ->
+        :ok
+    end
+  end
+
+  # `WrappedKey.bits` is typed as the one size this path mints, which a
+  # struct read back from a store need not honour; the comparison takes any
+  # term so the check stays a check rather than one the type says cannot
+  # fail.
+  @spec minted_size?(term()) :: boolean()
+  defp minted_size?(bits), do: bits === @bits
 
   @spec printable_field?(term()) :: boolean()
   defp printable_field?(value), do: is_binary(value) and value != "" and String.printable?(value)
