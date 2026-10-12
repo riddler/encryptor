@@ -482,7 +482,8 @@ defmodule Encryptor.Vault do
   an error vocabulary of its own to map onto.
 
   A purpose this package reserves for itself - `"root-wrap"`, `"scope-ref"`
-  or the retired `"tenant-ref"` (ADR-0003 decision 6) - is refused with
+  or the retired `"tenant-ref"` (ADR-0003 decision 6 for the first two,
+  ADR-0009 Amendment A, A2 for the retired one) - is refused with
   `{:invalid_config, :purpose, :reserved}` before the key provider is
   consulted. The label space is reserved one way, so a derivation under one
   of those labels is not handed to a caller even though this path's salt
