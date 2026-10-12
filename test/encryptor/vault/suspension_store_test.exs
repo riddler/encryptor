@@ -230,6 +230,31 @@ defmodule Encryptor.Vault.SuspensionStoreTest do
       assert {:ok, _ciphertext} = encrypt(vault, "merchant_a")
     end
 
+    # sabotage: created the view `:public` in Suspension.create/1 - red, on
+    # the first assert_raise. The refresher fills and renames the view only
+    # by asking its owner, which every other test in this describe drives;
+    # this one pins that no other process can write it, before the first
+    # load and after it.
+    test "only the vault's own process writes a shared store's view, loaded or not" do
+      :ok = SuspensionStoreFakes.answer(@agent, :list, :error)
+      vault = start_shared()
+      assert_receive {:changed, _m, %{action: :refresh, outcome: :error}}, @within
+
+      unloaded = Suspension.unloaded_table(vault)
+      assert_raise ArgumentError, fn -> :ets.insert(unloaded, {"merchant_b"}) end
+
+      :ok = SuspensionStoreFakes.put_elsewhere(@agent, "merchant_a")
+      :ok = SuspensionStoreFakes.answer(@agent, :list, :ok)
+      assert_receive {:changed, %{count: 1}, %{action: :refresh, outcome: :ok}}, @within
+
+      served = Suspension.table(vault)
+      assert_raise ArgumentError, fn -> :ets.delete(served, "merchant_a") end
+      assert_raise ArgumentError, fn -> :ets.insert(served, {"merchant_b"}) end
+
+      assert reason(encrypt(vault, "merchant_a")) == {:key_unavailable, "merchant_a"}
+      assert {:ok, _ciphertext} = encrypt(vault, "merchant_b")
+    end
+
     # sabotage: took the refresher out of the supervisor's child list for a
     # shared store - red, on the refresher and on every write.
     test "the refresher is a child of the vault's supervisor, after Lifecycle" do

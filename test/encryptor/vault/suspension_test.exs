@@ -329,6 +329,26 @@ defmodule Encryptor.Vault.SuspensionTest do
       refute Suspension.suspended?(config, :default)
     end
 
+    # sabotage: created the view `:public` in Suspension.create/1 - red, on
+    # the first assert_raise: any process in the node could then lift a
+    # suspension by deleting the row, or set one by inserting it, without
+    # going through either verb.
+    test "only the vault's own process writes the suspended set" do
+      vault = start_vault(LifecycleVaults.Cached)
+      assert :ok = Vault.suspend(vault, :default)
+      table = Suspension.table(vault)
+
+      assert_raise ArgumentError, fn -> :ets.delete(table, :default) end
+      assert_raise ArgumentError, fn -> :ets.insert(table, {"merchant_a"}) end
+
+      {:ok, config} = Vault.config(vault)
+      assert Suspension.suspended?(config, :default)
+      refute Suspension.suspended?(config, "merchant_a")
+
+      assert :ok = Vault.reinstate(vault, :default)
+      refute Suspension.suspended?(config, :default)
+    end
+
     # sabotage: raised from suspended?/2 when the table is missing - red. The
     # gate is on the hot path of every call, and a vault between a crash and
     # its restart must not report a restart as the caller's error.
