@@ -149,10 +149,10 @@ No entries yet.
 | F10 | Medium | the LLM pass | FIXED, PR 157 |
 | F11 | Medium | the LLM pass | FIXED, PR 154 |
 | F12 | Medium | the LLM pass | FIXED by documentation, PR 160; the refusal DEFERRED to enc-d4yx |
-| F13 | Low | the LLM pass | DEFERRED to enc-de5n |
-| F14 | Low | the LLM pass | DEFERRED to enc-u4s6 |
+| F13 | Low | the LLM pass | FIXED on `main`, PR 168, in the next release |
+| F14 | Low | the LLM pass | FIXED on `main`, PR 184, in the next release |
 | F15 | Low | the LLM pass | FIXED on `main`, PR 173, in the next release |
-| F16 | Low/Info | the LLM pass | DEFERRED to enc-ssfx |
+| F16 | Low/Info | the LLM pass | FIXED on `main`, PR 180, in the next release |
 | F17 | Low/Info | the engine's issue tracker | FIXED in the engine, `aws_encryption_sdk` 1.1.0; mitigated here |
 
 No Critical or High finding is open: each High finding is FIXED, so under the
@@ -301,7 +301,7 @@ finding is FIXED or DEFERRED.
   tests pin the refusal in `test/aws_encryption_sdk/format/body_test.exs`
   and `test/aws_encryption_sdk/stream/encryptor_test.exs`; their sabotage
   notes are the engine's. The threat model's "The limits of AES-GCM" section
-  still says the engine has no guard; it is outside this ledger's change.
+  now says the guard ships in 1.2.0.
 
 ### F5. A `:scoped` vault started with required context keys no call could supply
 
@@ -586,7 +586,15 @@ finding is FIXED or DEFERRED.
 - **Severity:** Low.
 - **Claim broken:** the spec of `Vault.derive/3`, `{:ok, binary()} | {:error,
   Error.t()}`.
-- **Disposition:** DEFERRED to enc-de5n.
+- **Disposition:** FIXED on `main` by
+  [PR 168](https://github.com/riddler/encryptor/pull/168), in the next release,
+  which is not published yet. `Vault.derive/3` returns its error tuple for a
+  `:length` above the HKDF bound, an empty purpose and a purpose containing
+  `/`, before the key provider is consulted or the descriptor is resolved.
+  The tests are in
+  [`test/encryptor/vault/derive_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/derive_test.exs),
+  one per case, with a boundary test and an ordering test; each carries its
+  sabotage note, and PR 168 lists them.
 
 ### F14. `unwrap/2` and `rewrap/2` do not bind the stored key name and size
 
@@ -600,7 +608,14 @@ finding is FIXED or DEFERRED.
 - **Claim:** the threat model's key-store rows carry the "name and key size
   that identify it", and "A row moved to another scope or version must not
   unwrap".
-- **Disposition:** DEFERRED to enc-u4s6.
+- **Disposition:** FIXED on `main` by
+  [PR 184](https://github.com/riddler/encryptor/pull/184), in the next release,
+  which is not published yet. `unwrap/2` and `rewrap/2` refuse a row whose
+  key name or size has drifted, naming the column. The tests are in
+  [`test/encryptor/envelope_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/envelope_test.exs):
+  "a row whose bits column has drifted is refused, naming the column" and
+  "refuses a row whose name or bits column has drifted, naming the column";
+  each carries its sabotage note, and PR 184 lists them.
 
 ### F15. The GCP KMS provider does not check a row's scope reference
 
@@ -636,7 +651,13 @@ finding is FIXED or DEFERRED.
   scope, so no documented claim breaks.
 - **Severity:** Low/Info.
 - **Claim:** none broken.
-- **Disposition:** DEFERRED to enc-ssfx, as hardening (`:protected`).
+- **Disposition:** FIXED on `main` by
+  [PR 180](https://github.com/riddler/encryptor/pull/180), in the next release,
+  which is not published yet. The suspension view is a `:protected` table
+  (`lib/encryptor/vault/suspension.ex`), so only its owner writes it and a
+  foreign insert or delete raises. Two tests pin it, one on the default
+  store's view and one on a shared store's view; each carries its sabotage
+  note, and PR 180 lists them.
 
 ### F17. The engine's caching CMM served a decryption cache hit without comparing the reproduced context
 
