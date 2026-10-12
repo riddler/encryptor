@@ -1468,3 +1468,26 @@ Provenance: bead `enc-8s6w`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Note (2026-10-12): the "readable by the official SDKs" sentence holds against the Python SDK since 0.8.0
+
+One reading, which changes no decision. The sentence in the Context,
+"Every ciphertext this vault writes over application data stays an
+unmodified AWS ESDK message, readable by the official SDKs", is re-read
+against the interop job (`test/encryptor/interop/python_interop_test.exs`,
+CI job "Interop with the Python AWS Encryption SDK").
+
+The job tests one SDK, the AWS Encryption SDK for Python, in both
+directions (Elixir encrypts and Python decrypts, and the reverse), for a
+`:single` and a `:scoped` vault, at suites 0x0478 and 0x0578. Every one of
+those eight combinations is expected to pass; no known failure is left in
+the test. They have held since 0.8.0, which requires `aws_encryption_sdk`
+1.1, the engine that fixed the two defects the 1.0.x engine had (the stored
+required context and the signature verification key's encoding). The job
+was green on main at `cfff83d`. No other official SDK is tested, so the
+sentence is proved for Python and not claimed beyond it by any job.
+
+Provenance: bead `enc-6qb2`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
