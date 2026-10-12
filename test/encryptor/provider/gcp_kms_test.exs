@@ -429,6 +429,39 @@ defmodule Encryptor.Provider.GcpKmsTest do
                GcpKms.encryption_key(not_a_row, @selector)
     end
 
+    # sabotage: dropped the scope_ref match from validate_row/2's head - red,
+    # because another scope's whole row then unwraps under its own binding
+    # and this scope is handed another scope's master key.
+    test "refuses another scope's row on both paths, before any Decrypt" do
+      {_state, other} = GcpKmsCase.provisioned(@unknown)
+      state = GcpKmsCase.state(store: store([other]), http_client: EchoKms)
+
+      assert {:error, {:invalid_key_descriptor, :invalid_row}} =
+               GcpKms.encryption_key(state, @selector)
+
+      assert {:error, {:invalid_key_descriptor, :invalid_row}} =
+               GcpKms.decryption_keys(state, @selector)
+
+      refute_received {:kms_request, _url, _body, _opts}
+    end
+
+    # sabotage: checked the scope_ref of the newest row only - red, because
+    # an older row naming another scope then joins this scope's decryption
+    # candidates.
+    test "refuses the whole candidate list when an older row names another scope" do
+      {_state, row} = GcpKmsCase.provisioned(@selector)
+      {_other_state, other} = GcpKmsCase.provisioned(@unknown)
+      state = GcpKmsCase.state(store: store([row, other]), http_client: EchoKms)
+
+      assert {:error, {:invalid_key_descriptor, :invalid_row}} =
+               GcpKms.decryption_keys(state, @selector)
+
+      assert {:error, {:invalid_key_descriptor, :invalid_row}} =
+               GcpKms.encryption_key(state, @selector)
+
+      refute_received {:kms_request, _url, _body, _opts}
+    end
+
     # mutation: widen the row's `bits` check back to the three AES widths -
     # the provider then accepts a row it could never have written itself and
     # hands on a width `Encryptor.Provider.provisioned/0` does not admit
