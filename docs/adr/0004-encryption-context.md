@@ -2381,3 +2381,22 @@ context for the decrypt, and every other key is carried as it was. The
 sentences quoted above are not edited.
 
 This Note carries no status of its own.
+
+## Note (2026-10-12): decision 8 names one place the `:engine` field is stretched; there is a second, `:unexpected_engine_result`
+
+Decision 8 says the one place this record stretches the `:engine` field is the
+context comparison, where the vault puts its own
+`{:encryption_context_mismatch, key}` there. That holds for the context
+comparison. A second package-owned value is also carried in `:engine`:
+`:unexpected_engine_result`, which `engine_result/3`
+(`lib/encryptor/vault/decrypt.ex`, read at `5eb4bc2`) puts there for an engine
+answer outside `{:ok, %{plaintext: _}}` and `{:error, _}`, such as the 1.0.x
+engine's `{:ok, parsed_message, rest}` for a message followed by trailing
+bytes. The engine's term is not carried in that case, because a parsed
+message holds the header, the wrapped data keys and the body ciphertext, and
+`:engine` is printed wherever an error struct is inspected. The reason is
+still `:decrypt_failed`, so no term joins the vocabulary decision 8 closes.
+The `Encryptor.Error` moduledoc names both values.
+
+The decision's other claims stand and no sentence above is edited. This Note
+carries no status of its own.
