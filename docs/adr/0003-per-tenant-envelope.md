@@ -1518,3 +1518,30 @@ Provenance: bead `enc-u4s6`.
 
 Nothing above changes. No decision is amended, no line above is edited, no
 error vocabulary is added, and this Note carries no status of its own.
+
+## Note (2026-10-12): the root vault's public doors refuse a wrapping; unwrap and rewrap enter the same paths with the binding reproduced
+
+One reading, which changes no decision. Decision 2 says unwrapping "decrypts
+them with `MyApp.RootVault.decrypt/2`". Read that as the decrypt path behind
+the root vault's `decrypt/2`, not the public door itself. A wrapping carries
+decision 4's binding, a pair under this package's `encryptor-` prefix in its
+stored context, and the public doors reproduce no such pair
+(`Encryptor.Vault.decrypt/3` in `lib/encryptor/vault.ex`, read at enc
+`7c09898`, passes no reserved layer). A root vault's own `decrypt/2` and
+`rekey/2`, and their bang forms, therefore refuse a wrapping with
+`:decrypt_failed`, carrying `{:encryption_context_mismatch, key}` in
+`:engine` (the comment "One stored key a reader may not omit" in
+`lib/encryptor/vault/decrypt.ex`, same SHA; the rekey path applies the same
+rule, `lib/encryptor/vault/rekey.ex`, same SHA).
+
+`Encryptor.Envelope.unwrap/2` and `Encryptor.Envelope.rewrap/2`
+(`lib/encryptor/envelope.ex`, same SHA) enter that same decrypt and rekey
+path with the binding reproduced as the reserved layer, and they are the only
+callers that can open a wrapping. This is the enforcement of decision 3: no
+function in this package returns a bare scope master key, and the root
+vault's public doors no longer do either.
+
+Provenance: bead `enc-ypvd`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
