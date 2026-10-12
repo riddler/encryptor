@@ -18,7 +18,7 @@ off, which is the default, every message gets a fresh one. The message that
 comes out is in the AWS Encryption SDK's message format, which is why the
 ciphertext you store is one self-describing binary, and why another
 language's official SDK can read it. A CI job
-([python-interop](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml)) checks this package against the official SDK for
+(the `python-interop` job in [the CI workflow](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml)) checks this package against the official SDK for
 Python: a single-key and a per-scope vault's messages cross both ways, at
 suites 0x0478 and 0x0578 ([the test](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs)). The engine
 release this package requires, `aws_encryption_sdk` 1.1, follows the AWS
