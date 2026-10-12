@@ -317,7 +317,13 @@ and this package claims nothing about them beyond what OpenSSL's
 implementation provides on the machine it runs on. The comparisons this
 package does in Elixir are over values that are public by design: the
 encryption context, which travels in the clear, and the scope reference, which
-is in every header. Nothing secret is compared byte by byte in Elixir.
+is in every header. One more happens when a `:scoped` vault starts with a
+`reference_check` option: the vault derives the known answer for its subkey and
+compares it with the value the host pinned
+([`lib/encryptor/vault/config.ex`](https://github.com/riddler/encryptor/blob/main/lib/encryptor/vault/config.ex),
+`reference_check/4`). That value is the published scope reference, and the
+comparison happens once at start, where no attacker times it. Nothing secret is
+compared byte by byte in Elixir.
 
 Pinned by: ADR-0001 decisions 6 and 7
 ([the vault record](https://github.com/riddler/encryptor/blob/main/docs/adr/0001-vault-layer.md));
@@ -352,7 +358,9 @@ messages the same data key, and the frame counters of two messages never meet.
 key with AES-GCM under a random 96-bit IV. That is the RBG-based construction,
 and it is where the next limit bites.
 
-**The invocation limits (section 8.3).** Under the RBG-based construction, one
+**The invocation limits (section 8.3).** This applies to providers that wrap
+the data key locally; with the AWS KMS provider the wrap happens inside AWS KMS
+and the limit is AWS's to manage. Under the RBG-based construction, one
 key may be used for at most 2^32 invocations; past that, the chance of two
 random IVs colliding is no longer negligible, and two encryptions under one key
 and one IV leak the XOR of their plaintexts and let an attacker forge tags
@@ -414,8 +422,9 @@ SDK specification says the header's stored context must not contain the keys
 the materials list as required: a required key is authenticated, not stored.
 The 1.0.x engine stored it as well, and read a conforming message's data key
 under the stored context only. Every message a `:scoped` vault writes has a
-required key, `scope_ref`, so `:scoped` messages did not interoperate with the
-other SDKs, in either direction. The 1.1 engine stores no required key, and
+required key, `scope_ref`, so `:scoped` messages did not interoperate with an
+SDK that follows the specification, in either direction (the interop job tests
+only the Python SDK). The 1.1 engine stores no required key, and
 appends a reproduced key the header does not store before it unwraps; this
 package moved to it under ADR-0004 Amendment B, proposed: messages written
 before the change keep decrypting and rekeying, the vault keeps its own
@@ -482,7 +491,13 @@ is the `aws-vectors` job in
 [`.github/workflows/ci.yml`](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml),
 and its test,
 [`test/encryptor/vectors/aws_vectors_corpus_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vectors/aws_vectors_corpus_test.exs),
-checks the corpus is the one reviewed.
+checks the corpus is the one reviewed. A second test,
+[`test/encryptor/vectors/aws_vectors_vault_decrypt_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vectors/aws_vectors_vault_decrypt_test.exs),
+reads every raw-AES vector through `Encryptor.Vault.decrypt/3`: it asserts the
+manifest's 9089 tests split into 661 positives and 4240 negatives run there,
+2200 RSA tests and 1988 KMS tests excluded by those literal counts, that the
+positives decrypt (or, without key commitment, are refused under the default
+policy), and that every negative is refused with this package's own error.
 
 **Another SDK.** The `python-interop` job runs the AWS Encryption SDK for
 Python 4.0.7 with the Material Providers Library, on Python 3.12, every package
