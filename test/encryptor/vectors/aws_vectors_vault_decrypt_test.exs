@@ -82,23 +82,24 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
     if AwsVectors.present?() do
       manifest = AwsVectors.manifest!()
       %{"keys" => keys} = AwsVectors.keys!(manifest)
-      {:ok, corpus: classify(manifest["tests"]), keys: keys}
+      {:ok, corpus: classify(manifest["tests"]), keys: keys, total: map_size(manifest["tests"])}
     else
-      {:ok, corpus: nil, keys: nil}
+      {:ok, corpus: nil, keys: nil, total: nil}
     end
   end
 
   # sabotage: dropped `"aws-kms-mrk-aware-discovery"` from @kms_types - red,
-  # its tests then fall in no set.
+  # its tests then fall in no set. And made setup_all report the manifest's
+  # count plus one - red, the four sets no longer sum to it.
   test "the corpus splits into the raw AES set run here and the two excluded sets",
-       %{corpus: corpus} do
+       %{corpus: corpus, total: total} do
     assert corpus.unclassified == []
 
     assert length(corpus.positives) == 661
     assert length(corpus.negatives) == 4240
     assert corpus.rsa == 2200
     assert corpus.kms == 1988
-    assert 661 + 4240 + 2200 + 1988 == 9089
+    assert length(corpus.positives) + length(corpus.negatives) + corpus.rsa + corpus.kms == total
   end
 
   # sabotage: made Encryptor.Message.describe/1 report `committed?: true` for
@@ -237,9 +238,14 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
     provider =
       {Static, key: Base.decode64!(material), namespace: vector.provider_id, name: key_id}
 
-    start_supervised!(
-      Supervisor.child_spec({vault, [provider: provider] ++ extra}, restart: :temporary)
-    )
+    spec = Supervisor.child_spec({vault, [provider: provider] ++ extra}, restart: :temporary)
+
+    # Not start_supervised!/2: its failure message inspects the child spec,
+    # which carries the decoded key. A failure names the case and the vault.
+    case start_supervised(spec) do
+      {:ok, _pid} -> :ok
+      {:error, _reason} -> raise "the vault #{inspect(vault)} did not start for #{vector.id}"
+    end
   end
 
   # -- the corpus -------------------------------------------------------------
