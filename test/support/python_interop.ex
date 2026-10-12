@@ -124,6 +124,23 @@ defmodule Encryptor.InteropVaults do
   @spec name() :: String.t()
   def name, do: @name
 
+  @doc """
+  Starts `vault` under the calling test's supervisor, and on a start failure
+  raises naming the vault alone.
+
+  `start_supervised!/1` puts the failure reason, and the child spec it
+  started, into its message and the crash report; the vaults here carry the
+  run's wrapping key in their provider config, so that text could print it.
+  This keeps the reason out of the message entirely.
+  """
+  @spec start_vault!(module()) :: pid()
+  def start_vault!(vault) do
+    case ExUnit.Callbacks.start_supervised(vault) do
+      {:ok, pid} -> pid
+      {:error, _reason} -> raise "interop vault #{inspect(vault)} failed to start"
+    end
+  end
+
   @doc false
   @spec init(keyword(), :single | :scoped) :: {:ok, keyword()}
   def init(config, profile) do

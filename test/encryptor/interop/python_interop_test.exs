@@ -121,7 +121,7 @@ defmodule Encryptor.PythonInteropTest do
     on_exit(fn -> File.rm_rf!(dir) end)
 
     :ok = PythonInterop.generate_keys()
-    for vault <- Map.values(@vaults), do: start_supervised!(vault)
+    for vault <- Map.values(@vaults), do: InteropVaults.start_vault!(vault)
 
     {:ok, scope_ref} =
       Encryptor.Envelope.scope_ref(PythonInterop.key(:reference_subkey), @selector)
