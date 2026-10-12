@@ -180,11 +180,19 @@ provider still answers:
   deleted no function here can see that the name was used, and
   `Encryptor.Envelope.provision/3` never sees a store at all. Refusing a
   version your store has already used, shredded or not, is your store's to do.
-- **P2 step 1, the mint, waits on it, on the write side.** A warm
-  encryption entry from before the mint keeps issuing data keys wrapped under
-  version *n* after `encryption_key/2` has started answering *n+1*, until the
-  entry expires, reaches its `max_messages` or `max_bytes` bound, or the cache
-  is dropped.
+- **P2 step 1, the mint, does not wait on it on a node running this code.**
+  The write side's cache partition carries the key `encryption_key/2`
+  resolved to (ADR-0001 Amendment B), so a write after the mint finds a cold
+  partition and wraps its data key under version *n+1* as soon as the
+  provider answers it, and so does a rekey's write half. What the mint does
+  wait on is the provider's answer, which is not a cache question for the
+  vault: a write made before a node's provider answers *n+1* is wrapped under
+  *n*, and a provider that keeps its own bounded cache delays that by its
+  bound. The drain still applies to a vault running a version of this package
+  from before that change, which keeps a warm encryption entry under version
+  *n* until it expires, reaches its `max_messages` or `max_bytes` bound, or
+  the cache is dropped; during a rolling deploy that is every node not yet
+  running the change.
 
 Draining has exactly two levers, and every procedure that needs one names it
 as an explicit step:
@@ -357,13 +365,19 @@ Steps 1 and 4 are key-store operations and belong to this package; steps 2 and
    # v2 is "s/<scope_ref>/v2", v1 is "s/<scope_ref>/v1", newest first.
    ```
 
-   **[operator]** Then drain the caches before step 2: wait `max_age` on every
-   vault that serves the scope, counted from when the row is visible to every
-   node's provider, or restart those vaults. Until the drain completes, a write
-   whose encryption context finds a warm cache entry from before the mint is
-   still wrapped under *n*, and so is a migrator rewrite, because `rekey/2`'s
-   write half goes through the same cache. Those rows are ordinary rows under
-   *n*: step 2 rewrites them because it starts after the drain.
+   **[operator]** Then wait until the row is visible to every node's provider
+   before step 2; a provider with its own bounded cache delays that by its
+   bound. A write made before a node's provider answers *n+1* is still wrapped
+   under *n*, and so is a migrator rewrite. On a node running this code
+   nothing else waits: the write side's cache partition carries the resolved
+   key, so a warm encryption entry from before the mint is not found (ADR-0001
+   Amendment B). For a vault running a version of this package from before
+   that change, also drain its caches: wait `max_age` on every such vault,
+   counted from when the row is visible to every node's provider, or restart
+   it, because a write whose encryption context finds a warm entry from
+   before the mint is still wrapped under *n*, and `rekey/2`'s write half goes
+   through the same cache. Those rows are ordinary rows under *n*: step 2
+   rewrites them because it starts after the wait.
 
 2. **[encryptor_ecto]** Run the migrator over the scope's rows. Nothing in
    this package participates. Every row it rewrites is re-encrypted under
@@ -466,7 +480,7 @@ procedure.
   a version whose rows have not been verifiably rewritten.
 - **[operator]** The verification is recent enough that no traffic since could
   have written under the retired version. It cannot have once P2 step 1's
-  drain completed before step 2 began: from the end of that drain every write
+  wait completed before step 2 began: from the end of that wait every write
   is wrapped under what `encryption_key/2` answers, which is *n+1* - so this
   precondition is about your confidence in the plan's *coverage*, not about
   the mechanism.
@@ -864,7 +878,7 @@ before the step, without recourse to backups.
 | P1 | 4, drop outgoing entry | nothing yet | yes, by re-adding it | Dropped before the pass finishes: unrewrapped wrappings stop unwrapping, so their scopes stop resolving. Recoverable by re-adding the entry. |
 | P1 | 5, destroy old material | the ability to read pre-rotation backups | **no** | Backups taken before step 3 become unreadable. Bounded by backup retention. |
 | P2 | 1, mint | nothing | yes | Minting twice concurrently can produce two version *n+1* rows; the transaction that closes that race is your store's. |
-| P2 | 1, drain after the mint | nothing | yes | Skipped: writes on a warm cache entry keep going under version *n*, and a rewrite started before the drain can rewrite rows under *n*. Step 3's census finds them; a P4 run on a census taken before the drain can orphan them. |
+| P2 | 1, wait after the mint | nothing | yes | Skipped: writes made before a node's provider answers *n+1* keep going under version *n* (on a node running a version from before ADR-0001 Amendment B, a warm cache entry does too, until it is drained), and a rewrite started before the wait can rewrite rows under *n*. Step 3's census finds them; a P4 run on a census taken before the wait can orphan them. |
 | P2 | 2, rewrite | nothing | yes | Downstream's compare-and-swap; a clobber is the failure it is designed against. |
 | P3 | 2, delete all wrappings | one scope's entire dataset, everywhere | **no** | Wrong scope: that scope's data is permanently unreadable. This is the largest destructive action in the package and the reason P3's first precondition is a recorded human decision. |
 | P3 | 3, drain caches | nothing | n/a | Skipped: for a provider that reads its store on every call nothing stays readable, because step 2 already answers `{:unknown_key, selector}`, but the scope's data keys stay resident in the cache table until a restart or the recycler's next drop. For a provider with its own bounded cache, the scope stays readable on running nodes until that bound elapses. |
