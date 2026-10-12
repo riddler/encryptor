@@ -211,8 +211,8 @@ defmodule Encryptor.Vault.Docs do
     `purpose` is the label purpose of ADR-0003 decision 6 - `"blind-index"`,
     or a new one a later record adds. It may not be `"root-wrap"` or
     `"scope-ref"`, which name the trees this package derives for itself, or
-    the retired `"tenant-ref"`: any of the three returns
-    `{:error, %Encryptor.Error{reason: {:invalid_config, :purpose, :reserved}}}`
+    the retired `"tenant-ref"` (ADR-0009 amendment A, A2): any of the three
+    returns `{:error, %Encryptor.Error{reason: {:invalid_config, :purpose, :reserved}}}`
     before the key provider is consulted. It may not be empty
     (`{:invalid_config, :purpose, :empty}`) and may not contain `"/"`
     (`{:invalid_config, :purpose, :contains_separator}`) either, because a

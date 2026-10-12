@@ -260,16 +260,32 @@ defmodule Encryptor.Vault.DeriveTest do
 
     # Sabotage: moved the `purpose/2` step after `Resolve.selector/3`, so the
     # absent selector was reported first. Red.
-    test "a reserved purpose is refused before the selector or the provider" do
+    test "a reserved purpose is refused before the selector is resolved" do
       vault = start_vault(DeriveVaults.Merchant)
 
       assert {:error, %Error{} = error} = Vault.derive(vault, "scope-ref", info: "x")
       assert error.reason == {:invalid_config, :purpose, :reserved}
     end
 
-    # Sabotage: dropped "tenant-ref" from the reserved list in `Derive`.
-    # Red: the two refusal lists must name the same purposes.
-    test "derive/3 refuses exactly the purposes Envelope.subkey/2 refuses" do
+    # Sabotage: moved the `purpose/2` step after `Resolve.encryption_key/3`, so
+    # the provider's unknown-merchant refusal was reported first. Red. The
+    # selector is present here, so only the provider lookup could answer first.
+    test "a reserved purpose is refused before the provider is consulted" do
+      vault = start_vault(DeriveVaults.Merchant)
+
+      assert {:error, %Error{} = error} =
+               Vault.derive(vault, "scope-ref", key: "merchant_z", info: "x")
+
+      assert error.reason == {:invalid_config, :purpose, :reserved}
+    end
+
+    # Sabotage (each): added "blind-index" to `@reserved_purposes` in `Derive`
+    # alone, then to the list in `Envelope.subkey/2` alone; dropped "tenant-ref"
+    # from `@reserved_purposes`. Red on each: the probe set is the three
+    # literals, an unreserved purpose and every purpose the `Encryptor.Kdf`
+    # label table names, so a reservation one module makes and the other does
+    # not shows as a disagreement on that purpose.
+    test "derive/3 and Envelope.subkey/2 agree on every purpose the label table names" do
       vault = start_vault(DeriveVaults.App)
 
       key = %Encryptor.Key.Aes{
@@ -279,15 +295,31 @@ defmodule Encryptor.Vault.DeriveTest do
         bits: 256
       }
 
-      for purpose <- ["root-wrap", "scope-ref", "tenant-ref"] do
-        assert_raise ArgumentError, fn -> Encryptor.Envelope.subkey(key, purpose) end
+      reserved = ["root-wrap", "scope-ref", "tenant-ref"]
+      probes = Enum.uniq(reserved ++ ["search-token"] ++ label_table_purposes())
 
-        assert {:error, %Error{reason: {:invalid_config, :purpose, :reserved}}} =
-                 Vault.derive(vault, purpose)
+      assert "blind-index" in probes
+
+      for purpose <- probes do
+        subkey_refuses =
+          try do
+            Encryptor.Envelope.subkey(key, purpose)
+            false
+          rescue
+            ArgumentError -> true
+          end
+
+        derive_refuses =
+          match?(
+            {:error, %Error{reason: {:invalid_config, :purpose, :reserved}}},
+            Vault.derive(vault, purpose)
+          )
+
+        assert subkey_refuses == derive_refuses,
+               "derive/3 and Envelope.subkey/2 disagree on #{inspect(purpose)}"
+
+        assert derive_refuses == purpose in reserved
       end
-
-      assert {:ok, _derived} = Vault.derive(vault, "blind-index")
-      assert is_binary(Encryptor.Envelope.subkey(key, "blind-index"))
     end
 
     # Sabotage: removed the separator check from `purpose/2`, so the purpose
@@ -370,6 +402,16 @@ defmodule Encryptor.Vault.DeriveTest do
         assert {:ok, _derived} = Vault.derive(vault, purpose)
       end
     end
+  end
+
+  # Every purpose the `Encryptor.Kdf` moduledoc's label table spells.
+  defp label_table_purposes do
+    {:docs_v1, _, _, _, %{"en" => doc}, _, _} = Code.fetch_docs(Encryptor.Kdf)
+
+    ~r{`"encryptor/v1/([a-z-]+)"`}
+    |> Regex.scan(doc, capture: :all_but_first)
+    |> List.flatten()
+    |> Enum.uniq()
   end
 
   describe "the generated derive/2" do
