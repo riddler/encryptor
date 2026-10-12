@@ -558,7 +558,9 @@ defmodule Encryptor.Vault do
       `{:unknown_key, selector}` arrives ahead of the cache too. A
       single-version retire is immediate as well, though the provider still
       answers: the shorter candidate list is a new cache partition (ADR-0001
-      Amendment C), and its runbook's drain is for residency only.
+      Amendment C), and its runbook's drain is for residency only. That holds
+      once the provider answers the shorter list; a provider that keeps its
+      own bounded cache of that answer delays the retire by that bound.
     * **It destroys nothing**, so `reinstate/2` needs no backup and no escrow.
       It is not a backup either: reinstating a selector whose wrappings were
       shredded meanwhile restores the refusal and nothing else, and the

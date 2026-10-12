@@ -127,8 +127,9 @@ Three properties follow, and all three are load-bearing:
   the rewrite pass has finished and the verification pass is green. Once the
   wrapping is deleted, no running vault serves the retired version out of its
   materials cache, because the shorter candidate list is a new cache
-  partition (ADR-0001 Amendment C); the cached data keys stay resident until
-  the caches drain, see "Cache drainage" below.
+  partition (ADR-0001 Amendment C), once the provider answers the shorter
+  list; the cached data keys stay resident until the caches drain, see "Cache
+  drainage" below.
 - **Widening the window costs a list walk and nothing else.** A long candidate
   list costs one small decrypt per candidate on a cold cache; a warm materials
   cache saves those decrypts but never the provider lookup before them. Nothing
@@ -168,7 +169,9 @@ provider still answers:
   answers, with a shorter list, and the read side's cache partition is
   derived from that list, so the shorter list is a new partition: a warm
   entry for a message written under the retired version is not found, and the
-  next read of it fails at once. The entry stays resident until the table is
+  next read of it fails at once. That holds once the provider answers the
+  shorter list: a provider that keeps its own bounded cache of that answer
+  delays P4 by that bound instead. The entry stays resident until the table is
   dropped, which is what P4 step 2 is for.
 - **A scope provisioned again after P3 does not revive anything.** A provision
   for a shredded scope at the same version mints the same key name over new
@@ -491,6 +494,8 @@ procedure.
 
 1. **[your store]** Delete the wrapping for version *n*.
 2. **[operator]** Drain the caches, as P3 step 3.
+   P4 needs no drain for readability: the shorter candidate list is a new
+   cache partition, once the provider answers it. The drain is for residency.
 
 ### Verification
 
@@ -605,8 +610,10 @@ holder of credentials to the key material (ADR-0010 decision 9).
 There is no cache-drainage step. The deny gate sits at resolution, ahead of the
 materials cache, so the very next call fails on a warm cache as on a cold one
 (Amendment A decision 5). P3 needs no drain for the same reason, for a provider
-that reads its store on every call, and P4 needs none because the shorter
-candidate list is a new cache partition. Suspending does drop this vault's materials cache
+that reads its store on every call, and P4 needs no drain for readability
+because the shorter candidate list is a new cache partition (a provider that
+keeps its own bounded cache of that answer delays P4 by that bound, as it
+delays P3). Suspending does drop this vault's materials cache
 as hygiene, because no partition-scoped eviction exists (decision 6), so every
 other selector on the vault takes one cold miss; a vault configured
 `cache: false` has no cache to drop and is unaffected.
