@@ -113,7 +113,7 @@ runtime dependencies are `aws_encryption_sdk ~> 1.1` and `telemetry ~> 1.3`;
 `argon2_elixir ~> 4.0` and `goth ~> 1.4` are optional. CI runs the full
 gate on Erlang/OTP 27 and the test suite on Erlang/OTP 26, both with Elixir
 1.18. Ciphertexts are in the AWS Encryption SDK's message format, and a CI job
-([python-interop](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml)) checks them against the official SDK for Python
+(the `python-interop` job in [the CI workflow](https://github.com/riddler/encryptor/blob/main/.github/workflows/ci.yml)) checks them against the official SDK for Python
 ([the test](https://github.com/riddler/encryptor/blob/main/test/encryptor/interop/python_interop_test.exs)). A single-key and a per-scope vault's messages cross both
 ways, at suites 0x0478 and 0x0578. `aws_encryption_sdk` 1.1 follows the
 specification and stores no required context key in a message's header, so
