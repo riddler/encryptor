@@ -56,7 +56,7 @@ Shipped, as functions:
 
 - `Encryptor.Envelope.provision/3` - mints a version (P2 step 1).
 - `Encryptor.Envelope.rewrap/2` - rewraps one wrapping (P1 step 3).
-- `Encryptor.Vault.rekey/2` - what `rewrap/2` is built on.
+- the rekey path behind `Encryptor.Vault.rekey/2` - what `rewrap/2` is built on.
 - `Encryptor.Vault.provision/2` - asks the **provider** to provision the
   selector, on a provider that implements the optional `provision/2` callback
   (`Encryptor.Vault.provision/2` in `lib/encryptor/vault.ex`; the

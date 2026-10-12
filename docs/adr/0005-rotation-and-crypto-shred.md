@@ -1882,3 +1882,28 @@ Provenance: bead `enc-q9ke`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Note (2026-10-12): `rekey/2` refuses a wrapping; the envelope's rewrap enters the rekey path with the binding reproduced
+
+One reading, which changes no decision. Decision 7 and decision 10 name
+`Encryptor.Vault.rekey/2` as what `Encryptor.Envelope.rewrap/2` "is built
+on". Read that as the rekey path behind `Encryptor.Vault.rekey/2`, not the
+public function itself. The public rekey composes no package-owned context
+pair, so a root vault's own `rekey/2` (and `rekey!/2`) refuses a wrapping,
+whose stored context carries ADR-0003 decision 4's binding, with
+`:decrypt_failed` (`Encryptor.Vault.rekey/3` in `lib/encryptor/vault.ex`
+and the comment on the reader's refusal in `lib/encryptor/vault/rekey.ex`,
+both read at enc `7c09898`).
+
+`Encryptor.Envelope.rewrap/2` (`lib/encryptor/envelope.ex`, same SHA) enters
+that rekey path with the binding reproduced, and is the one caller that can
+open a wrapping. Decision 7's finding stands: `rekey/2` stays on the vault
+and its canonical caller is the envelope. The only change to read in is that
+the envelope reaches the path below the public function.
+`guides/rotation-runbook.md`
+now says "the rekey path behind `Encryptor.Vault.rekey/2`" accordingly.
+
+Provenance: bead `enc-ypvd`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
