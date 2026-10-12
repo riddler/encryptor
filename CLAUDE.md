@@ -137,7 +137,9 @@ layer that does:
   records which key encrypted it; rotation is re-encryption against a new
   version, not a flag day.
 - **The message format stays the AWS ESDK's.** Ciphertexts written from Elixir
-  are readable from the official SDKs, and vice versa. Raw-keyring usage pulls
+  are readable from the AWS Encryption SDK for Python, and vice versa (CI's
+  interop job proves every direction: `:single` and `:scoped` vaults, suites
+  0x0478 and 0x0578, since 0.8.0; Python is the only SDK it tests). Raw-keyring usage pulls
   no AWS, HTTP, or XML libraries; only KMS-backed providers bring that stack
   in.
 
