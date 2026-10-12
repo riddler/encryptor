@@ -128,6 +128,9 @@ are entered here verbatim, attributed "the maintainer", each with its own
 F-entry, when he reviews the pull request that adds this ledger. That pull
 request merges only after his approving review.
 
+The maintainer gave his go-ahead in writing on 2026-10-07; this ledger merged
+on it, and no approving review was recorded on the pull request.
+
 No entries yet.
 
 ## The findings
