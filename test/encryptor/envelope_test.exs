@@ -519,18 +519,49 @@ defmodule Encryptor.EnvelopeTest do
       end
     end
 
-    # sabotage: dropped the Keyring.validate/3 call from unwrap/2's tail - red.
-    # `bits` is the one descriptor field the binding does not cover, because
-    # decision 4's four pairs do not carry it, so this is where a drifted
-    # `bits` column is caught. It is also the answer to ADR-0003 open
-    # question 6's shape: what the row claims is checked against what the
-    # descriptor needs, not against what the blob says.
-    test "a row whose bits column has drifted is an invalid descriptor" do
+    # sabotage: dropped the `bits` clause of require_derived/3 - red: both
+    # rows open, because the descriptor's size is decision 1's 256 rather
+    # than the column's. `bits` is the one column the binding does not
+    # cover, because decision 4's four pairs do not carry it, so this is
+    # where a drifted `bits` column is caught (ADR-0003 open question 6).
+    test "a row whose bits column has drifted is refused, naming the column" do
       start_vault(EnvelopeVaults.Root)
       wrapped = provisioned(EnvelopeVaults.Root)
 
-      assert reason(Envelope.unwrap(EnvelopeVaults.Root, %WrappedKey{wrapped | bits: 128})) ==
-               {:invalid_key_descriptor, {:key_length_mismatch, 128, 256}}
+      for bits <- [128, 512] do
+        assert refusal(Envelope.unwrap(EnvelopeVaults.Root, %WrappedKey{wrapped | bits: bits})) ==
+                 {{:invalid_key_descriptor, {:invalid_wrapped_key_field, :bits}}, nil, :decrypt}
+      end
+    end
+
+    # sabotage: dropped the `name` clause of require_derived/3 - red: each
+    # renamed row opens, and the descriptor's name is the derived one, so the
+    # column would be silently ignored rather than refused. The binding does
+    # not carry the name, so a row whose name column has drifted - to another
+    # scope's name, another version's, or a spelling `provision/3` never
+    # writes - is caught here (ADR-0003 open question 6).
+    test "a row whose name column has drifted is refused, naming the column" do
+      start_vault(EnvelopeVaults.Root)
+      wrapped = provisioned(EnvelopeVaults.Root)
+      other = provisioned(EnvelopeVaults.Root, "merchant-b")
+
+      for name <- [other.name, Envelope.key_name(wrapped.scope_ref, 2), "s/elsewhere/v1"] do
+        assert refusal(Envelope.unwrap(EnvelopeVaults.Root, %WrappedKey{wrapped | name: name})) ==
+                 {{:invalid_key_descriptor, {:invalid_wrapped_key_field, :name}}, nil, :decrypt}
+      end
+    end
+
+    # sabotage: made require_derived/3 compare the name against
+    # key_name(scope_ref, 1), ignoring the row's version - red: a version-3
+    # row whose columns agree is refused. A matching row still unwraps, to
+    # exactly the name and size its scope reference and version derive.
+    test "a row whose columns agree still unwraps, to the derived name and size" do
+      start_vault(EnvelopeVaults.Root)
+      wrapped = provisioned(EnvelopeVaults.Root, @merchant, version: 3)
+
+      assert {:ok, %Aes{} = descriptor} = Envelope.unwrap(EnvelopeVaults.Root, wrapped)
+      assert descriptor.name == "s/" <> wrapped.scope_ref <> "/v3"
+      assert descriptor.bits == 256
     end
 
     # sabotage: two, run separately. Rendered the detail of
@@ -628,6 +659,21 @@ defmodule Encryptor.EnvelopeTest do
 
       assert reason(Envelope.rewrap(staged, %WrappedKey{wrapped | wrapped: foreign})) ==
                :decrypt_failed
+    end
+
+    # sabotage: dropped require_derived/3 from rewrap/2 - red: both drifted
+    # rows rewrap, and a rewrap pass would carry a row whose name or size no
+    # longer matches its binding forward as though it were sound.
+    test "refuses a row whose name or bits column has drifted, naming the column" do
+      staged = start_vault(EnvelopeVaults.Staged)
+      wrapped = provisioned(staged)
+
+      for {field, value} <- [name: Envelope.key_name(wrapped.scope_ref, 2), bits: 128] do
+        assert refusal(Envelope.rewrap(staged, Map.put(wrapped, field, value))) ==
+                 {{:invalid_key_descriptor, {:invalid_wrapped_key_field, field}}, nil, :rekey}
+      end
+
+      assert {:ok, %WrappedKey{}} = Envelope.rewrap(staged, wrapped)
     end
 
     # sabotage: stamped the rewrap failure :decrypt - red. The operation is

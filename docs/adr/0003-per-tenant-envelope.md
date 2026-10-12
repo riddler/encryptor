@@ -1488,3 +1488,33 @@ Provenance: bead `enc-rl7i`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Note (2026-10-12): open question 6 is answered, the cross-check refuses
+
+Open question 6 asks whether `unwrap/2` should verify the row's columns
+against what the blob says, and names the reason to hesitate: a cross-check
+could make the row's denormalized columns authoritative in a way decision 4
+said they are not. It is answered: `unwrap/2` and `rewrap/2` refuse a row
+whose `name` or `bits` disagrees, ruled by the operator, 2026-10-11.
+
+The check is a refusal and nothing more, so decision 4 stands as written. The
+blob's binding still decides which scope and version a row is; the `name`
+column is compared with the name the row's `scope_ref` and `version` derive
+(`key_name/2` in `lib/encryptor/envelope.ex`, read at enc `6c86586`), and the
+`bits` column with decision 1's 256 (`@bits`, the same file and SHA). A row
+that disagrees is refused with the existing
+`{:invalid_key_descriptor, {:invalid_wrapped_key_field, field}}` (built by
+`invalid_field/3`, the same file and SHA), naming `:name` or `:bits`; the
+columns are never read as a second source of the name or the size, and the
+descriptor `unwrap/2` returns carries the derived values. The comparison is
+`require_derived/3` in the same file, which runs after the binding check and
+the engine's decrypt or rekey, so a row whose blob was wrapped for another
+scope or version keeps the `:decrypt_failed` it had before.
+
+The `namespace` column needs no comparison of its own: it is one of
+decision 4's four bound pairs, so a drifted `namespace` was already refused.
+
+Provenance: bead `enc-u4s6`.
+
+Nothing above changes. No decision is amended, no line above is edited, no
+error vocabulary is added, and this Note carries no status of its own.
