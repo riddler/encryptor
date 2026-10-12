@@ -290,12 +290,84 @@ defmodule Encryptor.Vault.DeriveTest do
       assert is_binary(Encryptor.Envelope.subkey(key, "blind-index"))
     end
 
-    # Sabotage: dropped `label/1`'s separator guard on this path. Red.
-    test "a purpose that could spell another label raises" do
+    # Sabotage: removed the separator check from `purpose/2`, so the purpose
+    # reached `Kdf.label/1` and raised an ArgumentError. Red.
+    test "a purpose that could spell another label is a typed error, not a raise" do
       vault = start_vault(DeriveVaults.App)
 
-      assert_raise ArgumentError, ~s(a derivation purpose may not contain "/"), fn ->
-        Vault.derive(vault, "v1/root-wrap")
+      for purpose <- ["v1/root-wrap", "a/b", "/", "blind-index/"] do
+        assert {:error, %Error{} = error} = Vault.derive(vault, purpose)
+        assert error.reason == {:invalid_config, :purpose, :contains_separator}
+        assert error.operation == :derive
+        assert error.vault == vault
+        assert error.engine == nil
+      end
+    end
+
+    # Sabotage: removed the empty-purpose clause from `purpose/2`, so "" reached
+    # `Kdf.label/1` and raised an ArgumentError. Red.
+    test "an empty purpose is a typed error, not a raise" do
+      vault = start_vault(DeriveVaults.App)
+
+      assert {:error, %Error{} = error} = Vault.derive(vault, "")
+      assert error.reason == {:invalid_config, :purpose, :empty}
+      assert error.operation == :derive
+      assert error.vault == vault
+      assert error.engine == nil
+    end
+
+    # Sabotage: moved the `purpose/2` step after `Resolve.selector/3`, so the
+    # absent selector was reported first. Red.
+    test "a malformed purpose is refused before the selector or the provider" do
+      vault = start_vault(DeriveVaults.Merchant)
+
+      assert {:error, %Error{reason: {:invalid_config, :purpose, :empty}}} =
+               Vault.derive(vault, "")
+
+      assert {:error, %Error{reason: {:invalid_config, :purpose, :contains_separator}}} =
+               Vault.derive(vault, "a/b")
+    end
+
+    # Sabotage: dropped the upper-bound check from `out_length/2`, so 9000 reached
+    # `Kdf.expand/3` and raised an ArgumentError. Red.
+    test "a length above the KDF bound is a typed error, not a raise" do
+      vault = start_vault(DeriveVaults.App)
+
+      assert {:error, %Error{} = error} = Vault.derive(vault, "blind-index", length: 9000)
+      assert error.reason == {:invalid_config, :length, :out_of_range}
+      assert error.operation == :derive
+      assert error.vault == vault
+      assert error.engine == nil
+
+      assert {:error, %Error{reason: {:invalid_config, :length, :out_of_range}}} =
+               Vault.derive(vault, "blind-index", length: Kdf.max_length() + 1)
+    end
+
+    # Sabotage: made the bound check `<` instead of `<=`, refusing the longest
+    # length the KDF defines. Red.
+    test "a length at the KDF bound still derives" do
+      vault = start_vault(DeriveVaults.App)
+
+      assert {:ok, derived} = Vault.derive(vault, "blind-index", length: Kdf.max_length())
+      assert byte_size(derived) == Kdf.max_length()
+    end
+
+    # Sabotage: changed the separator check to refuse purposes `Kdf.label/1`
+    # accepts ("a-b"). Red. The refusals here and `Kdf.label/1`'s raises agree
+    # on what a well-formed purpose is, so derive never reaches a raise.
+    test "derive/3 refuses exactly the purpose shapes Kdf.label/1 raises on" do
+      vault = start_vault(DeriveVaults.App)
+
+      for purpose <- ["", "a/b", "/", "v1/root-wrap"] do
+        assert_raise ArgumentError, fn -> Kdf.label(purpose) end
+
+        assert {:error, %Error{reason: {:invalid_config, :purpose, _}}} =
+                 Vault.derive(vault, purpose)
+      end
+
+      for purpose <- ["a", "a-b", "search-token", "blind.index"] do
+        assert is_binary(Kdf.label(purpose))
+        assert {:ok, _derived} = Vault.derive(vault, purpose)
       end
     end
   end
