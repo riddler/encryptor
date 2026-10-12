@@ -32,7 +32,7 @@ defmodule Encryptor.Vault.DecryptTest do
 
   describe "the round trip against the landed encrypt path" do
     # sabotage: returned the engine's whole `decrypt_result` instead of its
-    # `plaintext` from engine_decrypt/4 - red, because a caller then holds the
+    # `plaintext` from engine_result/3 - red, because a caller then holds the
     # header and the verified context beside the one value it asked for.
     test "returns the plaintext and nothing else" do
       vault = start_vault(EncryptVaults.App)
@@ -93,7 +93,7 @@ defmodule Encryptor.Vault.DecryptTest do
                EngineReader.read(ciphertext, descriptor, merchant_context("merchant_b"))
     end
 
-    # sabotage: returned the engine's whole result map from engine_decrypt/4 -
+    # sabotage: returned the engine's whole result map from engine_result/3 -
     # red, since the bang variant unwraps whatever the non-bang one returns.
     test "decrypt! returns the plaintext" do
       vault = start_vault(EncryptVaults.App)
@@ -129,7 +129,7 @@ defmodule Encryptor.Vault.DecryptTest do
       assert {:ok, @pan} = reader.decrypt(ciphertext, encryption_context: @columns)
     end
 
-    # sabotage: returned `{:ok, ""}` from engine_decrypt/4's catch-all - red,
+    # sabotage: returned `{:ok, ""}` from engine_result/3's catch-all - red,
     # which is the rescue-to-default this package is not allowed to have.
     test "a message whose key is not in the candidate list is decrypt_failed" do
       writer = start_vault(EncryptVaults.Bound)
@@ -473,7 +473,7 @@ defmodule Encryptor.Vault.DecryptTest do
   end
 
   describe "the failure mapping of ADR-0004 decision 8" do
-    # sabotage: collapsed the missing-required-keys clause into engine_decrypt/4's
+    # sabotage: collapsed the missing-required-keys clause into engine_result/3's
     # catch-all - red, because the one context failure a caller can act on then
     # arrives as the same opaque :decrypt_failed as everything else.
     test "a reader that supplies no context at all is a loud, fixable error" do

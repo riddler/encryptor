@@ -15,7 +15,13 @@ defmodule Encryptor.Error do
       call site inventing a near-miss.
     * `:vault` - the vault module the operation ran against.
     * `:operation` - `:encrypt`, `:decrypt`, `:rekey`, or `:start`.
-    * `:engine` - the underlying error term, unchanged, or `nil`.
+    * `:engine` - the underlying error term, unchanged, or `nil`. Two values
+      are this package's own rather than the engine's:
+      `{:encryption_context_mismatch, key}`, which the vault puts there when
+      its own context comparison refuses (shaped exactly as the engine's), and
+      `:unexpected_engine_result`, which stands for an engine answer outside
+      `{:ok, %{plaintext: _}}` and `{:error, _}`, whose term is not carried
+      because it can hold the parsed message.
 
   The split between `:reason` and `:engine` is the point. Consumers match on
   `:reason`, which this package owns and versions. Operators read `:engine` in
