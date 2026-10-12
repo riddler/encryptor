@@ -338,22 +338,22 @@ metadata key it adds. Pass `"scope-ref"`, not `"tenant-ref"`, to
 ## Records
 
 - **ADR-0001** decision 7 - the cache partition id, and why it is not key
-  material (accepted).
+  material (accepted 2026-08-27, amended).
 - **ADR-0004** decision 3 and review item A7 - the selector is an opaque,
-  non-empty host-supplied string (accepted, with amendments).
+  non-empty host-supplied string (accepted 2026-08-27, amended).
 - **ADR-0005** - rotation and crypto-shred: the two mechanisms, the four
-  procedures, the blast-radius tables (accepted). **Amendment A** - suspend
-  as the third verb (accepted 2026-09-13).
+  procedures, the blast-radius tables (accepted 2026-08-27, amended).
+  **Amendment A** - suspend as the third verb (accepted 2026-09-13).
 - **ADR-0007** decision 8 - KMS-backed destruction as ADR-0005's shred, and
-  what it still does not erase (accepted 2026-09-13).
+  what it still does not erase (accepted 2026-09-13, amended).
 - **ADR-0008** decision 4 - rotation, the shred and suspend per key shape; the
   table the runbook reproduces, and the reason the Shred row above is not one
-  sentence for every provider.
-- **ADR-0009** - *scope* names the key's owner (accepted). **Amendment A** -
-  the v2 wire format, which spells the owner noun *scope* in every string
-  the package writes (proposed).
+  sentence for every provider (accepted 2026-09-13).
+- **ADR-0009** - *scope* names the key's owner (accepted 2026-09-24,
+  amended). **Amendment A** - the v2 wire format, which spells the owner noun
+  *scope* in every string the package writes (accepted 2026-10-06).
 - **ADR-0010** - suspension through a store behaviour: where the suspended set
-  is agreed, and what each store's suspension reaches (proposed).
+  is agreed, and what each store's suspension reaches (accepted 2026-09-24).
 
 Where this guide and a record disagree, the record wins and the disagreement
 is a bug in this guide.
