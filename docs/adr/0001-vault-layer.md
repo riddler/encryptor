@@ -1543,3 +1543,28 @@ configure `0x0478`. The sentence quoted above is not edited, and the three
 documents are not changed by this Note.
 
 This Note carries no status of its own.
+
+## Note (2026-10-12): decision 4's "byte for byte" has one exception, the engine-owned verification-key pair
+
+Decision 4 says `rekey/2` preserves "the message's encryption context byte
+for byte". That holds for every pair a host or the vault wrote. It does not
+hold for the one pair the engine owns. Under a signing suite (`0x0578`, the
+default) the engine adds the message's signature verification key to the
+context under its reserved `aws-crypto-public-key` key, and refuses that key
+from a caller. The rekey's write half therefore drops it (`writable/1` in
+`lib/encryptor/vault/rekey.ex`, read at `545883e`), and the engine renews it
+for the new message's signature. A vault on `0x0478` writes no such pair, so
+a `0x0478` vault rekeying a `0x0578` message drops it and writes none.
+
+The read half keeps the pair, because the decrypt reads the verification key
+from it. Every other key is carried as it was. The decision's reasoning is
+unchanged: a rekey never changes what the host or the vault bound the
+message to.
+
+The documents that carry the "byte for byte" wording are corrected by the
+same change: the `rekey/2` documentation in `lib/encryptor/vault/docs.ex`,
+the `rewrap/2` documentation in `lib/encryptor/envelope.ex` and the rekey
+paragraph of `guides/rotation-runbook.md`. The sentence quoted above is not
+edited.
+
+This Note carries no status of its own.

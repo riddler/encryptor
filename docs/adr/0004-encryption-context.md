@@ -2359,3 +2359,25 @@ under the record's own status line; the sentence is not edited.
 
 No decision changes, no line above is edited other than Amendment B's Status
 line, and this Note carries no status of its own.
+
+## Note (2026-10-12): decision 11's "exactly that map" has one exception, the engine-owned verification-key pair
+
+Decision 11 requires `rekey/2` to preserve the context byte for byte, and
+Amendment B's table reads the context as the authenticated map that is bound
+to the rekeyed message. Both hold for every pair a host or the vault wrote.
+Neither holds for the one pair the engine owns: under a signing suite
+(`0x0578`, the default) the engine stores the message's signature
+verification key in the context under its reserved `aws-crypto-public-key`
+key, and refuses that key from a caller. The write half of the rekey drops
+it (`writable/1` in `lib/encryptor/vault/rekey.ex`, read at `545883e`) and
+the engine renews it for the new message's signature; a `0x0478` vault
+rekeying a `0x0578` message drops it and writes none. The read half keeps it,
+because the decrypt reads the verification key from it. This is the same pair
+the Note of 2026-09-14 on decision 12 names as the reason `describe/1` returns
+more than the enumeration.
+
+The decision's other claims stand: the stored context is the reproduced
+context for the decrypt, and every other key is carried as it was. The
+sentences quoted above are not edited.
+
+This Note carries no status of its own.
