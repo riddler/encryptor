@@ -489,6 +489,17 @@ defmodule Encryptor.Vault.EncryptTest do
       assert engine == :weird_and_unenumerated
     end
 
+    # sabotage: dropped the `:provision` guard from the `{:key_name_in_use, _}`
+    # clause of Resolve.in_contract/3 - red, because a provider's re-mint
+    # refusal from `encryption_key/2` is then reported as a settled answer
+    # when the term is in contract on the provision path only.
+    test "a re-mint refusal from encryption_key is a provider defect" do
+      vault = start_vault(EncryptVaults.RemintingVault)
+
+      assert {:error, %Error{reason: reason, operation: :encrypt}} = vault.encrypt(@pan)
+      assert reason == {:invalid_key_descriptor, :provider_off_contract}
+    end
+
     # sabotage: reported a bare provider return as a settled
     # `{:unknown_key, _}` - red, for the same reason, on the clause that
     # catches a provider answering with something that is not a result at all.
