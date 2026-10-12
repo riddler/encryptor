@@ -148,7 +148,7 @@ defmodule Encryptor.Vault.Resolve do
         {:ok, answer}
 
       {:error, reason} ->
-        case in_contract(reason, selector) do
+        case in_contract(reason, selector, operation) do
           {:ok, reason} -> {:error, error(config, operation, reason)}
           :off_contract -> {:error, off_contract(config, operation, reason)}
         end
@@ -168,28 +168,38 @@ defmodule Encryptor.Vault.Resolve do
   # it; any other shape is a defect in the provider. A descriptor's detail
   # is carried as it is, because neither `Exception.message/1` nor
   # `inspect/2` renders it.
-  @spec in_contract(term(), Error.selector()) :: {:ok, Error.reason()} | :off_contract
-  defp in_contract({:unknown_key, _provider_selector}, selector),
+  #
+  # `{:key_name_in_use, _}` is in contract on the provision path only
+  # (ADR-0001 Amendment C): the refusal to mint under a name already used is
+  # a provision answer, so the same term from a read callback is a defect in
+  # the provider.
+  @spec in_contract(term(), Error.selector(), Error.operation()) ::
+          {:ok, Error.reason()} | :off_contract
+  defp in_contract({:unknown_key, _provider_selector}, selector, _operation),
     do: {:ok, {:unknown_key, selector}}
 
-  defp in_contract({:key_unavailable, _provider_selector}, selector),
+  defp in_contract({:key_unavailable, _provider_selector}, selector, _operation),
     do: {:ok, {:key_unavailable, selector}}
 
-  defp in_contract({:key_name_in_use, _provider_selector}, selector),
+  defp in_contract({:key_name_in_use, _provider_selector}, selector, :provision),
     do: {:ok, {:key_name_in_use, selector}}
 
-  defp in_contract({:invalid_key_descriptor, _detail} = reason, _selector), do: {:ok, reason}
-
-  defp in_contract({:provider_not_started, module} = reason, _selector) when is_atom(module),
+  defp in_contract({:invalid_key_descriptor, _detail} = reason, _selector, _operation),
     do: {:ok, reason}
 
-  defp in_contract({:missing_optional_dependency, dep} = reason, _selector) when is_atom(dep),
-    do: {:ok, reason}
+  defp in_contract({:provider_not_started, module} = reason, _selector, _operation)
+       when is_atom(module),
+       do: {:ok, reason}
 
-  defp in_contract({:not_provisionable, module} = reason, _selector) when is_atom(module),
-    do: {:ok, reason}
+  defp in_contract({:missing_optional_dependency, dep} = reason, _selector, _operation)
+       when is_atom(dep),
+       do: {:ok, reason}
 
-  defp in_contract(_reason, _selector), do: :off_contract
+  defp in_contract({:not_provisionable, module} = reason, _selector, _operation)
+       when is_atom(module),
+       do: {:ok, reason}
+
+  defp in_contract(_reason, _selector, _operation), do: :off_contract
 
   # A provider that answers outside its contract is a bug in the provider, not
   # in the caller, which is exactly what `{:invalid_key_descriptor, detail}`

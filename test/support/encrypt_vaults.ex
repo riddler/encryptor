@@ -112,6 +112,24 @@ defmodule Encryptor.EncryptVaults do
     def decryption_keys(_state, _selector), do: {:error, :weird_and_unenumerated}
   end
 
+  defmodule Reminting do
+    @moduledoc """
+    A provider that answers a re-mint refusal from its read callbacks, where
+    the term is not in contract, so the vault's provision-only rule has a
+    subject.
+    """
+
+    @behaviour Encryptor.Provider
+
+    @doc "Answers the re-mint refusal from the write-side read."
+    @impl Encryptor.Provider
+    def encryption_key(_state, selector), do: {:error, {:key_name_in_use, selector}}
+
+    @doc "The same, on the read side."
+    @impl Encryptor.Provider
+    def decryption_keys(_state, selector), do: {:error, {:key_name_in_use, selector}}
+  end
+
   defmodule Mute do
     @moduledoc """
     A provider that answers with something that is not a result at all, so the
@@ -241,6 +259,20 @@ defmodule Encryptor.EncryptVaults do
     @doc "Layer 5: names the rogue provider."
     def init(config) do
       {:ok, Keyword.put(config, :provider, {Encryptor.EncryptVaults.Rogue, []})}
+    end
+  end
+
+  defmodule RemintingVault do
+    @moduledoc "A vault whose provider answers a re-mint refusal from its read callbacks."
+
+    use Encryptor.Vault,
+      otp_app: :encryptor,
+      context_profile: :single,
+      algorithm_suite_id: 0x0478
+
+    @doc "Layer 5: names the provider."
+    def init(config) do
+      {:ok, Keyword.put(config, :provider, {Encryptor.EncryptVaults.Reminting, []})}
     end
   end
 
