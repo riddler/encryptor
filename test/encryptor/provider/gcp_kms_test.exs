@@ -330,6 +330,18 @@ defmodule Encryptor.Provider.GcpKmsTest do
       assert {:error, {:key_unavailable, @selector}} = GcpKms.provision(failing, @selector)
     end
 
+    # sabotage: removed unused/3's invalid_key_descriptor clause - red, because
+    # provision then answers key_unavailable for the store term the read path
+    # passes through.
+    test "passes a store's invalid key descriptor through, as the read path does" do
+      refusal = {:invalid_key_descriptor, :invalid_row}
+      refusing = GcpKmsCase.state(store: fn _ref -> {:error, refusal} end, http_client: EchoKms)
+
+      assert {:error, ^refusal} = GcpKms.provision(refusing, @selector)
+      assert {:error, ^refusal} = GcpKms.encryption_key(refusing, @selector)
+      refute_received {:kms_request, _url, _body, _opts}
+    end
+
     # mutation: derive the master key from anything - decision 1 keeps
     # ADR-0003 decision 1's independent 32 CSPRNG bytes per scope.
     test "mints independent material on every call" do

@@ -112,7 +112,9 @@ defmodule Encryptor.Provider.GcpKms do
   means the name a provision would mint is already in use, and minting new
   bytes under it is refused with `{:key_name_in_use, selector}` before
   anything is created or minted (ADR-0001 Amendment C). A store that cannot
-  answer is `{:key_unavailable, selector}`; one answering
+  answer is `{:key_unavailable, selector}`; a store answering
+  `{:invalid_key_descriptor, detail}` is passed through as it is on the read
+  path, since a store's descriptor refusal is the store's word; one answering
   `{:unknown_key, _}` or no rows lets the provision proceed.
 
   What it cannot see is a name used before and since deleted. A whole-scope
@@ -419,13 +421,15 @@ defmodule Encryptor.Provider.GcpKms do
   # use: any stored row for the scope, since every row this provider writes
   # is the version-1 name `mint/4` would write again. The rows are not
   # validated here - a row of any shape is a scope already provisioned - and
-  # the store's own failure term is never carried.
+  # the store's own failure term is never carried, except its own descriptor
+  # refusal, which passes through as the read path passes it.
   @spec unused(state(), String.t(), Provider.selector()) :: :ok | {:error, Provider.reason()}
   defp unused(state, scope_ref, selector) do
     case state.store.(scope_ref) do
       {:ok, []} -> :ok
       {:ok, [_ | _]} -> {:error, {:key_name_in_use, selector}}
       {:error, {:unknown_key, _key}} -> :ok
+      {:error, {:invalid_key_descriptor, _detail} = refusal} -> {:error, refusal}
       _unanswered -> {:error, {:key_unavailable, selector}}
     end
   end
