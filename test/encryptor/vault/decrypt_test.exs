@@ -199,8 +199,10 @@ defmodule Encryptor.Vault.DecryptTest do
     end
 
     # The same swap after a legitimate read has populated the decryption
-    # cache. The 1.1 engine's cache hit check refuses it too, so this pins the
-    # outcome on a warm cache rather than which layer refuses; the direct test
+    # cache. On the 1.1 engine a disagreeing hit goes cold and the cold unwrap
+    # refuses it (ADR-0004, Note "on the 1.1.0 engine a disagreeing warm read
+    # goes cold, and the cold unwrap refuses it"), so this pins the outcome on
+    # a warm cache rather than which layer refuses; the direct test
     # of agree/4 below is the one that fails when the vault's comparison is
     # removed. sabotage: inverted the comparison in compare/4 - red, as above.
     test "the same swap fails on a warm decryption cache, which is the whole point" do
@@ -221,7 +223,8 @@ defmodule Encryptor.Vault.DecryptTest do
 
     # sabotage: made compare/4 answer :ok for every pair - red: the vault's own
     # comparison is then gone, which no read through the 1.1 engine shows,
-    # since its cold read and its cache hit check both refuse the swap too.
+    # since a disagreeing hit goes cold there and the cold unwrap refuses the
+    # swap too (the same ADR-0004 Note).
     test "agree/4 refuses a stored pair the reader disagrees with, before the engine" do
       vault = start_vault(EncryptVaults.Cached)
       {:ok, config} = Config.fetch(vault)
@@ -257,8 +260,10 @@ defmodule Encryptor.Vault.DecryptTest do
 
     # The same swap of a required pair after a legitimate read has populated
     # the decryption cache: the cache id hashes the stored context, which no
-    # longer carries the column, so it is the engine's hit check that refuses
-    # (ADR-0004 Amendment B, B2's second bullet; engine issue #96). sabotage:
+    # longer carries the column, so the engine's hit check does not serve the
+    # hit: it goes cold and the cold unwrap refuses (ADR-0004, Note "on the
+    # 1.1.0 engine a disagreeing warm read goes cold, and the cold unwrap
+    # refuses it"; engine issue #96). sabotage:
     # the same engine_context/3 change - red, as above.
     test "a column swap on a required column fails on a warm decryption cache" do
       vault = start_vault(EncryptVaults.Merchant)
