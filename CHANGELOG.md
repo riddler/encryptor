@@ -6,9 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Entries for unreleased work are not written here directly. Each issue drops a
-fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/v0.8.0/changelog.d/README.md); the fragments are assembled
+fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/v0.8.1/changelog.d/README.md); the fragments are assembled
 into a version section at release. See that README for the format and for when a
 change warrants an entry at all.
+
+## [0.8.1] - 2026-10-12
+
+### Fixed
+
+- The Cloud KMS provider's `provision` now answers a store's invalid key descriptor as the read path does, passing the store's own refusal through instead of `{:key_unavailable, selector}`.
+- `Encryptor.Vault.derive/3` returns `{:error, %Encryptor.Error{}}` where it used to raise an `ArgumentError`: an out-of-range `:length` (`{:invalid_config, :length, :out_of_range}`), an empty purpose (`{:invalid_config, :purpose, :empty}`) and a purpose holding `"/"` (`{:invalid_config, :purpose, :contains_separator}`).
+- The Cloud KMS provider now refuses a key-store row naming another scope: on `encryption_key` and `decryption_keys`, a row whose `scope_ref` is not the one derived from the selector is answered `{:invalid_key_descriptor, :invalid_row}` before any `Decrypt`, where it used to unwrap under its own binding and hand back the other scope's key.
+- A provider's re-mint refusal, `{:key_name_in_use, selector}`, now answers `{:invalid_key_descriptor, :provider_off_contract}` when it comes from `encryption_key/2` or `decryption_keys/2`, where it used to reach the caller as `{:key_name_in_use, selector}`; the term stays in contract from `provision/2` only.
+- A vault's suspended set is now a `:protected` ETS table that only the vault's own process writes, so a suspension is set or lifted only through `suspend/2`, `reinstate/2` or a shared store's refresh; any other process in the node that writes the table directly now raises `ArgumentError` from ETS, where it used to set or lift a suspension silently. Reads, and every answer the two verbs give, are unchanged.
+- `Encryptor.Envelope.unwrap/2` and `rewrap/2` now refuse a wrapped-key row whose `name` is not the name its `scope_ref` and `version` derive, or whose `bits` is not 256, with `{:invalid_key_descriptor, {:invalid_wrapped_key_field, :name}}` or `{:invalid_key_descriptor, {:invalid_wrapped_key_field, :bits}}`, where a drifted `name` used to unwrap into a descriptor carrying it and rewrap carried both columns forward. On `unwrap/2` two refusals change their detail: a `bits` that is not 256 used to be refused with `{:key_length_mismatch, bits, 256}` (for 128 or 192) or `{:invalid_key_field, :bits, :unsupported}` (any other value), and a `name` that is empty, not a string or not printable used to be refused with `{:invalid_key_field, :name, :empty | :not_a_string | :not_printable}`; each now names the column as above. A row whose blob was wrapped for another scope or version is refused with `:decrypt_failed` as before.
+- The 0.8.0 entry on engine answers named the boundary as `{:ok, _}` and `{:error, _}`; the exact boundary is `{:ok, %{plaintext: _}}` and `{:error, _}`: `Encryptor.Vault.decrypt/3` and `Encryptor.Vault.rekey/3` (and a vault's generated `decrypt/2` and `rekey/2`) return the plaintext only for an engine answer of `{:ok, %{plaintext: _}}`, and any other `{:ok, _}` is answered `{:error, %Encryptor.Error{reason: :decrypt_failed}}` carrying `:unexpected_engine_result` in `:engine`, as it already was in 0.8.0.
 
 ## [0.8.0] - 2026-10-07
 
