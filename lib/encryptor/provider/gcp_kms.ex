@@ -51,7 +51,11 @@ defmodule Encryptor.Provider.GcpKms do
     * `:store` - required. A one-argument function taking a `scope_ref` and
       answering `{:ok, rows}` newest first, where a row is what
       `c:Encryptor.Provider.provision/2` returned. This package owns no
-      storage (ADR-0003 decision 9), so the read is the host's.
+      storage (ADR-0003 decision 9), so the read is the host's. The answer
+      is not trusted to be the scope's: on the read path every row must
+      carry the `scope_ref` the provider asked for, and a row naming another
+      scope refuses the whole answer with
+      `{:invalid_key_descriptor, :invalid_row}` before any `Decrypt`.
     * `:namespace` - the key namespace carried in the binding and in every
       row. Defaults to `"encryptor-scope"`, ADR-0003 decision 5's default
       as ADR-0009 Amendment A respells it (A1 row 5).
@@ -354,7 +358,12 @@ defmodule Encryptor.Provider.GcpKms do
   own `scope_ref`, `version` and `namespace`. A row moved between scopes or
   versions fails closed here rather than unwrapping silently, which is the
   property ADR-0003 decision 4 bought with the encryption context and
-  ADR-0007 decision 5 carries into GCP's byte-string AAD.
+  ADR-0007 decision 5 carries into GCP's byte-string AAD. A row that is
+  another scope's whole row, its own binding intact, would unwrap under that
+  binding, so every row in the store's answer, the older ones included, has
+  its `scope_ref` checked against the selector's own before any `Decrypt`,
+  and a mismatch answers `{:invalid_key_descriptor, :invalid_row}`. The
+  check is the same on `c:Encryptor.Provider.decryption_keys/2`.
   """
   @impl Provider
   @spec encryption_key(state(), Provider.selector()) ::
@@ -504,7 +513,7 @@ defmodule Encryptor.Provider.GcpKms do
     scope_ref = Reference.derive(state.reference_subkey, selector)
 
     case state.store.(scope_ref) do
-      {:ok, [_first | _rest] = rows} -> validate_rows(rows, selector)
+      {:ok, [_first | _rest] = rows} -> validate_rows(rows, scope_ref)
       {:ok, []} -> {:error, {:unknown_key, selector}}
       {:error, reason} -> {:error, translate(reason, selector)}
       other -> {:error, {:invalid_key_descriptor, {:store_off_contract, shape(other)}}}
@@ -513,11 +522,11 @@ defmodule Encryptor.Provider.GcpKms do
 
   defp rows(_state, selector), do: {:error, {:unknown_key, selector}}
 
-  @spec validate_rows([term(), ...], Provider.selector()) ::
+  @spec validate_rows([term(), ...], String.t()) ::
           {:ok, [Provider.provisioned(), ...]} | {:error, Provider.reason()}
-  defp validate_rows(rows, _selector) do
+  defp validate_rows(rows, scope_ref) do
     Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, acc} ->
-      case validate_row(row) do
+      case validate_row(row, scope_ref) do
         :ok -> {:cont, {:ok, [row | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -538,23 +547,34 @@ defmodule Encryptor.Provider.GcpKms do
   # another width is a row this provider never wrote, and accepting it would
   # surface as a material-size failure one call later instead of as the
   # refused row it is.
-  @spec validate_row(term()) :: :ok | {:error, Provider.reason()}
-  defp validate_row(%{
-         scope_ref: scope_ref,
-         version: version,
-         namespace: namespace,
-         name: name,
-         bits: bits,
-         wrapped: wrapped,
-         key_id: key_id
-       })
+  #
+  # `scope_ref` must be the reference the selector derives, matched by the
+  # repeated variable in the head. The binding is rebuilt from the row's own
+  # fields, so another scope's whole row would unwrap cleanly under its own
+  # binding; without this match the store's filter on the reference would be
+  # the only thing standing between a scope and another scope's key.
+  @spec validate_row(term(), String.t()) :: :ok | {:error, Provider.reason()}
+  defp validate_row(
+         %{
+           scope_ref: scope_ref,
+           version: version,
+           namespace: namespace,
+           name: name,
+           bits: bits,
+           wrapped: wrapped,
+           key_id: key_id
+         },
+         scope_ref
+       )
        when is_binary(scope_ref) and is_integer(version) and version > 0 and
               is_binary(namespace) and is_binary(name) and bits == @bits and
               is_binary(wrapped) and is_binary(key_id),
        do: :ok
 
-  defp validate_row(%{}), do: {:error, {:invalid_key_descriptor, :invalid_row}}
-  defp validate_row(other), do: {:error, {:invalid_key_descriptor, {:not_a_row, shape(other)}}}
+  defp validate_row(%{}, _scope_ref), do: {:error, {:invalid_key_descriptor, :invalid_row}}
+
+  defp validate_row(other, _scope_ref),
+    do: {:error, {:invalid_key_descriptor, {:not_a_row, shape(other)}}}
 
   @spec unwrap_all(state(), [Provider.provisioned(), ...], Provider.selector()) ::
           {:ok, [Aes.t(), ...]} | {:error, Provider.reason()}
