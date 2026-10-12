@@ -47,7 +47,7 @@ a runbook step for restarting the vault.
 
 **R3 is not this package's at all.** A change of format, algorithm or
 encryption context is a re-encrypt that these functions cannot express:
-`rekey/2` binds the same context to the message it writes, and the suite is vault
+`rekey/2` binds the same context to the message it writes (the one exception is the engine-owned verification-key pair of a signing suite, which the engine renews), and the suite is vault
 configuration rather than a per-call option. It belongs entirely downstream.
 
 ## What this package ships, and what it only documents

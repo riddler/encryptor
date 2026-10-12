@@ -428,7 +428,9 @@ defmodule Encryptor.Envelope do
   caller. It enters that path with the binding reproduced, which the public
   `rekey/2` does not do and so refuses a wrapping. The context is carried
   across, so the same binding is bound to the returned wrapping, and every
-  identity field of the struct is unchanged. Only `:wrapped` moves.
+  identity field of the struct is unchanged. Only `:wrapped` moves. The one
+  pair not carried is the engine-owned verification-key pair of a signing
+  suite, which the engine renews for the new message.
 
   **Idempotent in effect, not in bytes.** A wrapping already under the current
   root rewraps to an equivalent wrapping: different bytes, because a fresh

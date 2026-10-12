@@ -114,7 +114,8 @@ defmodule Encryptor.Vault.Docs do
     Decrypts with whatever this vault's provider says the message's own
     encrypted data keys might resolve to, then encrypts the result under the
     one key the provider currently writes with, **preserving the message's
-    encryption context**: the same pairs are bound to the new message.
+    encryption context**: the same pairs are bound to the new message, except
+    the engine-owned verification-key pair of a signing suite (below).
     Returns `{:ok, new_ciphertext}`.
 
     A rekey never changes the context. Changing what a ciphertext is bound
@@ -150,9 +151,10 @@ defmodule Encryptor.Vault.Docs do
     One pair is not the host's and is not carried: under a signing suite
     (`0x0578`, the default) the engine stores the message's signature
     verification key under its own reserved `aws-crypto-public-key` key, and
-    refuses that key from a caller. The re-encrypt leaves it out and the
-    engine writes a fresh one for the new message's signature, so every
-    other pair comes back exactly as it was and that one carries a new value.
+    refuses that key from a caller. The re-encrypt leaves it out, so every
+    other pair comes back exactly as it was; a vault on a signing suite
+    writes a fresh one for the new message's signature, and a vault on
+    `0x0478` writes none.
 
     ## What this is for, and what it is not for
 
