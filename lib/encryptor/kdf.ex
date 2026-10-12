@@ -182,6 +182,12 @@ defmodule Encryptor.Kdf do
   @hash_length 32
   @max_length 255 * @hash_length
 
+  @doc false
+  # The longest output `expand/3` defines. Read by `Encryptor.Vault.Derive`
+  # so the bound is stated once.
+  @spec max_length() :: pos_integer()
+  def max_length, do: @max_length
+
   # ADR-0003 decision 6's label grammar. `@label_version` moves only when a
   # record says a new version of the whole label space exists; it is never
   # bumped to re-mint one purpose.

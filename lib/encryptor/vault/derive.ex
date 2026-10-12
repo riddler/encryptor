@@ -24,8 +24,9 @@ defmodule Encryptor.Vault.Derive do
   #
   #   1. `Encryptor.Vault.ready/2` - running vault, live provider.
   #   2. The purpose. `"root-wrap"`, `"scope-ref"` and the retired
-  #      `"tenant-ref"` are refused, before anything else the caller passed
-  #      is read and before the provider is consulted (see `purpose/2`).
+  #      `"tenant-ref"` are refused, as are an empty purpose and one holding
+  #      the `/` separator, before anything else the caller passed is read
+  #      and before the provider is consulted (see `purpose/2`).
   #   3. The selector profile check, before the provider is consulted. A
   #      `:scoped` vault refuses `:default` here exactly as it does at encrypt
   #      (ADR-0004 decision 3); a derivation that fell back to a default key on
@@ -92,11 +93,27 @@ defmodule Encryptor.Vault.Derive do
   # as it is in `Encryptor.Envelope.subkey/2` rather than a sentence in the
   # docs. A typed error rather than a raise, because this path reports what
   # its caller passed (`:info`, `:length`) the same way.
+  #
+  # The shape of the purpose is checked here too, ahead of the provider, so
+  # that `Encryptor.Kdf.label/1` never has anything to raise on: an empty
+  # purpose names no label, and one holding the `/` separator could spell a
+  # label that belongs to another purpose. `Kdf.label/1` keeps its own raise
+  # for its direct callers; the derive test pins that the two agree.
   @spec purpose(Config.t(), Kdf.purpose()) :: :ok | {:error, Error.t()}
   defp purpose(config, purpose) when purpose in @reserved_purposes,
     do: {:error, error(config, {:invalid_config, :purpose, :reserved})}
 
-  defp purpose(_config, _purpose), do: :ok
+  defp purpose(config, "") do
+    {:error, error(config, {:invalid_config, :purpose, :empty})}
+  end
+
+  defp purpose(config, purpose) do
+    if String.contains?(purpose, "/") do
+      {:error, error(config, {:invalid_config, :purpose, :contains_separator})}
+    else
+      :ok
+    end
+  end
 
   # Amendment A decision 3: optional at start, required here.
   @spec salt(Config.t()) :: {:ok, binary()} | {:error, Error.t()}
@@ -117,16 +134,24 @@ defmodule Encryptor.Vault.Derive do
     end
   end
 
-  # The upper bound is `Encryptor.Kdf.expand/3`'s, and it is left there rather
-  # than restated: a second copy of the RFC's limit is a second thing to keep
-  # in step with it. What is checked here is only that the caller passed a
-  # positive integer at all, because a non-integer would raise a FunctionClause
-  # from inside the KDF rather than return this package's typed error.
+  # The upper bound is `Encryptor.Kdf.expand/3`'s, read from there through
+  # `Kdf.max_length/0` rather than restated: a second copy of the RFC's limit
+  # is a second thing to keep in step with it. A non-integer or non-positive
+  # length is one refusal and a length above the bound is another, because
+  # either would raise from inside the KDF rather than return this package's
+  # typed error.
   @spec out_length(Config.t(), keyword()) :: {:ok, pos_integer()} | {:error, Error.t()}
   defp out_length(config, opts) do
     case Keyword.get(opts, :length, @default_length) do
-      length when is_integer(length) and length > 0 -> {:ok, length}
-      _other -> {:error, error(config, {:invalid_config, :length, :not_a_positive_integer})}
+      length when is_integer(length) and length > 0 ->
+        if length <= Kdf.max_length() do
+          {:ok, length}
+        else
+          {:error, error(config, {:invalid_config, :length, :out_of_range})}
+        end
+
+      _other ->
+        {:error, error(config, {:invalid_config, :length, :not_a_positive_integer})}
     end
   end
 

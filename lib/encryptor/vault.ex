@@ -489,6 +489,11 @@ defmodule Encryptor.Vault do
   and final expansion keep its bytes from equalling the package's own
   subkey.
 
+  An empty purpose, or one containing `"/"`, is likewise refused with
+  `{:invalid_config, :purpose, :empty}` or
+  `{:invalid_config, :purpose, :contains_separator}`, and a `:length` above
+  the KDF's bound with `{:invalid_config, :length, :out_of_range}`.
+
   A non-binary purpose is a `FunctionClauseError` rather than an
   `Encryptor.Error`, for the same reason `encrypt/3` makes a non-binary
   plaintext one: it is wrong in the source, not at runtime.

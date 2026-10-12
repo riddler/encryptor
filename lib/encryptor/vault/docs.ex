@@ -213,9 +213,12 @@ defmodule Encryptor.Vault.Docs do
     `"scope-ref"`, which name the trees this package derives for itself, or
     the retired `"tenant-ref"`: any of the three returns
     `{:error, %Encryptor.Error{reason: {:invalid_config, :purpose, :reserved}}}`
-    before the key provider is consulted. It may not contain `"/"` either,
-    which raises an `ArgumentError`, because a purpose carrying the separator
-    is wrong in the source rather than at runtime.
+    before the key provider is consulted. It may not be empty
+    (`{:invalid_config, :purpose, :empty}`) and may not contain `"/"`
+    (`{:invalid_config, :purpose, :contains_separator}`) either, because a
+    purpose carrying the separator could spell a label that belongs to
+    another purpose; both come back as an `Encryptor.Error` before the key
+    provider is consulted.
 
     Returns `{:ok, bytes}`. The key material the bytes were derived from is
     never returned, never carried in an error, and never rendered.
@@ -229,7 +232,10 @@ defmodule Encryptor.Vault.Docs do
       * `:info` - the caller's own separation string within the purpose,
         used verbatim and opaque to this package. Defaults to `""`, which is
         a legitimate value rather than a missing argument.
-      * `:length` - output bytes, defaulting to `32`.
+      * `:length` - output bytes, defaulting to `32`. A positive integer no
+        larger than `8160`; anything else returns
+        `{:invalid_config, :length, :not_a_positive_integer}` or, above the
+        bound, `{:invalid_config, :length, :out_of_range}`.
 
     ## What the derivation is
 
