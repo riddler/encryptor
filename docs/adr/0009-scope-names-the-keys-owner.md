@@ -706,3 +706,47 @@ Provenance: beads `enc-wqbc` and `enc-3bbw`.
 
 No decision changes, no line above is edited, and this Note carries no
 status of its own.
+
+## Note (2026-10-12): three wording readings on Amendment A
+
+Three readings of Amendment A, which change no decision. Every `lib/` cite
+below was read at `33d443f`.
+
+**1. The historical list is longer than Amendment A's Consequences bullet
+names.** That bullet reads the first Consequences bullet's "and nothing it
+has stored", the second, the third and the fifth bullets, and the worked
+example "a 0.4.1 row read after the rename" as history from 0.7.0 on. Two
+more sentences read as history for the same reason, and A1 row 7 is why:
+
+- The **fourth** Consequences bullet says the reference values
+  `encryptor_ecto` has stored "are pinned for the same reason as row 1".
+  Row 7 changes those values, so from 0.7.0 they are not pinned by that
+  reason (Amendment A's second Consequences bullet already says the stored
+  reference values change with row 7).
+- The 2026-09-29 Note's sentence that the stored values "are still found,
+  because decision 4 keeps `scope_ref/2`'s answer equal to what
+  `tenant_ref/2` returned for the same subkey and selector" describes
+  0.5.0 through 0.6.x. Decision 4 is replaced, and from 0.7.0 the answer
+  differs from the v1 one.
+
+Both are left as written, and read as history from 0.7.0 on.
+
+**2. The why-now facts rest on a report.** Amendment A's "Why now" states
+that no host has stored a ciphertext or a wrapped key, and A1's note on row
+8 states that no real `CryptoKey` was created through the Cloud KMS provider
+under the v1 defaults. Neither fact can be shown by this repository or by
+Hex. Both were reported by the maintainer, 2026-10-06 (the amendment's own
+date; it states no earlier one), the way the amendment attributes its
+rulings. The 2026-10-06 Note's closing bullet says the same in other words.
+
+**3. A1 row 7 anchors a different line than the other function rows.** The
+other function rows anchor the `def` line of the function; row 7 anchors
+`label/1` at the line that composes the label. At `33d443f` the `def` line of
+`label/1` is `lib/encryptor/kdf.ex:241`, and the composing expression is at
+`:250`, over `@label_namespace` and `@label_version` (`:194-195`). Read the
+row's `label/1` anchor as `:241`, with `:250` the composing line.
+
+Provenance: bead `enc-y50j`.
+
+No decision changes, no line above is edited, and this Note carries no
+status of its own.
