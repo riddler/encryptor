@@ -377,10 +377,12 @@ bound is the IV space the format gives the frame counter: at most 2^32 - 1
 frames per message, the 32-bit sequence number with its last value reserved to
 mark the final frame.
 
-The engine has no guard on that frame count today. It is a known gap, and out
-of practical reach through this package: `encrypt/2` takes the whole plaintext
-as one binary, and reaching the limit at the default 4096-byte frame would take
-a plaintext of about 16 TiB.
+The engine's 1.2.0 release guards that frame count: an encrypt past the limit is
+refused with `{:error, :max_frames_exceeded}`, and a host gets the guard by
+updating the dependency (this package requires `~> 1.1`). Before 1.2.0 the gap
+was known, and it was out of practical reach through this package: `encrypt/2`
+takes the whole plaintext as one binary, and reaching the limit at the default
+4096-byte frame would take a plaintext of about 16 TiB.
 
 Pinned by: the moduledoc and the tests of
 [`test/encryptor/gcm_construction_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/gcm_construction_test.exs):
