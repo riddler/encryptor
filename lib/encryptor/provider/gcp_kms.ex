@@ -184,9 +184,9 @@ defmodule Encryptor.Provider.GcpKms do
   A 400 is what Cloud KMS answers when the additional authenticated data does
   not match the wrapping, which is a row moved between scopes or versions; a
   404 is a key or version that is not there. Retrying either changes nothing,
-  so neither is reported as the term a caller retries. One 400 is reversible
-  all the same: a `CryptoKeyVersion` that an operator has disabled answers
-  400 until it is enabled again.
+  so neither is reported as the term a caller retries. The status that a
+  `CryptoKeyVersion` an operator has disabled answers `Decrypt` with is not
+  documented; if it is a 400, it lands in the refused descriptors above.
 
   A 403, an IAM denial, stays `{:key_unavailable, selector}`: a revoked IAM
   binding is the provider-level suspension of ADR-0005 Amendment A, and a
