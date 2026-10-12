@@ -221,12 +221,15 @@ memory.** Deleting one version's wrapping (the runbook's P4) is not bounded
 by it for readability: the provider's shorter candidate list is a new cache
 partition, so a running node stops decrypting rows written under that version
 at once (ADR-0001 Amendment C), and `max_age` bounds only how long the cached
-data keys stay resident. After a rotation mints a new version a warm cache
-keeps wrapping new data keys under the old one for up to `max_age` - which is
-why cache drainage is an explicit step in the
-[rotation runbook](rotation-runbook.md). Deleting every wrapping a scope has
-(the runbook's P3) is not bounded by it, for a provider that reads its store
-on every call: the next call answers `{:unknown_key, selector}`.
+data keys stay resident. After a rotation mints a new version a write finds a
+cold cache partition and wraps under the new one at once, because the write
+side's partition carries the resolved key (ADR-0001 Amendment B); only a
+vault running a version of this package from before that change keeps a warm
+cache wrapping under the old one for up to `max_age`, which is why the
+[rotation runbook](rotation-runbook.md) keeps a drain for it.
+Deleting every wrapping a scope has (the runbook's P3) is not bounded by it,
+for a provider that reads its store on every call: the next call answers
+`{:unknown_key, selector}`.
 
 Naming a number forces you to have decided. A shorter `max_age` means more
 data-key generations and keyring wraps, and a shorter residency; a longer
