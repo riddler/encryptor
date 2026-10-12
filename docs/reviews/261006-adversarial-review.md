@@ -140,7 +140,7 @@ No entries yet.
 | F1 | High | the `python-interop` CI job | FIXED, engine PR 100 (1.1.0) and PR 161 |
 | F2 | High | the `python-interop` CI job | FIXED, engine PR 100 (1.1.0) and PR 161 |
 | F3 | High | the AWS Encryption SDK decrypt vectors | FIXED, PR 148 |
-| F4 | Low | the SP 800-38D reading behind the threat model | DEFERRED to the engine |
+| F4 | Low | the SP 800-38D reading behind the threat model | FIXED in the engine, `aws_encryption_sdk` 1.2.0 |
 | F5 | Medium | a review read of the 0.7.0 wire-format change | FIXED, PR 146 |
 | F6 | High | a review read of the 0.7.0 wire-format change | FIXED, PR 147 |
 | F7 | High | the LLM pass | FIXED, PR 156 |
@@ -151,8 +151,9 @@ No entries yet.
 | F12 | Medium | the LLM pass | FIXED by documentation, PR 160; the refusal DEFERRED to enc-d4yx |
 | F13 | Low | the LLM pass | DEFERRED to enc-de5n |
 | F14 | Low | the LLM pass | DEFERRED to enc-u4s6 |
-| F15 | Low | the LLM pass | DEFERRED to enc-mo72 |
+| F15 | Low | the LLM pass | FIXED on `main`, PR 173, in the next release |
 | F16 | Low/Info | the LLM pass | DEFERRED to enc-ssfx |
+| F17 | Low/Info | the engine's issue tracker | FIXED in the engine, `aws_encryption_sdk` 1.1.0; mitigated here |
 
 No Critical or High finding is open: each High finding is FIXED, so under the
 rule above none of them holds a release prep. Every Medium and lower
@@ -288,8 +289,19 @@ finding is FIXED or DEFERRED.
   4096-byte frame needs a plaintext of about 16 TiB.
 - **Claim broken:** none of this package's. The threat model states the gap:
   "The engine has no guard on that frame count today."
-- **Disposition:** DEFERRED to the engine, where a guard belongs. No engine
-  tracker entry is named here.
+- **Disposition:** FIXED in the engine, where the guard belongs, in
+  `aws_encryption_sdk`
+  [1.2.0](https://hex.pm/packages/aws_encryption_sdk/1.2.0), published on Hex.
+  Its changelog: an encrypt that would exceed 2^32 - 1 frames in one message
+  is refused with `{:error, :max_frames_exceeded}`, in the one-shot encrypt
+  before anything is encrypted and in the streaming encryptor's `update/2`
+  and `finalize/1`. This package requires `aws_encryption_sdk ~> 1.1`, which
+  admits 1.2.0, so a host picks the guard up by updating that dependency.
+  This package's own lockfile moves to it in a later release. The engine's
+  tests pin the refusal in `test/aws_encryption_sdk/format/body_test.exs`
+  and `test/aws_encryption_sdk/stream/encryptor_test.exs`; their sabotage
+  notes are the engine's. The threat model's "The limits of AES-GCM" section
+  still says the engine has no guard; it is outside this ledger's change.
 
 ### F5. A `:scoped` vault started with required context keys no call could supply
 
@@ -601,7 +613,19 @@ finding is FIXED or DEFERRED.
 - **Severity:** Low.
 - **Claim:** the threat model's "A row moved to another scope or version must
   not unwrap".
-- **Disposition:** DEFERRED to enc-mo72.
+- **Disposition:** FIXED on `main` by
+  [PR 173](https://github.com/riddler/encryptor/pull/173), in the next release,
+  which is not published yet. The read path matches every row's `scope_ref`
+  against the reference the selector derives (`validate_row/2` in
+  `lib/encryptor/provider/gcp_kms.ex`), and a mismatch refuses the whole
+  store answer with `{:invalid_key_descriptor, :invalid_row}` before any
+  `Decrypt` call. Two tests in
+  [`test/encryptor/provider/gcp_kms_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/provider/gcp_kms_test.exs)
+  pin it: "refuses another scope's row on both paths, before any Decrypt"
+  and "refuses the whole candidate list when an older row names another
+  scope". Their sabotage notes: dropping the `scope_ref` match from
+  `validate_row/2`'s head turns the first red; checking only the newest
+  row's `scope_ref` turns the second red.
 
 ### F16. The suspension view is a public ETS table
 
@@ -613,3 +637,32 @@ finding is FIXED or DEFERRED.
 - **Severity:** Low/Info.
 - **Claim:** none broken.
 - **Disposition:** DEFERRED to enc-ssfx, as hardening (`:protected`).
+
+### F17. The engine's caching CMM served a decryption cache hit without comparing the reproduced context
+
+- **Where:** in the engine, at v1.0.0: `Cmm.Caching`'s decryption cache lookup
+  (`handle_decryption_cache_lookup/2`) returned the cached materials without
+  calling the wrapped CMM, so the reproduced-context value comparison in
+  `Cmm.Default.get_decryption_materials/2` was skipped on a warm cache. The
+  decryption cache id is computed from the message's own stored context, never
+  from the reproduced one. Recorded as the engine's
+  [issue #96](https://github.com/riddler/aws-encryption-sdk-elixir/issues/96)
+  and as ADR-0004 open question 7.
+- **Found by:** this package's own work on the vault's use of the engine's
+  caching CMM, at the engine's v1.0.0; reported to the engine as issue #96.
+- **Severity:** Low/Info. The vault does its own value comparison of the
+  reproduced context against the stored one before the materials cache is
+  consulted (`Encryptor.Vault.Decrypt.agree/4`, `lib/encryptor/vault/decrypt.ex:234` at
+  `29cfef7`; the threat model's "the context comparison above the materials
+  cache"), so a
+  false claim about a message's context is refused on a cold and a warm cache
+  alike and this package's guarantee never depended on the engine's check. The
+  gap reached a host that used the engine's caching CMM directly.
+- **Claim broken:** none of this package's.
+- **Disposition:** FIXED in the engine, in `aws_encryption_sdk`
+  [1.1.0](https://hex.pm/packages/aws_encryption_sdk/1.1.0), published on Hex.
+  Its changelog: `Cmm.Caching` checks a decryption cache hit against the
+  reproduced encryption context before serving it, and a disagreeing reader
+  is refused as on a cold read. The same engine change is the one F1 names as
+  also closing the issue. This package requires `aws_encryption_sdk ~> 1.1`,
+  which admits it.
