@@ -150,7 +150,8 @@ the very next call rather than after `max_age` drains - and so does P3's
 shred for a provider that reads its store on every call, whose
 `{:unknown_key, selector}` arrives ahead of the cache too, and so does P4's
 single-version retire, whose shorter candidate list is a new cache partition
-(ADR-0001 Amendment C). How far it reaches
+(ADR-0001 Amendment C), once the provider answers that list: a provider that
+keeps its own bounded cache of its answer delays both by that bound. How far it reaches
 depends on the vault's `:suspension_store`. Under the default,
 `Encryptor.Vault.Suspension.Store.Ets`, it is per node and volatile: the
 suspended set lives in an ETS table owned by the vault's lifecycle process,
@@ -268,10 +269,11 @@ runbook's preconditions for P3 are not ceremony:
   answers `{:unknown_key, selector}` on the next call, warm cache or cold, so
   the shred (P3) is observable at once, as a suspension is; a provider that
   keeps its own bounded cache delays it by that bound. Retiring one version
-  (P4) is observable at once too: the provider's shorter candidate list is a
-  new cache partition, so a running node does not decrypt that version from
-  cached materials (ADR-0001 Amendment C). The cached data keys stay resident
-  until the caches drain.
+  (P4) is observable at once too, once the provider answers the shorter
+  candidate list: that list is a new cache partition, so a running node does
+  not decrypt that version from cached materials (ADR-0001 Amendment C). A
+  provider that keeps its own bounded cache of that answer delays it by that
+  bound. The cached data keys stay resident until the caches drain.
 
 ## Which verb
 

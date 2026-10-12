@@ -221,7 +221,9 @@ memory.** Deleting one version's wrapping (the runbook's P4) is not bounded
 by it for readability: the provider's shorter candidate list is a new cache
 partition, so a running node stops decrypting rows written under that version
 at once (ADR-0001 Amendment C), and `max_age` bounds only how long the cached
-data keys stay resident. After a rotation mints a new version a write finds a
+data keys stay resident. That holds once the provider answers the shorter
+list; a provider that keeps its own bounded cache of that answer delays the
+retire by that bound. After a rotation mints a new version a write finds a
 cold cache partition and wraps under the new one at once, because the write
 side's partition carries the resolved key (ADR-0001 Amendment B); only a
 vault running a version of this package from before that change keeps a warm
