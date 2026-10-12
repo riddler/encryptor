@@ -1451,3 +1451,20 @@ Provenance: bead `enc-q9ke`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Note (2026-10-12): the 2026-10-06 Note's cite of decision 5's four AAD fields spans four lines
+
+One reading, which changes no decision. The cite is read at enc `c6072eb`.
+
+The 2026-10-06 Note cites decision 5's four AAD fields as `:362-363`. That
+span covers two of the four: `"encryptor-purpose"` at `:362` and
+`"encryptor-tenant-ref"` at `:363`, the two the v2 format respells (the
+purpose value and the reference key, per ADR-0009 Amendment A). All four fields are the code block at
+`:362-365`: the two above, then `"encryptor-key-version"` at `:364` and
+`"encryptor-key-namespace"` at `:365`. The Note's sentence is read as
+`:362-365`.
+
+Provenance: bead `enc-8s6w`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
