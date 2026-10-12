@@ -69,7 +69,8 @@ defmodule Encryptor.Vectors.WycheproofEngineTest do
     # still says 316 - red, 315 cases against the literal 316.
     test "the file is the published AES-GCM set: 316 cases, 197 with a 96-bit IV, 119 without",
          %{gcm: gcm, gcm_cases: cases, iv96: iv96, other_iv: other_iv} do
-      assert %{"algorithm" => "AES-GCM", "numberOfTests" => 316} = gcm
+      assert gcm["algorithm"] == "AES-GCM"
+      assert gcm["numberOfTests"] == 316
       assert length(cases) == 316
       assert Enum.count(cases, &(&1["result"] == "valid")) == 229
       assert Enum.count(cases, &(&1["result"] == "invalid")) == 87
@@ -143,7 +144,8 @@ defmodule Encryptor.Vectors.WycheproofEngineTest do
 
       failing =
         for %{"tcId" => id} = vector <- other_iv,
-            not (refused?(fn -> encrypt(vector) end) and refused?(fn -> decrypt(vector) end)),
+            not (refused?(fn -> encrypt(vector) end, :encrypt, 5) and
+                   refused?(fn -> decrypt(vector) end, :decrypt, 6)),
             do: id
 
       assert failing == []
@@ -157,7 +159,8 @@ defmodule Encryptor.Vectors.WycheproofEngineTest do
       test "the file is the published #{algorithm} set, all 83 cases of it", %{hkdf: hkdf} do
         %{vectors: vectors, cases: cases} = hkdf[unquote(file)]
 
-        assert %{"algorithm" => unquote(algorithm), "numberOfTests" => 83} = vectors
+        assert vectors["algorithm"] == unquote(algorithm)
+        assert vectors["numberOfTests"] == 83
         assert length(cases) == 83
         assert Enum.count(cases, &(&1["result"] == "valid")) == 80
         assert Enum.count(cases, &(&1["result"] == "invalid")) == 3
@@ -189,9 +192,12 @@ defmodule Encryptor.Vectors.WycheproofEngineTest do
         assert Enum.map(invalid, & &1["flags"]) == List.duplicate(["SizeTooLarge"], 3)
         assert Enum.map(invalid, & &1["size"]) == List.duplicate(unquote(max) + 1, 3)
 
-        for vector <- invalid do
-          assert derive(unquote(hash), vector) == {:error, :output_length_exceeded}
-        end
+        failing =
+          for %{"tcId" => id} = vector <- invalid,
+              derive(unquote(hash), vector) != {:error, :output_length_exceeded},
+              do: id
+
+        assert failing == []
       end
     end
   end
@@ -226,13 +232,17 @@ defmodule Encryptor.Vectors.WycheproofEngineTest do
   defp cipher(key) when byte_size(key) == 32, do: :aes_256_gcm
 
   # Only the guard's own refusal counts: a FunctionClauseError raised by
-  # the wrapper itself. Anything else, or no raise at all, is not refused.
-  defp refused?(call) do
+  # the named wrapper function itself (`encrypt/5` or `decrypt/6`). Anything
+  # else, or no raise at all, is not refused.
+  defp refused?(call, function, arity) do
     call.()
     false
   rescue
-    error in FunctionClauseError -> error.module == AesGcm
-    _other -> false
+    error in FunctionClauseError ->
+      error.module == AesGcm and error.function == function and error.arity == arity
+
+    _other ->
+      false
   end
 
   defp derive(hash, %{"salt" => salt, "ikm" => ikm, "info" => info, "size" => size}) do
