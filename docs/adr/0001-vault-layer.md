@@ -1503,3 +1503,43 @@ the file moves is the function pair: `maybe_caching/3` passes the id and
 `encryption_id/3`'s value, holds as written.
 
 The earlier Note is not edited; this Note carries no status of its own.
+
+## Note (2026-10-12): decision 9's reason for signing holds only under two conditions
+
+Decision 9 says "Signing exists so a reader can verify a writer it does not
+trust". Read alone, that sentence says signing makes an untrusted writer
+verifiable. It does so only under two conditions, and the sentence states
+neither:
+
+1. The reader cannot wrap a data key of its own. That is the case for a key
+   that is an AWS KMS key (`Encryptor.Key.Kms`) whose reader role is granted
+   `kms:Decrypt` and neither `kms:GenerateDataKey` nor `kms:Encrypt`. A key
+   that reaches the vault as AES key material (`Encryptor.Key.Aes`) is in
+   every reader's hands, so any reader can write a message the vault
+   accepts, signed or not.
+2. No unsigned message exists under that key. Decrypt does not check a
+   message's suite against the vault's `:algorithm_suite_id`: a `0x0578`
+   vault reads a `0x0478` message under the same key, and a reader that can
+   unwrap an unsigned message's data key can write another message under it.
+
+The documents that state these conditions today, read at `5428547`:
+
+- `lib/encryptor/vault/config.ex`, the `:algorithm_suite_id` option's
+  documentation, the paragraph that begins "Keeping `0x0578` does not by
+  itself stop a reader from forging" (about `:178`).
+- `guides/getting-started.md`, the section "Why `0x0478`": the paragraph that
+  begins "Keep `0x0578` when a ciphertext crosses a trust boundary" gives the
+  first condition, and the paragraph that begins "Decrypt does not check the
+  suite either" gives the second.
+- `docs/explanation/threat-model.md`, the section "Someone who supplies
+  malicious ciphertext": the paragraph that begins "What such bytes can be
+  made to say depends on who supplies them" gives both, and its "Pinned by"
+  list names the test "a signing-suite vault reads an unsigned message under
+  the same key" in `test/encryptor/vault/decrypt_test.exs`.
+
+Decision 9's other claim stands as written: a deployment whose writer and
+reader are one trust domain gains nothing from the signature and should
+configure `0x0478`. The sentence quoted above is not edited, and the three
+documents are not changed by this Note.
+
+This Note carries no status of its own.
