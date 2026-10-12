@@ -1472,3 +1472,19 @@ Provenance: bead `enc-q9ke`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Note (2026-10-12): the 2026-10-06 Note reads decisions 4 to 7, not 4 to 6
+
+One reading, which changes no decision. The heading of the Note dated
+2026-10-06 above names decisions 4 to 6, but its first paragraph also reads
+decision 7: the sentence that names decision 7's refused purpose cites the
+reservation bullet inside decision 7 (`:297`; decision 7 opens at `:282`).
+Read that Note as covering decisions 4 to 7. The heading is left as written,
+because this record only gains dated additions; the cite stays where it is
+and now sits under a range that includes it. Line cites here are read at enc
+`dcf0c9a`.
+
+Provenance: bead `enc-rl7i`.
+
+Nothing above changes. No decision is amended, no line above is edited, and
+this Note carries no status of its own.
