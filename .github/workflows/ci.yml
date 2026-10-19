@@ -495,8 +495,10 @@ jobs:
 
       # A run step rather than aws-actions/configure-aws-credentials, whose
       # log line after a successful assumption names the role's unique id in
-      # clear. `--query Credentials` keeps the assumed-role user (that id and
-      # the ARN) out of the response, the call's stderr is discarded, every
+      # clear. The account id and the role name, pieces of the role's ARN
+      # that a whole-string mask would miss, are masked first, before any
+      # output. `--query Credentials` keeps the assumed-role user (that id
+      # and the ARN) out of the response, the call's stderr is discarded, every
       # value is masked before it is written anywhere, and a failure prints
       # one fixed line.
       - name: Assume the CI role
@@ -505,6 +507,8 @@ jobs:
           ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           set -euo pipefail
+          acct=$(cut -d: -f5 <<<"$ROLE_ARN"); role=${ROLE_ARN##*/}
+          echo "::add-mask::${acct}"; echo "::add-mask::${role}"
           resp=$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com") \
             || { echo "::error::could not obtain the OIDC token"; exit 1; }
