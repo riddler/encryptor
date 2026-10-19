@@ -79,7 +79,8 @@ defmodule Encryptor.Provider.KmsLiveTest do
   test "answers not_provisionable to a provision, and calls KMS for nothing" do
     case Vault.provision(LiveVault, selector()) do
       {:error, %Error{reason: reason}} ->
-        assert reason == {:not_provisionable, Encryptor.Provider.Kms}
+        refused = reason == {:not_provisionable, Encryptor.Provider.Kms}
+        assert refused, "provision answered #{inspect(tag(reason))}"
 
       {:ok, _provisioned} ->
         flunk("provision answered :ok")
@@ -125,7 +126,7 @@ defmodule Encryptor.Provider.KmsLiveTest do
 
       {:error, %Error{reason: reason, engine: engine}} ->
         made = AwsKmsLive.calls()
-        assert reason == :decrypt_failed
+        assert tag(reason) == :decrypt_failed
         assert [{:decrypt, 400}, {:decrypt, 400}] == made
         refused = kms_refused?(engine, :invalid_ciphertext)
         assert refused, "the refusal was not KMS's InvalidCiphertextException"
