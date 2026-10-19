@@ -13,4 +13,8 @@ end
 # The live Cloud KMS suite is excluded the same way (`mix test --only
 # gcp_kms_integration`, as CI's gcp-kms-integration job runs it): it needs
 # credentials and two test keys. Encryptor.GcpKmsLive says how.
-ExUnit.start(exclude: [:aws_vectors, :python_interop, :gcp_kms_integration])
+#
+# The live AWS KMS suite is excluded the same way (`mix test --only
+# aws_kms_integration`, as CI's aws-kms-integration job runs it): it needs
+# credentials and a test key. Encryptor.AwsKmsLive says how.
+ExUnit.start(exclude: [:aws_vectors, :python_interop, :gcp_kms_integration, :aws_kms_integration])
