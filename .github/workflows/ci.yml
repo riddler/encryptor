@@ -414,6 +414,100 @@ jobs:
           GCP_KMS_KEY: ${{ secrets.GCP_KMS_KEY }}
           GCP_KMS_DENIED_KEY: ${{ secrets.GCP_KMS_DENIED_KEY }}
 
+  # Encryptor.Provider.Kms against a live AWS KMS test key, beside the gate:
+  # Encryptor.Provider.KmsLiveTest (test/encryptor/provider/kms_live_test.exs)
+  # has a scoped vault on the provider write and read a message through the
+  # test key, read it under another scope's binding, and ask for a
+  # provision. Informational: no ruleset requires it.
+  #
+  # The credential is a role assumed with the job's GitHub OIDC token, the
+  # same role the aws-encryption-sdk-elixir integration tests assume; there
+  # is no static access key. The role and the key's ARN are organisation
+  # SECRETS, never variables, because a run log prints a variable in clear
+  # and masks a secret; a secret is masked only as a whole string, so no
+  # step here derives, splits or echoes one, and the credential step masks
+  # the account id. That step hands the later steps of this job temporary
+  # credentials (session token included) as AWS_ variables, so it runs
+  # last before the test step and nothing after the test step prints the
+  # environment. Every AWS_ variable stays inside this job: the
+  # python-interop job sets none and checks that none is set.
+  #
+  # The job runs its steps only when both secrets are present and the event
+  # is not from a fork or Dependabot (neither receives secrets). Otherwise
+  # every step but the first is skipped and the first says why, so the job
+  # is green and visibly skipped. The `secrets` context is not allowed in an
+  # `if:`, hence the job-level flag. ENCRYPTOR_REQUIRE_AWS_KMS=1 makes an
+  # absent key ARN a failure of the tagged tests rather than a skip.
+  aws-kms-integration:
+    name: AWS KMS integration (live test key)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      RUN_AWS_KMS: ${{ secrets.AWS_ROLE_ARN != '' && secrets.KMS_KEY_ARN != '' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+
+    steps:
+      - name: Skip without the AWS KMS secrets
+        if: env.RUN_AWS_KMS != 'true'
+        run: echo "::notice title=aws-kms-integration skipped::the AWS KMS secrets are absent, or this is a fork or Dependabot event; the live suite did not run"
+
+      - uses: actions/checkout@v4
+        if: env.RUN_AWS_KMS == 'true'
+
+      - name: Read the toolchain out of mise.toml
+        if: env.RUN_AWS_KMS == 'true'
+        id: toolchain
+        run: |
+          set -euo pipefail
+          erlang="$(sed -n 's/^erlang *= *"\(.*\)".*$/\1/p' mise.toml | head -1)"
+          elixir="$(sed -n 's/^elixir *= *"\(.*\)".*$/\1/p' mise.toml | head -1)"
+          test -n "$erlang" || { echo "no erlang version in mise.toml" >&2; exit 1; }
+          test -n "$elixir" || { echo "no elixir version in mise.toml" >&2; exit 1; }
+          echo "erlang=$erlang" >> "$GITHUB_OUTPUT"
+          echo "elixir=$elixir" >> "$GITHUB_OUTPUT"
+
+      - uses: erlef/setup-beam@v1
+        if: env.RUN_AWS_KMS == 'true'
+        with:
+          otp-version: ${{ steps.toolchain.outputs.erlang }}
+          elixir-version: ${{ steps.toolchain.outputs.elixir }}
+
+      # Its own key prefix, so it never shares an entry with another job's
+      # cache (this job builds the test env only).
+      - name: Cache deps and build
+        if: env.RUN_AWS_KMS == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-aws-kms-${{ runner.os }}-otp${{ steps.toolchain.outputs.erlang }}-ex${{ steps.toolchain.outputs.elixir }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-aws-kms-${{ runner.os }}-otp${{ steps.toolchain.outputs.erlang }}-ex${{ steps.toolchain.outputs.elixir }}-
+
+      - name: Fetch dependencies
+        if: env.RUN_AWS_KMS == 'true'
+        run: mix deps.get
+
+      - name: Configure AWS credentials
+        if: env.RUN_AWS_KMS == 'true'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          mask-aws-account-id: true
+
+      - name: Run the aws_kms_integration tests
+        if: env.RUN_AWS_KMS == 'true'
+        run: mix test --only aws_kms_integration
+        env:
+          ENCRYPTOR_REQUIRE_AWS_KMS: "1"
+          KMS_KEY_ARN: ${{ secrets.KMS_KEY_ARN }}
+
   # A host already on hackney 1.x (through httpoison) resolves this package
   # with no committed lock, the way a real host would: the engine comes
   # from Hex through this package's own range, beside the host's ex_aws and
