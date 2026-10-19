@@ -425,11 +425,11 @@ jobs:
   # is no static access key. The role and the key's ARN are organisation
   # SECRETS, never variables, because a run log prints a variable in clear
   # and masks a secret; a secret is masked only as a whole string, so no
-  # step here derives, splits or echoes one, and the credential step masks
-  # the account id. That step hands the later steps of this job temporary
-  # credentials (session token included) as AWS_ variables, so it runs
-  # last before the test step and nothing after the test step prints the
-  # environment. Every AWS_ variable stays inside this job: the
+  # step here derives, splits or echoes one. The credential step is a
+  # silent run step (its own comment says why) that hands the later steps
+  # of this job temporary credentials (session token included) as AWS_
+  # variables, each masked first, so it runs last before the test step and
+  # nothing after the test step prints the environment. Every AWS_ variable stays inside this job: the
   # python-interop job sets none and checks that none is set.
   #
   # The job runs its steps only when both secrets are present and the event
@@ -493,13 +493,38 @@ jobs:
         if: env.RUN_AWS_KMS == 'true'
         run: mix deps.get
 
-      - name: Configure AWS credentials
+      # A run step rather than aws-actions/configure-aws-credentials, whose
+      # log line after a successful assumption names the role's unique id in
+      # clear. `--query Credentials` keeps the assumed-role user (that id and
+      # the ARN) out of the response, the call's stderr is discarded, every
+      # value is masked before it is written anywhere, and a failure prints
+      # one fixed line.
+      - name: Assume the CI role
         if: env.RUN_AWS_KMS == 'true'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
-          mask-aws-account-id: true
+        env:
+          ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          resp=$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com") \
+            || { echo "::error::could not obtain the OIDC token"; exit 1; }
+          token=$(jq -r .value <<<"$resp")
+          echo "::add-mask::${token}"
+          creds=$(aws sts assume-role-with-web-identity \
+            --role-arn "$ROLE_ARN" --role-session-name ci \
+            --web-identity-token "$token" --duration-seconds 3600 \
+            --query Credentials --output json 2>/dev/null) \
+            || { echo "::error::the role assumption was refused"; exit 1; }
+          ak=$(jq -r .AccessKeyId <<<"$creds")
+          sk=$(jq -r .SecretAccessKey <<<"$creds")
+          st=$(jq -r .SessionToken <<<"$creds")
+          echo "::add-mask::${ak}"; echo "::add-mask::${sk}"; echo "::add-mask::${st}"
+          {
+            echo "AWS_ACCESS_KEY_ID=${ak}"
+            echo "AWS_SECRET_ACCESS_KEY=${sk}"
+            echo "AWS_SESSION_TOKEN=${st}"
+            echo "AWS_REGION=us-east-1"
+          } >> "$GITHUB_ENV"
 
       - name: Run the aws_kms_integration tests
         if: env.RUN_AWS_KMS == 'true'

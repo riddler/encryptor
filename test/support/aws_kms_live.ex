@@ -16,8 +16,10 @@ defmodule Encryptor.AwsKmsLive do
     * `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` - the credentials.
     * `AWS_SESSION_TOKEN` - the session token temporary credentials carry
       (an assumed role's always do). Sent only when set and non-empty.
-    * `AWS_REGION`, else `AWS_DEFAULT_REGION` - the key's region. Unset, it
-      is `us-east-1`.
+
+  The requests go to the key's own region, read from its ARN inside this
+  process; `AWS_REGION` is not consulted, so it cannot point the suite at a
+  region the key is not in.
 
   With `KMS_KEY_ARN` unset or empty the tagged tests are skipped; with
   `ENCRYPTOR_REQUIRE_AWS_KMS=1` (CI sets it) they fail instead.
@@ -100,9 +102,12 @@ defmodule Encryptor.AwsKmsLive do
     end
   end
 
-  @doc "The region the key is in: `AWS_REGION`, else `AWS_DEFAULT_REGION`, else `us-east-1`."
-  @spec region() :: String.t()
-  def region, do: env("AWS_REGION") || env("AWS_DEFAULT_REGION") || "us-east-1"
+  @doc """
+  The region a key ARN names, its fourth field. Used only to address and
+  sign the requests; never rendered.
+  """
+  @spec region(String.t()) :: String.t()
+  def region(key_arn), do: key_arn |> String.split(":") |> Enum.at(3)
 
   @doc "The children the suite starts: the HTTP pool."
   @spec children() :: [Supervisor.child_spec() | {module(), keyword()}]
@@ -357,7 +362,7 @@ defmodule Encryptor.AwsKmsLive.Vault do
      config
      |> Keyword.put(
        :provider,
-       {Encryptor.Provider.Kms, client: Client.new(AwsKmsLive.region()), key_id: key_arn}
+       {Encryptor.Provider.Kms, client: Client.new(AwsKmsLive.region(key_arn)), key_id: key_arn}
      )
      |> Keyword.put(:reference_subkey, :crypto.strong_rand_bytes(32))}
   end

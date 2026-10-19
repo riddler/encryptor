@@ -98,8 +98,8 @@ the build.
   `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` when they are temporary
   (an assumed role's or an SSO session's always are). The suite reads these
   three variables and nothing else: no profile file, no instance metadata.
-- `AWS_REGION` (or `AWS_DEFAULT_REGION`) naming the key's region. Unset, the
-  suite uses `us-east-1`.
+
+The requests go to the region the key's ARN names; `AWS_REGION` is not read.
 
 ### Running it locally
 
@@ -109,7 +109,6 @@ them as the variables above:
 
 ```bash
 eval "$(aws configure export-credentials --profile <profile> --format env)"
-export AWS_REGION=us-east-1
 mix test --only aws_kms_integration
 ```
 
@@ -126,10 +125,12 @@ and the caller. Do not add output that would print any of them.
 ### How CI runs it
 
 The `aws-kms-integration` job in `.github/workflows/ci.yml` assumes a role
-with the job's GitHub OIDC token (no static access key) through
-`aws-actions/configure-aws-credentials`, the same role the
-aws-encryption-sdk-elixir integration tests assume. It reads the role and
-the key's ARN from organisation secrets and masks the account id. It runs
+with the job's GitHub OIDC token (no static access key), the same role the
+aws-encryption-sdk-elixir integration tests assume. The assumption is one
+silent run step calling `aws sts assume-role-with-web-identity` for the
+credentials alone: it masks each value before writing it, prints no part of
+the response and no message from the call, and fails with one fixed line.
+It reads the role and the key's ARN from organisation secrets. It runs
 only when both secrets are present and the event is not from a fork or
 Dependabot; otherwise it is a green job whose one step says it skipped. The
 job is informational: no branch rule requires it.
