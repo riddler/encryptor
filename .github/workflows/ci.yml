@@ -316,6 +316,104 @@ jobs:
       - name: Run the python_interop tests
         run: mix test --only python_interop
 
+  # Encryptor.Provider.GcpKms against a live Cloud KMS test key, beside the
+  # gate: Encryptor.Provider.GcpKmsLiveTest
+  # (test/encryptor/provider/gcp_kms_live_test.exs) provisions, wraps and
+  # unwraps on one test key, and reads a key the job's identity holds no
+  # grant on. Informational: no ruleset requires it.
+  #
+  # The credential is Workload Identity Federation: the job's GitHub OIDC
+  # token is exchanged for a short-lived one bound to a service account that
+  # may use the test key only. There is no key file. The provider, the
+  # service account and both key names are organisation SECRETS, never
+  # variables, because a run log prints a variable in clear and masks a
+  # secret; a secret is masked only as a whole string, so no step here
+  # derives, splits or echoes one. Each secret reaches only the one step that
+  # needs it, and the auth step exports nothing to later steps (its exported
+  # project id would print unmasked): the test step is handed the
+  # credentials file it wrote.
+  #
+  # The job runs its steps only when all four secrets are present and the
+  # event is not from a fork or Dependabot (neither receives secrets).
+  # Otherwise every step but the first is skipped and the first says why, so
+  # the job is green and visibly skipped. The `secrets` context is not
+  # allowed in an `if:`, hence the job-level flag. Neither the job nor the
+  # test reads an AWS_ variable. ENCRYPTOR_REQUIRE_GCP_KMS=1 makes an absent
+  # key name a failure of the tagged tests rather than a skip.
+  gcp-kms-integration:
+    name: Cloud KMS integration (live test key)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      RUN_GCP_KMS: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' && secrets.GCP_KMS_KEY != '' && secrets.GCP_KMS_DENIED_KEY != '' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+
+    steps:
+      - name: Skip without the Cloud KMS secrets
+        if: env.RUN_GCP_KMS != 'true'
+        run: echo "::notice title=gcp-kms-integration skipped::the Cloud KMS secrets are absent, or this is a fork or Dependabot event; the live suite did not run"
+
+      - uses: actions/checkout@v4
+        if: env.RUN_GCP_KMS == 'true'
+
+      - name: Read the toolchain out of mise.toml
+        if: env.RUN_GCP_KMS == 'true'
+        id: toolchain
+        run: |
+          set -euo pipefail
+          erlang="$(sed -n 's/^erlang *= *"\(.*\)".*$/\1/p' mise.toml | head -1)"
+          elixir="$(sed -n 's/^elixir *= *"\(.*\)".*$/\1/p' mise.toml | head -1)"
+          test -n "$erlang" || { echo "no erlang version in mise.toml" >&2; exit 1; }
+          test -n "$elixir" || { echo "no elixir version in mise.toml" >&2; exit 1; }
+          echo "erlang=$erlang" >> "$GITHUB_OUTPUT"
+          echo "elixir=$elixir" >> "$GITHUB_OUTPUT"
+
+      - uses: erlef/setup-beam@v1
+        if: env.RUN_GCP_KMS == 'true'
+        with:
+          otp-version: ${{ steps.toolchain.outputs.erlang }}
+          elixir-version: ${{ steps.toolchain.outputs.elixir }}
+
+      # Its own key prefix, so it never shares an entry with another job's
+      # cache (this job builds the test env only).
+      - name: Cache deps and build
+        if: env.RUN_GCP_KMS == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-gcp-kms-${{ runner.os }}-otp${{ steps.toolchain.outputs.erlang }}-ex${{ steps.toolchain.outputs.elixir }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-gcp-kms-${{ runner.os }}-otp${{ steps.toolchain.outputs.erlang }}-ex${{ steps.toolchain.outputs.elixir }}-
+
+      - name: Fetch dependencies
+        if: env.RUN_GCP_KMS == 'true'
+        run: mix deps.get
+
+      - name: Authenticate to Google Cloud
+        if: env.RUN_GCP_KMS == 'true'
+        id: gcp-auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+          export_environment_variables: false
+
+      - name: Run the gcp_kms_integration tests
+        if: env.RUN_GCP_KMS == 'true'
+        run: mix test --only gcp_kms_integration
+        env:
+          ENCRYPTOR_REQUIRE_GCP_KMS: "1"
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcp-auth.outputs.credentials_file_path }}
+          GCP_KMS_KEY: ${{ secrets.GCP_KMS_KEY }}
+          GCP_KMS_DENIED_KEY: ${{ secrets.GCP_KMS_DENIED_KEY }}
+
   # A host already on hackney 1.x (through httpoison) resolves this package
   # with no committed lock, the way a real host would: the engine comes
   # from Hex through this package's own range, beside the host's ex_aws and

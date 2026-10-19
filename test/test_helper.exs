@@ -9,4 +9,8 @@ end
 # python_interop`, as CI's python-interop job runs it): it needs a Python
 # interpreter with test/interop/python/requirements.txt installed.
 # Encryptor.PythonInterop says how.
-ExUnit.start(exclude: [:aws_vectors, :python_interop])
+#
+# The live Cloud KMS suite is excluded the same way (`mix test --only
+# gcp_kms_integration`, as CI's gcp-kms-integration job runs it): it needs
+# credentials and two test keys. Encryptor.GcpKmsLive says how.
+ExUnit.start(exclude: [:aws_vectors, :python_interop, :gcp_kms_integration])
