@@ -31,7 +31,8 @@ defmodule Encryptor.Vault.Decrypt do
   #      (ADR-0004 decision 4).
   #   6. The suite check (ADR-0001 Amendment D): the message's suite is the
   #      one the vault writes or one `:accept_suites` lists. Then **the value
-  #      comparison** (ADR-0004 decision 6), below.
+  #      comparison** (ADR-0004 decision 6), below, and the per-call keys the
+  #      message does not carry (ADR-0004 Amendment C).
   #   7. The context the engine is handed: the reproduced pairs whose key the
   #      header stores or the vault requires, and no other (ADR-0004
   #      Amendment B, B3), below.
@@ -67,14 +68,30 @@ defmodule Encryptor.Vault.Decrypt do
   # unchanged, for every key the header stores (ADR-0004 Amendment B, B2): it
   # is this package's guarantee, not one it inherits.
   #
-  # The reach of the comparison is deliberately the engine's, not tighter:
-  # only keys present in **both** maps are compared. A reader may claim a key
-  # the message does not carry, and it is ignored; a reader may omit a key the
-  # message does carry, and that is ignored too. Requiring the reproduced
-  # context to cover the stored one would make every message unreadable the
-  # moment a host added an advisory key to a vault's static configuration.
-  # Required keys are what close the gap for the keys that matter, and on a
-  # `:scoped` vault `"scope_ref"` is always in the required set.
+  # The value comparison's reach is the engine's: only keys present in
+  # **both** maps are compared. A reader may omit a key the message does
+  # carry, and that is ignored. Requiring the reproduced context to cover the
+  # stored one would make every message unreadable the moment a host added an
+  # advisory key to a vault's static configuration. Required keys are what
+  # close the gap for the keys that matter, and on a `:scoped` vault
+  # `"scope_ref"` is always in the required set.
+  #
+  # ## A per-call key the message does not carry is refused
+  #
+  # ADR-0004 Amendment C, as ruled: decrypt refuses a key the caller passes in
+  # this call's `:encryption_context` when the message's stored context lacks
+  # it, so the claim a caller passes means what it says. A key the vault
+  # requires is checked as before, by the engine's unwrap, because the 1.1
+  # engine binds a required pair without storing it. A key from the static
+  # layer the message does not carry is still ignored, for the advisory-key
+  # reason above. The refusal is `:decrypt_failed`, carrying
+  # `{:encryption_context_mismatch, key}` in `:engine` like a disagreeing
+  # value.
+  #
+  # `:legacy_context` is the migration switch. Its default, `:refuse`, is the
+  # above; `:accept` keeps the answer before the amendment, a per-call key the
+  # message does not carry is ignored, while a host re-encrypts pre-context
+  # ciphertexts.
   #
   # ## A required key the header does not store is the engine's to check
   #
@@ -92,7 +109,9 @@ defmodule Encryptor.Vault.Decrypt do
   # such a message, where decision 6 says it is ignored. So the engine is
   # handed only the reproduced pairs whose key the header stores or the vault
   # requires (`engine_context/3`, Amendment B's B3). The comparison still sees
-  # the whole reproduced context.
+  # the whole reproduced context. Under `:legacy_context` `:refuse` a per-call
+  # key the filter would leave out is refused before it runs; what it still
+  # leaves out is a static-layer key, and every per-call key under `:accept`.
   #
   # ## One stored key a reader may not omit: a package pair
   #
@@ -170,8 +189,8 @@ defmodule Encryptor.Vault.Decrypt do
   # positional for the reason `Encryptor.Vault.Resolve.context/5` gives. Its
   # only caller is `Encryptor.Envelope.unwrap/2`, reproducing ADR-0003
   # decision 4's binding; `Encryptor.Vault.decrypt/3` passes none, which is
-  # what makes `agree/4` refuse a wrapping on the public door. Note that
-  # reproducing it here is not the same as *requiring* it: `agree/4` compares
+  # what makes `agree/5` refuse a wrapping on the public door. Note that
+  # reproducing it here is not the same as *requiring* it: `agree/5` compares
   # only keys present in both maps, so the envelope performs its own presence
   # check before calling in.
   @spec call(module(), binary(), keyword(), Context.context()) ::
@@ -205,12 +224,19 @@ defmodule Encryptor.Vault.Decrypt do
            end),
          {:ok, keyring} <- Keyring.build_all(config.vault, :decrypt, candidates),
          {:ok, context} <- Resolve.context(config, reference, opts, :decrypt, reserved),
-         {:ok, stored} <- agreed_stored(config, ciphertext, context, :decrypt) do
+         {:ok, stored} <-
+           agreed_stored(config, ciphertext, context, :decrypt, per_call_keys(opts)) do
       config
       |> Encrypt.client(keyring, selector, candidates)
       |> engine_decrypt(config, ciphertext, engine_context(config, stored, context), :decrypt)
     end
   end
+
+  # ADR-0004 Amendment C: the keys the caller passed on this decrypt, the
+  # per-call layer alone. `Resolve.context/5` has already refused a value
+  # that is not a map, so this reads a map or the absent option.
+  @spec per_call_keys(keyword()) :: [String.t()]
+  defp per_call_keys(opts), do: opts |> Keyword.get(:encryption_context, %{}) |> Map.keys()
 
   # ADR-0004 Amendment B, B3: decision 6's "a key the message does not carry
   # is ignored", kept on an engine that appends every reproduced pair the
@@ -231,23 +257,34 @@ defmodule Encryptor.Vault.Decrypt do
   # `operation` is threaded rather than fixed at `:decrypt` because a rekey
   # reports `:rekey` on both halves: what failed is the operation the caller
   # asked for, not the half of it the failure landed in.
-  @spec agree(Config.t(), binary(), Context.context(), Error.operation()) ::
+  #
+  # `per_call` is the keys the caller passed in this call's
+  # `:encryption_context` (ADR-0004 Amendment C). A rekey and the envelope
+  # pass none: a rekey's option carries only keys the vault requires, which
+  # the check exempts, and the envelope passes no per-call context.
+  @spec agree(Config.t(), binary(), Context.context(), Error.operation(), [String.t()]) ::
           :ok | {:error, Error.t()}
-  def agree(config, ciphertext, reproduced, operation \\ :decrypt) do
-    with {:ok, _stored} <- agreed_stored(config, ciphertext, reproduced, operation), do: :ok
+  def agree(config, ciphertext, reproduced, operation \\ :decrypt, per_call \\ []) do
+    with {:ok, _stored} <- agreed_stored(config, ciphertext, reproduced, operation, per_call),
+         do: :ok
   end
 
   @doc false
-  # `agree/4`, returning the stored context it compared against, so a caller
+  # `agree/5`, returning the stored context it compared against, so a caller
   # that goes on to use that map parses the header once. Public for the rekey
   # path, which reproduces its decrypt half from it.
-  @spec agreed_stored(Config.t(), binary(), Context.context(), Error.operation()) ::
-          {:ok, Context.context()} | {:error, Error.t()}
-  def agreed_stored(config, ciphertext, reproduced, operation) do
+  @spec agreed_stored(
+          Config.t(),
+          binary(),
+          Context.context(),
+          Error.operation(),
+          [String.t()]
+        ) :: {:ok, Context.context()} | {:error, Error.t()}
+  def agreed_stored(config, ciphertext, reproduced, operation, per_call \\ []) do
     case Message.describe(ciphertext) do
       {:ok, %Info{encryption_context: stored, algorithm_suite_id: suite}} ->
         with :ok <- accepted_suite(config, suite, operation),
-             :ok <- compare(config, stored, reproduced, operation),
+             :ok <- compare(config, stored, reproduced, operation, per_call),
              do: {:ok, stored}
 
       # A header this package cannot parse is not a message it can compare
@@ -280,16 +317,25 @@ defmodule Encryptor.Vault.Decrypt do
          Error.decrypt_failed(config.vault, operation, {:algorithm_suite_not_accepted, suite})}
   end
 
-  # Two scans, each sorted before it reports, so a message failing on two
+  # Three scans, each sorted before it reports, so a message failing on two
   # keys names the same one on every run. The first is the package pair the
   # reader did not reproduce ("One stored key a reader may not omit", above).
   # The second is the value comparison, where `Map.get(stored, key, value)` is
   # what makes "only keys present in both" literal: a key the message does not
-  # carry compares equal to itself and is skipped.
-  @spec compare(Config.t(), Context.context(), Context.context(), Error.operation()) ::
-          :ok | {:error, Error.t()}
-  defp compare(config, stored, reproduced, operation) do
-    case unreproduced_package_key(stored, reproduced) || disagreeing_key(stored, reproduced) do
+  # carry compares equal to itself and is skipped. The third is the per-call
+  # key the message does not carry ("A per-call key the message does not
+  # carry is refused", above); a key cannot both disagree and be unstored, so
+  # the order only decides which key a message failing on several names.
+  @spec compare(
+          Config.t(),
+          Context.context(),
+          Context.context(),
+          Error.operation(),
+          [String.t()]
+        ) :: :ok | {:error, Error.t()}
+  defp compare(config, stored, reproduced, operation, per_call) do
+    case unreproduced_package_key(stored, reproduced) || disagreeing_key(stored, reproduced) ||
+           unstored_per_call_key(config, stored, per_call) do
       nil ->
         :ok
 
@@ -312,6 +358,19 @@ defmodule Encryptor.Vault.Decrypt do
     reproduced
     |> Enum.sort()
     |> Enum.find_value(fn {key, value} -> if Map.get(stored, key, value) != value, do: key end)
+  end
+
+  # ADR-0004 Amendment C. Under `:accept` nothing is refused here, which is
+  # the answer before the amendment; under `:refuse`, the first per-call key,
+  # in sorted order, that the message does not store and the vault does not
+  # require.
+  @spec unstored_per_call_key(Config.t(), Context.context(), [String.t()]) :: String.t() | nil
+  defp unstored_per_call_key(%Config{legacy_context: :accept}, _stored, _per_call), do: nil
+
+  defp unstored_per_call_key(%Config{required_keys: required}, stored, per_call) do
+    per_call
+    |> Enum.sort()
+    |> Enum.find(&(not Map.has_key?(stored, &1) and &1 not in required))
   end
 
   @doc false

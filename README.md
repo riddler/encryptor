@@ -78,6 +78,11 @@ context = %{"table" => "notes", "column" => "body"}
 # A decrypt naming another table or column fails, and every such failure looks the same.
 {:error, %Encryptor.Error{reason: :decrypt_failed}} =
   MyApp.Vault.decrypt(ciphertext, encryption_context: %{"table" => "t", "column" => "c"})
+
+# So does a decrypt claiming a key the message was written without, unless the
+# vault sets legacy_context: :accept while re-encrypting pre-context ciphertexts.
+{:error, %Encryptor.Error{reason: :decrypt_failed}} =
+  MyApp.Vault.decrypt(ciphertext, encryption_context: Map.put(context, "purpose", "pii"))
 ```
 
 `ciphertext` is the whole self-describing message: you store that one binary,

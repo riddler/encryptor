@@ -110,6 +110,16 @@ defmodule Encryptor.Vault.Config do
       commitment is read only when `:commitment_policy` allows it too.
       Listing the configured suite itself changes nothing: that suite is
       always read.
+    * `:legacy_context` is `:refuse` or `:accept` and defaults to `:refuse`.
+      Under `:refuse` a vault refuses on decrypt, as `:decrypt_failed`, a key
+      the caller passes in that call's `:encryption_context` when the
+      message's stored context lacks it; a key `:required_context` names is
+      checked as before (ADR-0004 Amendment C). `:accept` keeps the answer
+      before that amendment, a per-call key the message does not carry is
+      ignored, and is for a migration window: a host sets `:legacy_context`
+      to `:accept` while re-encrypting pre-context ciphertexts, then sets it
+      back. Any other value is refused with
+      `{:invalid_config, :legacy_context, :unknown}`.
     * `:cache` is `false` or a keyword list. `:max_age` is required with no
       default; `:max_messages` defaults to `10_000`, `:max_bytes` to 1 GiB,
       and `:recycle_after` to `20 * max_age` (ADR-0001 decision 6, as amended
@@ -217,7 +227,7 @@ defmodule Encryptor.Vault.Config do
 
   Records: ADR-0001 decisions 5, 6, 8 and 9, and Amendment D; ADR-0003 amendment A decision 3
   and amendment B decision 4, with that record's Note of 2026-09-12;
-  ADR-0004 decisions 3, 4 and 9; ADR-0005 decision 4; ADR-0006 amendment A
+  ADR-0004 decisions 3, 4 and 9, and Amendment C; ADR-0005 decision 4; ADR-0006 amendment A
   decision 1.
   """
 
@@ -258,6 +268,7 @@ defmodule Encryptor.Vault.Config do
     :commitment_policy,
     :algorithm_suite_id,
     :accept_suites,
+    :legacy_context,
     :max_encrypted_data_keys,
     :static_encryption_context,
     :context_profile,
@@ -327,6 +338,7 @@ defmodule Encryptor.Vault.Config do
           commitment_policy: :require_encrypt_require_decrypt | :require_encrypt_allow_decrypt,
           algorithm_suite_id: 0x0578 | 0x0478,
           accept_suites: [non_neg_integer()],
+          legacy_context: :refuse | :accept,
           max_encrypted_data_keys: pos_integer(),
           static_encryption_context: context(),
           context_profile: profile(),
@@ -351,6 +363,7 @@ defmodule Encryptor.Vault.Config do
     :commitment_policy,
     :algorithm_suite_id,
     :accept_suites,
+    :legacy_context,
     :max_encrypted_data_keys,
     :static_encryption_context,
     :context_profile,
@@ -388,6 +401,7 @@ defmodule Encryptor.Vault.Config do
       commitment_policy: @default_commitment_policy,
       algorithm_suite_id: @default_algorithm_suite_id,
       accept_suites: [],
+      legacy_context: :refuse,
       max_encrypted_data_keys: @default_max_encrypted_data_keys,
       static_encryption_context: %{},
       required_context: [],
@@ -554,6 +568,7 @@ defmodule Encryptor.Vault.Config do
          {:ok, policy} <- commitment_policy(vault, opts),
          {:ok, suite} <- algorithm_suite_id(vault, opts),
          {:ok, accepted} <- accept_suites(vault, opts),
+         {:ok, legacy} <- legacy_context(vault, opts),
          {:ok, edks} <- max_encrypted_data_keys(vault, opts),
          {:ok, cache} <- cache(vault, opts),
          {:ok, profile} <- context_profile(vault, opts),
@@ -577,6 +592,7 @@ defmodule Encryptor.Vault.Config do
          commitment_policy: policy,
          algorithm_suite_id: suite,
          accept_suites: accepted,
+         legacy_context: legacy,
          max_encrypted_data_keys: edks,
          static_encryption_context: static,
          context_profile: profile,
@@ -760,6 +776,17 @@ defmodule Encryptor.Vault.Config do
     do: match?({:ok, _suite}, AlgorithmSuite.by_id(id)) and suite_ids?(rest)
 
   defp suite_ids?(_other), do: false
+
+  # ADR-0004 Amendment C, C2: whether a decrypt refuses a per-call context key
+  # the message's stored context lacks (`:refuse`) or ignores it, as it did
+  # before the amendment (`:accept`, for a migration window). A value outside
+  # the two takes `:context_profile`'s detail.
+  defp legacy_context(vault, opts) do
+    case Keyword.get(opts, :legacy_context) do
+      setting when setting in [:refuse, :accept] -> {:ok, setting}
+      _other -> {:error, error(vault, {:invalid_config, :legacy_context, :unknown})}
+    end
+  end
 
   defp max_encrypted_data_keys(vault, opts) do
     case Keyword.get(opts, :max_encrypted_data_keys) do

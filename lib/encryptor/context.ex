@@ -16,9 +16,11 @@ defmodule Encryptor.Context do
       reproduces it - so putting a key in the context is a disclosure
       decision, and
     * no pair can be edited without breaking the tag, which is what binds a
-      message to the row, column and scope it was written for. Only a pair
-      the message carries binds it: a decrypt compares the keys present in
-      both contexts, so a key the writer left out binds nothing, and the
+      message to the row, column and scope it was written for. A decrypt
+      compares the keys present in both contexts and refuses a key the
+      caller passes per call that the message does not carry, unless the
+      vault's `:legacy_context` is `:accept`, the setting a host uses while
+      re-encrypting pre-context ciphertexts (ADR-0004 Amendment C). The
       vault's `:required_context` is what guarantees a key is written.
 
   This module owns the vocabulary and the composition. It does not enforce the
