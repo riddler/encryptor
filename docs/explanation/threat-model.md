@@ -273,13 +273,16 @@ signed or not, that the vault decrypts like any other. The signing suite,
 `0x0578`, stops a reader from forging only where that reader cannot wrap a
 data key: a key that is an AWS KMS key (an `Encryptor.Key.Kms` descriptor),
 with the reader's role granted `kms:Decrypt` and neither `kms:GenerateDataKey`
-nor `kms:Encrypt` on it. Even there it holds only while no unsigned message
-exists under that key, because decrypt does not check a message's suite
-against the vault's `:algorithm_suite_id`: a `0x0578` vault reads a `0x0478`
-message under the same key, and a reader that can unwrap an unsigned
-message's data key can write another message under it.
+nor `kms:Encrypt` on it. Even there it holds only while the vault reads no
+unsigned message under that key. A vault refuses unless a message's suite is
+in `:accept_suites` or is its configured `:algorithm_suite_id`: the default
+refuses any suite other than the configured one, so a `0x0578` vault refuses a
+`0x0478` message under the same key. A host lists old suites in
+`:accept_suites` (default empty) during migration, and while a `0x0578` vault
+lists `0x0478` it reads unsigned messages again: a reader that can unwrap an
+unsigned message's data key can write another message under it.
 
-Pinned by: ADR-0001 decisions 8 and 10
+Pinned by: ADR-0001 decisions 8 and 10, and Amendment D
 ([the vault record](https://github.com/riddler/encryptor/blob/main/docs/adr/0001-vault-layer.md));
 "every message-dependent decrypt failure collapses to :decrypt_failed"
 ([`test/encryptor/error_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/error_test.exs));
@@ -293,7 +296,9 @@ no engine term"
 and the same name in
 [`test/encryptor/vault/rekey_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/rekey_test.exs));
 Wycheproof's invalid AES-GCM cases, each refused by the engine's wrapper;
-"a signing-suite vault reads an unsigned message under the same key"
+"a signing-suite vault refuses an unsigned message under the same key" and
+"a signing-suite vault reads an unsigned message when :accept_suites lists its
+suite"
 ([`test/encryptor/vault/decrypt_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/decrypt_test.exs)).
 The rest of the forgery paragraph rests on reading the providers and the
 engine's KMS keyring, which calls `Decrypt` alone on the read path and

@@ -359,6 +359,65 @@ defmodule Encryptor.Vault.ConfigTest do
     end
   end
 
+  describe "the suites a vault reads besides its own" do
+    # sabotage: dropped `accept_suites: []` from defaults/0 - red, the unset
+    # option arrives as nil and the start is refused.
+    test "defaults to none" do
+      assert {:ok, %Config{accept_suites: []}} = single()
+      assert Keyword.fetch(Config.defaults(), :accept_suites) == {:ok, []}
+    end
+
+    # ADR-0001 Amendment D, D2: every suite the engine reads, the nine
+    # without key commitment included, written out here rather than read from
+    # the engine. sabotage: validated against @allowed_algorithm_suite_ids
+    # (the two suites a vault writes) instead of the engine's suite table -
+    # red, the uncommitted suites are refused.
+    test "accepts any suite the engine reads, without key commitment included" do
+      every_suite = [
+        0x0578,
+        0x0478,
+        0x0378,
+        0x0346,
+        0x0214,
+        0x0178,
+        0x0146,
+        0x0114,
+        0x0078,
+        0x0046,
+        0x0014
+      ]
+
+      assert {:ok, %Config{accept_suites: [0x0478]}} = single(accept_suites: [0x0478])
+      assert {:ok, %Config{accept_suites: ^every_suite}} = single(accept_suites: every_suite)
+    end
+
+    # Listing the configured suite is harmless; a repeated id is kept once.
+    # sabotage: dropped Enum.uniq/1 from accept_suites/2 - red on the repeat.
+    test "keeps each listed suite once, the configured one included" do
+      assert {:ok, %Config{algorithm_suite_id: 0x0578, accept_suites: [0x0578, 0x0478]}} =
+               single(accept_suites: [0x0578, 0x0478, 0x0578])
+    end
+
+    # sabotage: made suite_ids?/1 skip the engine's suite lookup - red on the
+    # unknown id. And made accept_suites/2 take a value that is not a list
+    # as a one-element list - red on the first non-list.
+    test "refuses an unknown suite id, a reserved one, and anything that is not a list" do
+      for value <- [[0x9999], [0x0000], [0x0478, "0x0578"], 0x0478, nil, [0x0478 | 0x0578]] do
+        assert {:error, %Error{reason: {:invalid_config, :accept_suites, :unsupported}}} =
+                 single(accept_suites: value)
+      end
+    end
+
+    # sabotage: removed :accept_suites from @known_options - red, the option
+    # is refused as unknown.
+    test "is a known option in every layer" do
+      Application.put_env(:encryptor, TestVaults.NoInit, accept_suites: [0x0478])
+      on_exit(fn -> Application.delete_env(:encryptor, TestVaults.NoInit) end)
+
+      assert {:ok, %Config{accept_suites: [0x0478]}} = single()
+    end
+  end
+
   describe "the cache bounds" do
     # sabotage: changed defaults/0 to `cache: []` - red, because an empty
     # keyword list then fails on the missing max_age.

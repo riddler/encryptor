@@ -37,6 +37,10 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
       with encryptor's own error: `reason: :decrypt_failed`, `operation:
       :decrypt` and the reading vault. The engine's term is never asserted;
       it rides in `:engine` and is not this package's contract.
+    * Started with `accept_suites: []`, the default vault reads the 60
+      committed positives under its own suite, `0x0578`, and refuses the 60
+      under `0x0478` (ADR-0001 Amendment D). Every other assertion runs on
+      vaults that list every suite, so the suite check passes there.
     * One `:scoped` vault refuses a committed positive: the vault requires the
       `"scope_ref"` it injects, and no vector's message carries one.
 
@@ -167,6 +171,20 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
     assert refusal_failures(Committed, corpus.negatives, keys) == []
   end
 
+  # ADR-0001 Amendment D against the corpus: started with `accept_suites: []`,
+  # `Committed` reads the 60 committed positives under its own suite,
+  # `0x0578`, and refuses the 60 under `0x0478`. sabotage: made
+  # accepted_suite/3 in decrypt.ex answer :ok for every suite - red, the
+  # `0x0478` ids decrypt.
+  test "a vault that lists no other suite reads its own and refuses the other committed suite",
+       %{corpus: corpus, keys: keys} do
+    {own, other} = Enum.split_with(committed(corpus.positives), &(suite(&1) == 0x0578))
+    assert {length(own), length(other)} == {60, 60}
+
+    assert decrypt_failures(Committed, own, keys, accept_suites: []) == []
+    assert refusal_failures(Committed, other, keys, accept_suites: []) == []
+  end
+
   # sabotage: dropped `"scope_ref"` from a :scoped vault's required keys in
   # Config - red, the positive decrypts on the scoped vault.
   test "a :scoped vault refuses a positive vector, which carries no scope reference",
@@ -191,8 +209,8 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
 
   # One vault start per key the cases name, reused for every case under it:
   # the vault is a singleton per module, so the groups run one after another.
-  defp decrypt_failures(vault, cases, keys) do
-    each_key_group(vault, cases, keys, fn vector ->
+  defp decrypt_failures(vault, cases, keys, extra \\ []) do
+    each_key_group(vault, cases, keys, extra, fn vector ->
       case vault.decrypt(vector.ciphertext) do
         {:ok, plaintext} -> plaintext == vector.plaintext
         {:error, %Error{}} -> false
@@ -200,8 +218,8 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
     end)
   end
 
-  defp refusal_failures(vault, cases, keys) do
-    each_key_group(vault, cases, keys, fn vector ->
+  defp refusal_failures(vault, cases, keys, extra \\ []) do
+    each_key_group(vault, cases, keys, extra, fn vector ->
       match?(
         {:error, %Error{reason: :decrypt_failed, operation: :decrypt, vault: ^vault}},
         vault.decrypt(vector.ciphertext)
@@ -211,11 +229,11 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
 
   # Returns the sorted `{id, outcome}` of every case `ok?` did not accept,
   # never its bytes.
-  defp each_key_group(vault, cases, keys, ok?) do
+  defp each_key_group(vault, cases, keys, extra, ok?) do
     cases
     |> Enum.group_by(&{&1.key, &1.provider_id})
     |> Enum.flat_map(fn {_group, [first | _rest] = group} ->
-      start_vault(vault, first, keys, [])
+      start_vault(vault, first, keys, extra)
       outcomes = for vector <- group, do: {vector.id, outcome(ok?, vector)}
       :ok = stop_supervised(vault)
       Enum.reject(outcomes, &match?({_id, :ok}, &1))
@@ -299,6 +317,11 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
       {:ok, info} = Message.describe(vector.ciphertext)
       info.algorithm_suite_id
     end)
+  end
+
+  defp suite(vector) do
+    {:ok, info} = Message.describe(vector.ciphertext)
+    info.algorithm_suite_id
   end
 
   defp committed(vectors), do: Enum.filter(vectors, &committed?/1)

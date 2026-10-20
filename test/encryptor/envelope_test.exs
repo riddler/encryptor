@@ -731,6 +731,54 @@ defmodule Encryptor.EnvelopeTest do
     end
   end
 
+  describe "the suite a wrapping was written under" do
+    # ADR-0001 Amendment D, D3: a wrapping is a message the root vault wrote,
+    # so the root vault's `:algorithm_suite_id` and `:accept_suites` decide
+    # whether unwrap/2 and rewrap/2 read it. `Root` writes `0x0478` and
+    # `SignedRoot` writes `0x0578`, under the same generation-1 subkey.
+
+    # sabotage: made accepted_suite/3 in decrypt.ex answer :ok for every
+    # suite - red, the signing root opens and rewraps the unsigned wrapping.
+    test "a root vault on another suite refuses the wrapping on unwrap and rewrap" do
+      wrapped = provisioned(start_vault(EnvelopeVaults.Root))
+      signed = start_vault(EnvelopeVaults.SignedRoot)
+
+      assert refusal(Envelope.unwrap(signed, wrapped)) ==
+               {:decrypt_failed, {:algorithm_suite_not_accepted, 0x0478}, :decrypt}
+
+      assert refusal(Envelope.rewrap(signed, wrapped)) ==
+               {:decrypt_failed, {:algorithm_suite_not_accepted, 0x0478}, :rekey}
+    end
+
+    # sabotage: made accepted_suite/3 in decrypt.ex ignore `:accept_suites` -
+    # red, the listed suite is refused on both paths.
+    test "a root vault that lists the suite unwraps it, and rewraps it onto its own" do
+      root = start_vault(EnvelopeVaults.Root)
+      wrapped = provisioned(root)
+
+      signed =
+        start_supervised!(
+          Supervisor.child_spec({EnvelopeVaults.SignedRoot, [accept_suites: [0x0478]]},
+            restart: :temporary
+          )
+        )
+
+      assert is_pid(signed)
+
+      # A boolean, so a failure renders no key material.
+      same_descriptor? =
+        match?({:ok, %Aes{}}, Envelope.unwrap(EnvelopeVaults.SignedRoot, wrapped)) and
+          Envelope.unwrap(EnvelopeVaults.SignedRoot, wrapped) == Envelope.unwrap(root, wrapped)
+
+      assert same_descriptor?
+
+      assert {:ok, rewrapped} = Envelope.rewrap(EnvelopeVaults.SignedRoot, wrapped)
+
+      assert {:ok, %Message.Info{algorithm_suite_id: 0x0578}} =
+               Message.describe(rewrapped.wrapped)
+    end
+  end
+
   describe "scope_ref/2" do
     # sabotage: truncated the HMAC tag to 8 bytes instead of 16 - red against
     # the record's own formula, computed here independently.

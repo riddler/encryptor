@@ -88,7 +88,8 @@ defmodule Encryptor.Vault.Config do
       decision 1). A provider exporting no `init/1` keeps its option list as
       its state, which is the fallback `Encryptor.Provider.init/2` owns.
     * `:commitment_policy` defaults to `:require_encrypt_require_decrypt` and
-      may be relaxed to `:require_encrypt_allow_decrypt`.
+      may be relaxed to `:require_encrypt_allow_decrypt`, which reads a
+      message without key commitment whose suite `:accept_suites` lists.
       `:forbid_encrypt_allow_decrypt` is refused outright: that policy exists
       to write non-committed messages, this package has never written one, and
       a key that can turn key commitment off will eventually be turned off by
@@ -99,6 +100,16 @@ defmodule Encryptor.Vault.Config do
       the ciphertext.
     * `:algorithm_suite_id` defaults to `0x0578` and accepts `0x0478`. See
       "Choosing an algorithm suite" below.
+    * `:accept_suites` is a list of suite ids and defaults to `[]`. A vault
+      refuses on decrypt a message whose suite is neither its configured
+      suite nor listed here; a host lists old suites here during migration
+      (ADR-0001 Amendment D). Each id is a suite the engine reads, the two
+      committed suites and the nine without key commitment; a list holding
+      anything else, or a value that is not a list, is refused with
+      `{:invalid_config, :accept_suites, :unsupported}`. A suite without key
+      commitment is read only when `:commitment_policy` allows it too.
+      Listing the configured suite itself changes nothing: that suite is
+      always read.
     * `:cache` is `false` or a keyword list. `:max_age` is required with no
       default; `:max_messages` defaults to `10_000`, `:max_bytes` to 1 GiB,
       and `:recycle_after` to `20 * max_age` (ADR-0001 decision 6, as amended
@@ -182,11 +193,13 @@ defmodule Encryptor.Vault.Config do
   `kms:Encrypt` on it. A key that reaches the vault as AES key material
   (`Encryptor.Key.Aes`, which `Encryptor.Provider.GcpKms` answers too, once it
   has unwrapped the scope's key) is in every reader's hands, so any reader can
-  write a message the vault accepts. And the configured suite is the suite a
-  vault writes, not one it requires: decrypt reads a message under either
-  accepted suite, so a `0x0578` vault reads a `0x0478` message under the same
-  key. The getting-started guide's "Why `0x0478`" section says when that
-  matters.
+  write a message the vault accepts. And decrypt refuses unless the message's
+  suite is the configured one or is in `:accept_suites`: the default refuses
+  any suite other than the configured one, so a `0x0578` vault refuses a
+  `0x0478` message under the same key. A host lists old suites in
+  `:accept_suites` (default empty) during migration, and a `0x0578` vault
+  that lists `0x0478` reads unsigned messages for as long as it does. The
+  getting-started guide's "Why `0x0478`" section says when that matters.
 
   ## The profile is start-time, not compile-time
 
@@ -202,12 +215,13 @@ defmodule Encryptor.Vault.Config do
         {:error, error} -> {:error, error}
       end
 
-  Records: ADR-0001 decisions 5, 6, 8 and 9; ADR-0003 amendment A decision 3
+  Records: ADR-0001 decisions 5, 6, 8 and 9, and Amendment D; ADR-0003 amendment A decision 3
   and amendment B decision 4, with that record's Note of 2026-09-12;
   ADR-0004 decisions 3, 4 and 9; ADR-0005 decision 4; ADR-0006 amendment A
   decision 1.
   """
 
+  alias AwsEncryptionSdk.AlgorithmSuite
   alias Encryptor.Context
   alias Encryptor.Envelope
   alias Encryptor.Error
@@ -243,6 +257,7 @@ defmodule Encryptor.Vault.Config do
     :cache,
     :commitment_policy,
     :algorithm_suite_id,
+    :accept_suites,
     :max_encrypted_data_keys,
     :static_encryption_context,
     :context_profile,
@@ -311,6 +326,7 @@ defmodule Encryptor.Vault.Config do
           cache: cache(),
           commitment_policy: :require_encrypt_require_decrypt | :require_encrypt_allow_decrypt,
           algorithm_suite_id: 0x0578 | 0x0478,
+          accept_suites: [non_neg_integer()],
           max_encrypted_data_keys: pos_integer(),
           static_encryption_context: context(),
           context_profile: profile(),
@@ -334,6 +350,7 @@ defmodule Encryptor.Vault.Config do
     :cache,
     :commitment_policy,
     :algorithm_suite_id,
+    :accept_suites,
     :max_encrypted_data_keys,
     :static_encryption_context,
     :context_profile,
@@ -370,6 +387,7 @@ defmodule Encryptor.Vault.Config do
       cache: false,
       commitment_policy: @default_commitment_policy,
       algorithm_suite_id: @default_algorithm_suite_id,
+      accept_suites: [],
       max_encrypted_data_keys: @default_max_encrypted_data_keys,
       static_encryption_context: %{},
       required_context: [],
@@ -535,6 +553,7 @@ defmodule Encryptor.Vault.Config do
          {:ok, provider_state} <- provider_state(vault, provider),
          {:ok, policy} <- commitment_policy(vault, opts),
          {:ok, suite} <- algorithm_suite_id(vault, opts),
+         {:ok, accepted} <- accept_suites(vault, opts),
          {:ok, edks} <- max_encrypted_data_keys(vault, opts),
          {:ok, cache} <- cache(vault, opts),
          {:ok, profile} <- context_profile(vault, opts),
@@ -557,6 +576,7 @@ defmodule Encryptor.Vault.Config do
          cache: cache,
          commitment_policy: policy,
          algorithm_suite_id: suite,
+         accept_suites: accepted,
          max_encrypted_data_keys: edks,
          static_encryption_context: static,
          context_profile: profile,
@@ -718,6 +738,28 @@ defmodule Encryptor.Vault.Config do
       _other -> {:error, error(vault, {:invalid_config, :algorithm_suite_id, :unsupported})}
     end
   end
+
+  # ADR-0001 Amendment D, D2: the suites a vault reads besides the one it
+  # writes. Each is a suite the engine can read, so a message written under
+  # any of them - one without key commitment included, which another writer
+  # may have produced - stays readable by listing its suite; the engine is
+  # asked rather than the list spelled a second time here. The refusal takes
+  # `:algorithm_suite_id`'s detail. Walked by hand rather than with
+  # `Enum.all?/2`, so an improper list is refused rather than raised on.
+  defp accept_suites(vault, opts) do
+    ids = Keyword.get(opts, :accept_suites)
+
+    if suite_ids?(ids),
+      do: {:ok, Enum.uniq(ids)},
+      else: {:error, error(vault, {:invalid_config, :accept_suites, :unsupported})}
+  end
+
+  defp suite_ids?([]), do: true
+
+  defp suite_ids?([id | rest]),
+    do: match?({:ok, _suite}, AlgorithmSuite.by_id(id)) and suite_ids?(rest)
+
+  defp suite_ids?(_other), do: false
 
   defp max_encrypted_data_keys(vault, opts) do
     case Keyword.get(opts, :max_encrypted_data_keys) do

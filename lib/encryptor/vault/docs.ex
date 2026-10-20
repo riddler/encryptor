@@ -78,6 +78,12 @@ defmodule Encryptor.Vault.Docs do
     `Encryptor.Envelope.unwrap/2`, which returns a key descriptor, never by
     a vault's `decrypt/2`, which would return the bare scope master key.
 
+    A message written under an algorithm suite other than the vault's
+    `:algorithm_suite_id` is `:decrypt_failed` as well, unless the vault's
+    `:accept_suites` lists that suite: the default refuses any suite other
+    than the configured one, and a host lists old suites in `:accept_suites`
+    (default empty) during migration (ADR-0001 Amendment D).
+
     ## Options
 
       * `:key` - the selector handed to the key provider, typed by the
@@ -147,6 +153,12 @@ defmodule Encryptor.Vault.Docs do
     `encryptor-` prefix - a scope-key wrapping - is `:decrypt_failed`, as it
     is from `decrypt/2`. A wrapping is moved onto a new root with
     `Encryptor.Envelope.rewrap/2`.
+
+    A message under an algorithm suite the vault neither writes nor lists in
+    `:accept_suites` is `:decrypt_failed` too, as it is from `decrypt/2`. The
+    re-encrypt writes the vault's configured suite, so a host moving its
+    messages onto a new suite lists the old one in `:accept_suites` while
+    the rekey runs (ADR-0001 Amendment D).
 
     One pair is not the host's and is not carried: under a signing suite
     (`0x0578`, the default) the engine stores the message's signature

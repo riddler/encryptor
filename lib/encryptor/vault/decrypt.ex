@@ -29,7 +29,9 @@ defmodule Encryptor.Vault.Decrypt do
   #      four layers the writer composed the stored one from, with `"scope_ref"`
   #      injected by the vault on a `:scoped` vault and refused from a caller
   #      (ADR-0004 decision 4).
-  #   6. **The value comparison** (ADR-0004 decision 6), below.
+  #   6. The suite check (ADR-0001 Amendment D): the message's suite is the
+  #      one the vault writes or one `:accept_suites` lists. Then **the value
+  #      comparison** (ADR-0004 decision 6), below.
   #   7. The context the engine is handed: the reproduced pairs whose key the
   #      header stores or the vault requires, and no other (ADR-0004
   #      Amendment B, B3), below.
@@ -243,8 +245,10 @@ defmodule Encryptor.Vault.Decrypt do
           {:ok, Context.context()} | {:error, Error.t()}
   def agreed_stored(config, ciphertext, reproduced, operation) do
     case Message.describe(ciphertext) do
-      {:ok, %Info{encryption_context: stored}} ->
-        with :ok <- compare(config, stored, reproduced, operation), do: {:ok, stored}
+      {:ok, %Info{encryption_context: stored, algorithm_suite_id: suite}} ->
+        with :ok <- accepted_suite(config, suite, operation),
+             :ok <- compare(config, stored, reproduced, operation),
+             do: {:ok, stored}
 
       # A header this package cannot parse is not a message it can compare
       # against. It depends on the bytes, so it collapses like every other
@@ -254,6 +258,26 @@ defmodule Encryptor.Vault.Decrypt do
       {:error, %Error{engine: engine}} ->
         {:error, Error.decrypt_failed(config.vault, operation, engine)}
     end
+  end
+
+  # ADR-0001 Amendment D: a vault reads the suite it writes and the suites
+  # `:accept_suites` lists, and refuses any other, before the context is
+  # compared and before the engine is called. The suite is read from the
+  # message, so the refusal collapses to `:decrypt_failed` (decision 10, as
+  # a commitment policy rejection does), with the suite in `:engine` for an
+  # operator's log line. Every read goes through here - `decrypt/3`, the
+  # rekey's read half, and the envelope's unwrap and rewrap through those
+  # two - so the one setting decides all of them.
+  @spec accepted_suite(Config.t(), non_neg_integer(), Error.operation()) ::
+          :ok | {:error, Error.t()}
+  defp accepted_suite(%Config{algorithm_suite_id: suite}, suite, _operation), do: :ok
+
+  defp accepted_suite(%Config{accept_suites: accepted} = config, suite, operation) do
+    if suite in accepted,
+      do: :ok,
+      else:
+        {:error,
+         Error.decrypt_failed(config.vault, operation, {:algorithm_suite_not_accepted, suite})}
   end
 
   # Two scans, each sorted before it reports, so a message failing on two
