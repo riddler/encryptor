@@ -1528,3 +1528,84 @@ Provenance: bead `enc-m2m9`.
 
 Nothing above changes. No decision is amended and no line above is edited.
 This Note carries no status of its own.
+
+## Note (2026-10-20): two "still the host's" sentences read with `Encryptor.Ecto.KeyStore.shred/3`, and the worked example's configuration reads with today's options
+
+One reading, which changes no decision. The cites in this record and in
+this package's `lib/` are read at enc `66b0874`; the cites in
+`encryptor_ecto` are read at its `58a0688`.
+
+**The two sentences.** Decision 8's closing paragraph says ADR-0005
+decision 10's argument survives "because the store delete is still the
+host's and the destroy is still a GCP API call the host's runbook makes"
+(anchor "Two things this does not change", `:562-565`). The worked
+example's Offboarding step 2 reads "Delete every wrapping for the tenant
+from the key store. Unchanged, and still the host's `DELETE`." (`:831-832`).
+Both were written before `encryptor_ecto` 0.6.0 shipped
+`Encryptor.Ecto.KeyStore.shred/3`. Neither is edited.
+
+Read both as follows. For a host whose vault's provider is `encryptor_ecto`'s
+Ecto Repo key store, `Encryptor.Ecto.KeyStore`, configured with its
+`:gcp_kms` option for a table holding `"gcp_kms_ciphertext"` rows
+(`lib/encryptor/ecto/key_store.ex:51`, and its section "`:gcp_kms` is the
+GCP branch's client, and the store keeps the read" at `:80`), the store
+delete is `Encryptor.Ecto.KeyStore.shred/3` with `version: :all` (`:623`).
+It deletes the scope's rows from the store the vault reads, in one
+transaction, and by default returns once the vault's cache `max_age` has
+passed after the delete committed (`encryptor_ecto` ADR-0007 decision 3).
+It does not touch GCP: step 2a's `DestroyCryptoKeyVersion` stays the
+host's, a call the host's runbook makes. A vault whose provider is not
+`Encryptor.Ecto.KeyStore`, this provider configured directly with its own
+`:store` included, is refused by `shred/3` as
+`{:not_a_key_store_vault, vault}` (`:707-708`), and its host still deletes
+the rows itself, as both sentences say. ADR-0005 decision 10's argument
+still holds for this package, which ships no `shred/2`: the delete lives in
+the package that owns the store. The provider's moduledoc reads the same
+way (`lib/encryptor/provider/gcp_kms.ex`, section "The shred, and why it is
+not a function here", `:244-250`).
+
+**The configuration example.** The worked example's `config` block
+(`:776-786`) sets `store: MyApp.TenantKeys` and
+`max_age: :timer.minutes(5)` at the top level, after the provider tuple. A
+vault refuses both at start: every configuration layer is a keyword list of
+known options, and an option outside that set is refused with
+`{:invalid_config, layer, {:unknown_options, keys}}`
+(`lib/encryptor/vault/config.ex:72-83`), as it has been since 0.6.0.
+`:store` is this provider's own option, required: a one-argument function
+taking a `scope_ref` and answering that scope's rows newest first
+(`lib/encryptor/provider/gcp_kms.ex:51-58`), and a module there is refused
+as `{:invalid_config, :provider, {:not_a_closure, :store}}` (`:648`).
+`:max_age` is a bound inside the vault's `:cache` option, in seconds
+(`lib/encryptor/vault/config.ex:102-109`). Read the block as:
+
+```elixir
+config :my_app, MyApp.TenantVault,
+  provider:
+    {Encryptor.Provider.GcpKms,
+     project: "myapp-prod",
+     location: "us-east1",
+     key_ring: "encryptor-tenant-keys",
+     reference_subkey: {:system, "ENCRYPTOR_REFERENCE_SUBKEY"},
+     http_client: MyApp.Finch,
+     goth: MyApp.Goth,
+     store: &MyApp.TenantKeys.live/1},
+  cache: [max_age: 300]
+```
+
+`MyApp.TenantKeys.live/1` stands for the host's read, as
+`MyApp.ScopeKeys.live/1` does in the provider moduledoc's own example
+(`lib/encryptor/provider/gcp_kms.ex:31-42`), and 300 seconds is the five
+minutes the example meant. Every other line of the block is the example's
+own, and one of them also needs a reading: this package does not resolve
+`{:system, "ENCRYPTOR_REFERENCE_SUBKEY"}`. The provider accepts
+`:reference_subkey` only as a 32-byte binary and refuses anything else at
+start with `{:invalid_config, :reference_subkey, :invalid_length}`
+(`:636-641`), so read that line as the 32-byte subkey the host reads at
+start and puts in the provider options from its vault's `init/1`, the
+pattern `guides/secrets-at-start.md` describes in its section "Reading the
+environment at boot".
+
+Provenance: bead `enc-me98`.
+
+Nothing above changes. No decision is amended and no line above is edited.
+This Note carries no status of its own.
