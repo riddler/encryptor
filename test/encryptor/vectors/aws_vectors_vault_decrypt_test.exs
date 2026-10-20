@@ -195,14 +195,21 @@ defmodule Encryptor.Vectors.AwsVectorsVaultDecryptTest do
 
     start_vault(Scoped, vector, keys, reference_subkey: :crypto.strong_rand_bytes(32))
 
-    # A boolean, so a failure renders the case id and never a plaintext.
+    # A boolean, so a failure renders the case id and never a plaintext. The
+    # refusal must not be the suite check's: `Scoped` lists every suite, and
+    # the `:engine` term is checked so a suite refusal cannot stand in for the
+    # required-context one this test names.
     refused? =
-      match?(
-        {:error, %Error{reason: :decrypt_failed, operation: :decrypt, vault: Scoped}},
-        Scoped.decrypt(vector.ciphertext, key: "any-scope")
-      )
+      case Scoped.decrypt(vector.ciphertext, key: "any-scope") do
+        {:error,
+         %Error{reason: :decrypt_failed, operation: :decrypt, vault: Scoped, engine: engine}} ->
+          not match?({:algorithm_suite_not_accepted, _suite}, engine)
 
-    assert refused?, "the :scoped vault did not refuse #{vector.id}"
+        _other ->
+          false
+      end
+
+    assert refused?, "the :scoped vault did not refuse #{vector.id} for its scope reference"
   end
 
   # -- running ----------------------------------------------------------------
