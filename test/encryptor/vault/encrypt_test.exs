@@ -609,6 +609,9 @@ defmodule Encryptor.Vault.EncryptTest do
     # because the vault module is the entire public surface, and a surface a
     # host cannot see declared is a surface it reaches past.
     test "a vault module answers encrypt/2 and encrypt!/2" do
+      # `function_exported?/3` answers false for a module not yet loaded.
+      Code.ensure_loaded!(EncryptVaults.App)
+
       assert function_exported?(EncryptVaults.App, :encrypt, 2)
       assert function_exported?(EncryptVaults.App, :encrypt!, 2)
       assert Vault.behaviour_info(:callbacks) |> Enum.member?({:encrypt, 2})
