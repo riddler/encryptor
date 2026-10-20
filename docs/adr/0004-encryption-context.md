@@ -2400,3 +2400,141 @@ The `Encryptor.Error` moduledoc names both values.
 
 The decision's other claims stand and no sentence above is edited. This Note
 carries no status of its own.
+
+## Amendment C (2026-10-20): decrypt refuses a per-call context key the message's stored context lacks, unless `:legacy_context` is `:accept`
+
+Status: **proposed (2026-10-20)**. This amendment only adds: no line above is
+edited. It amends decision 6's reach on the read side and adds one vault
+option, `:legacy_context`. It adds no term to decision 8's vocabulary. The
+decision was ruled by the operator, 2026-10-19. The lib/ cites below name
+functions this change adds or edits, so they are anchors, not line numbers.
+
+### The gap it closes
+
+Decision 6, under "The reach of the comparison, once it is ours", compares
+only keys present in both the reproduced and the stored context: "A reader
+may supply a key the message does not carry, and it is ignored." Its reason,
+that a required scope key closes the gap for the scope, holds for the keys
+`:required_context` names. It does not hold for the rest, and
+`:required_context` defaults to empty. So a message written under one
+per-call context, or none, read under a different `table` or `column` claim:
+a value written without a `column` key decrypted under any `column` a reader
+named. The claim a caller passed bound nothing the writer had not also
+passed.
+
+### C1. The decision
+
+In the ruling's words:
+
+> Refuse; :legacy_context switch for migration. Default :refuse; a host sets
+> :legacy_context :accept while re-encrypting pre-context ciphertexts.
+
+So decrypt refuses a key the caller passes in this call's
+`:encryption_context` when the message's stored context lacks that key. A
+key the vault's `:required_context` names is checked as today: the 1.1
+engine binds a required pair without storing it, and agreement on it is the
+engine's unwrap (Amendment B, B2), so its absence from the header is not a
+disagreement.
+
+The refusal reaches the per-call layer only, the keys the caller passed on
+this decrypt. A key from the vault's static configuration that the message
+does not carry is still ignored: decision 6's second bullet, that requiring
+the reproduced context to cover the stored one would make every message
+unreadable the moment a host adds an advisory key to a vault's static
+configuration, stands for that layer, and the vault-supplied and
+package-reserved layers are the vault's own (decision 4, and the package
+pair `unreproduced_package_key/2` already refuses). A key the message
+carries that the claim omits is still ignored, as decision 6's second bullet
+has it.
+
+### C2. The option
+
+`:legacy_context` is `:refuse` or `:accept` and defaults to `:refuse`.
+`:refuse` is C1. `:accept` keeps the answer before this amendment: a per-call
+key the message does not carry is ignored, as decision 6 had it. It is for a
+migration window, while a host re-encrypts pre-context ciphertexts; any other
+value refuses the start with `{:invalid_config, :legacy_context, :unknown}`,
+the detail `:context_profile` uses for a value outside its set
+(`legacy_context/2` in `lib/encryptor/vault/config.ex`). The option is read
+on the decrypt side only; encrypt is unchanged.
+
+### C3. Where the check runs, and which paths refuse
+
+The check is `unstored_per_call_key/3` (`lib/encryptor/vault/decrypt.ex`),
+the third scan of `compare/5`, which `agreed_stored/5` calls on the header
+the vault already parses for decision 6: after the suite check of ADR-0001
+Amendment D and that comparison's two scans, and before the engine is
+called. A key that both disagrees and is unstored cannot exist, so the order
+decides only which key a message failing on several is reported under; the
+scan is sorted, as the other two are.
+
+- `decrypt/3` and `decrypt!/3`, the public read, pass the keys of the
+  caller's `:encryption_context`, and refuse.
+- `rekey/3` and `rekey!/3` reach the same comparison but pass no per-call
+  key to it. Their `:encryption_context` option accepts only a key the vault
+  requires and the header does not store, and refuses every other key with
+  `{:reserved_context_key, key}` before the comparison (Amendment B, B1), so
+  no key it carries is one this check refuses. A rekey of a message written
+  without a key reads under either setting; it preserves the message's
+  context, so it does not add the key either.
+- `Encryptor.Envelope.unwrap/2` and `Encryptor.Envelope.rewrap/2` open a
+  wrapping through the root vault's decrypt and rekey with no per-call
+  context, so the check has nothing to refuse there.
+
+`Encryptor.Message.describe/1` still reads any header and decides nothing.
+
+### C4. The refusal's shape
+
+A per-call key the message's stored context lacks is `:decrypt_failed`. The
+stored context is read from the message, so this is decision 8's collapse,
+the row "Reader supplies a value that disagrees with the message": the
+caller's claim names a value the message was not written under. `:engine`
+carries `{:encryption_context_mismatch, key}`, the term decision 6's own
+comparison puts there, so an operator's log line reads the same as for a
+disagreeing value; it is never rendered by `Exception.message/1`, as no
+`:engine` term is.
+
+### Upgrade note
+
+A host that changes nothing reads every message whose stored context carries
+each key its call sites pass, as before. What changes is a message written
+without a key the reader now passes per call: it is now refused. That reaches
+a host whose call sites began passing a context key after some rows were
+written (a pre-context ciphertext), a host whose writers and readers pass
+different per-call keys, and a reader that claims an advisory key per call
+that its writers never wrote. A key the vault's `:required_context` names is
+not affected.
+
+Such a host sets `:legacy_context` to `:accept` while it re-encrypts:
+
+```elixir
+config :my_app, MyApp.Vault,
+  legacy_context: :accept
+```
+
+It decrypts each pre-context message and encrypts the plaintext again under
+the context its call sites pass. That is an encrypt of new data, not a
+rekey: `rekey/3` preserves the context it finds, so it cannot add the key
+(ADR-0005 decision 1's R3). It then sets `:legacy_context` back to
+`:refuse`, or removes it, once no such message remains. No message already
+written becomes unreadable: under `:accept` it reads as before, and under
+either setting a reader that does not claim the missing key reads it too.
+
+### What this changes
+
+Decision 6's text above is unchanged. On the read side, its first reach
+bullet, "A reader may supply a key the message does not carry, and it is
+ignored", now holds for a per-call key only under `:legacy_context: :accept`,
+and for a key from the static layer under either setting. Amendment B's B3
+still filters the context the engine is handed; under `:refuse` a per-call
+key it would have left out is refused before it runs.
+
+The documents that described the old answer are rewritten by the same
+change: the `decrypt/2` documentation in `lib/encryptor/vault/docs.ex`, the
+`Encryptor.Context` and `Encryptor.Error` moduledocs, the `:legacy_context`
+option documentation in `lib/encryptor/vault/config.ex`, "What the
+encryption context binds" in
+`docs/explanation/security-model.md`, the database-reader and wrong-context sections of
+`docs/explanation/threat-model.md`, the context section of
+`guides/getting-started.md` and the README's decrypt example. The changed
+answer ships in encryptor 0.9.0.
