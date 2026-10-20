@@ -14,8 +14,11 @@ defmodule Encryptor.Vault.DecryptTest do
   @pan "4111111111111111"
   @columns %{"table" => "payment_methods", "column" => "pan"}
 
-  defp start_vault(vault) do
-    start_supervised!(Supervisor.child_spec({vault, []}, restart: :temporary))
+  # A plaintext with no meaning, for the tests that need one.
+  @value "a value to keep"
+
+  defp start_vault(vault, opts \\ []) do
+    start_supervised!(Supervisor.child_spec({vault, opts}, restart: :temporary))
     vault
   end
 
@@ -412,21 +415,80 @@ defmodule Encryptor.Vault.DecryptTest do
   end
 
   describe "the suite a message was written under" do
-    # Pins where signing stops, as the threat model states it: the configured
-    # `:algorithm_suite_id` is the suite a vault writes, and decrypt reads a
-    # message under whichever of the two accepted suites it names.
-    #
-    # sabotage: made agree/4 in decrypt.ex refuse a message whose suite differs
-    # from the configured one - red, on the signing vault's read.
-    test "a signing-suite vault reads an unsigned message under the same key" do
+    # ADR-0001 Amendment D: a vault reads the suite it writes and the suites
+    # `:accept_suites` lists, and refuses any other. `DecryptVaults.Loose`
+    # writes `0x0478` and `EncryptVaults.App` writes `0x0578`, under the same
+    # key, so the suite is the only thing that differs between them.
+
+    # sabotage: made accepted_suite/3 in decrypt.ex answer :ok for every
+    # suite - red, the signing vault reads the unsigned message.
+    test "a signing-suite vault refuses an unsigned message under the same key" do
       writer = start_vault(DecryptVaults.Loose)
       reader = start_vault(EncryptVaults.App)
 
-      ciphertext = writer.encrypt!(@pan, encryption_context: @columns)
+      ciphertext = writer.encrypt!(@value)
 
       assert {:ok, %Message.Info{algorithm_suite_id: 0x0478}} = Message.describe(ciphertext)
-      assert {:ok, %Config{algorithm_suite_id: 0x0578}} = Config.fetch(reader)
-      assert {:ok, @pan} = reader.decrypt(ciphertext, encryption_context: @columns)
+      assert {:ok, %Config{algorithm_suite_id: 0x0578, accept_suites: []}} = Config.fetch(reader)
+
+      assert {:error,
+              %Error{
+                reason: :decrypt_failed,
+                vault: EncryptVaults.App,
+                operation: :decrypt,
+                engine: {:algorithm_suite_not_accepted, 0x0478}
+              }} = reader.decrypt(ciphertext)
+    end
+
+    # This test pinned the old answer, under the name "a signing-suite vault
+    # reads an unsigned message under the same key", until Amendment D made
+    # that read the `:accept_suites` arm. It keeps the read, scoped to it.
+    #
+    # sabotage: made accepted_suite/3 in decrypt.ex ignore `:accept_suites`
+    # (refuse every suite but the configured one) - red, the listed suite is
+    # refused.
+    test "a signing-suite vault reads an unsigned message when :accept_suites lists its suite" do
+      writer = start_vault(DecryptVaults.Loose)
+      reader = start_vault(EncryptVaults.App, accept_suites: [0x0478])
+
+      ciphertext = writer.encrypt!(@value)
+
+      assert {:ok, %Message.Info{algorithm_suite_id: 0x0478}} = Message.describe(ciphertext)
+      assert {:ok, @value} = reader.decrypt(ciphertext)
+    end
+
+    # The other direction: the refusal is not about signing, it is about the
+    # suite. sabotage: made accepted_suite/3 refuse only 0x0478 - red, the
+    # unsigned vault reads the signed message.
+    test "an unsigned-suite vault refuses a signed message unless :accept_suites lists it" do
+      writer = start_vault(EncryptVaults.App)
+      ciphertext = writer.encrypt!(@value)
+      assert {:ok, %Message.Info{algorithm_suite_id: 0x0578}} = Message.describe(ciphertext)
+
+      start_vault(DecryptVaults.Loose)
+
+      assert {:error,
+              %Error{
+                reason: :decrypt_failed,
+                engine: {:algorithm_suite_not_accepted, 0x0578}
+              }} = DecryptVaults.Loose.decrypt(ciphertext)
+
+      :ok = stop_supervised(DecryptVaults.Loose)
+      start_vault(DecryptVaults.Loose, accept_suites: [0x0578])
+
+      assert {:ok, @value} = DecryptVaults.Loose.decrypt(ciphertext)
+    end
+
+    # sabotage: made accepted_suite/3 consult `:accept_suites` alone, dropping
+    # its configured-suite clause - red, a vault whose list names only the
+    # other suite refuses its own message.
+    test "the configured suite is read whatever :accept_suites lists" do
+      vault = start_vault(DecryptVaults.Loose, accept_suites: [0x0578])
+
+      ciphertext = vault.encrypt!(@value)
+
+      assert {:ok, %Message.Info{algorithm_suite_id: 0x0478}} = Message.describe(ciphertext)
+      assert {:ok, @value} = vault.decrypt(ciphertext)
     end
   end
 

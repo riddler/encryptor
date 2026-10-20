@@ -161,17 +161,24 @@ puts the key that wraps data keys in every reader's hands. Any reader can then
 write a message, signed or not, that every other holder of the key accepts,
 and the signature says nothing about who wrote it.
 
-Decrypt does not check the suite either. `:algorithm_suite_id` is the suite a
-vault writes, not one it requires on read: a vault configured for `0x0578`
-decrypts a `0x0478` message under the same key. So even on the KMS path the
-signature holds only while no unsigned message exists under that key, because
-a reader that can unwrap an unsigned message's data key can write another
+Decrypt checks the suite too. A vault refuses a message unless its suite is
+the configured one or is in `:accept_suites`: the default refuses any suite
+other than the configured one, so a vault configured for `0x0578` refuses a
+`0x0478` message under the same key. A host lists old suites in
+`:accept_suites` (default empty) during migration: after moving a vault from
+one suite to the other, list the old one while `rekey/2` re-encrypts the
+messages written under it (the rekey reads under the same setting), then
+remove it. So on the KMS path the signature holds while the vault does not
+list `0x0478`; a vault that lists it reads unsigned messages again, and a
+reader that can unwrap an unsigned message's data key can write another
 message under it.
 
 Two suites are accepted and nothing else is. `:commitment_policy` may be
 relaxed from `:require_encrypt_require_decrypt` to
 `:require_encrypt_allow_decrypt` when you have older non-committed messages to
-read; `:forbid_encrypt_allow_decrypt` is refused outright at start, because a
+read, and their suites listed in `:accept_suites` beside it, since a vault
+reads only the suite it writes and the suites that list names;
+`:forbid_encrypt_allow_decrypt` is refused outright at start, because a
 setting that turns key commitment off will eventually be turned off by someone
 who does not know what it does (ADR-0001 decision 8).
 

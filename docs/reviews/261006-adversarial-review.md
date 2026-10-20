@@ -577,6 +577,17 @@ finding is FIXED or DEFERRED.
   Refusing a suite other than the configured one on decrypt is DEFERRED to
   enc-d4yx.
 
+  2026-10-20: the refusal landed with enc-d4yx, recorded as ADR-0001
+  Amendment D, as ruled by the operator, 2026-10-19: decrypt and rekey refuse
+  a message whose suite is neither the vault's `:algorithm_suite_id` nor
+  listed in the new `:accept_suites` option (default empty), and a host lists
+  old suites there during migration. The test quoted above is re-scoped to
+  that list, as "a signing-suite vault reads an unsigned message when
+  :accept_suites lists its suite"; "a signing-suite vault refuses an unsigned
+  message under the same key" pins the refusal. Both are in
+  [`test/encryptor/vault/decrypt_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/decrypt_test.exs).
+  The entries above are not edited.
+
 ### F13. `derive/3` raises for some bad input instead of returning its error
 
 - **Where:** encryptor at `aac183b`, `lib/encryptor/vault/derive.ex:95-99,125-131`

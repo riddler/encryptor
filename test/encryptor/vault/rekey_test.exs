@@ -14,8 +14,8 @@ defmodule Encryptor.Vault.RekeyTest do
   @pan "4111111111111111"
   @columns %{"table" => "payment_methods", "column" => "pan"}
 
-  defp start_vault(vault) do
-    start_supervised!(Supervisor.child_spec({vault, []}, restart: :temporary))
+  defp start_vault(vault, opts \\ []) do
+    start_supervised!(Supervisor.child_spec({vault, opts}, restart: :temporary))
     vault
   end
 
@@ -497,6 +497,46 @@ defmodule Encryptor.Vault.RekeyTest do
 
       assert Map.keys(context(new)) == [@verification_key]
       assert {:ok, @pan} = vault.decrypt(new, key: "merchant_a", encryption_context: @columns)
+    end
+  end
+
+  describe "the suite a message was written under" do
+    # ADR-0001 Amendment D: the rekey's read half refuses a suite the vault
+    # neither writes nor lists in `:accept_suites`, as decrypt does, so a
+    # host moving its messages to a new suite lists the old one while the
+    # rekey runs. `DecryptVaults.Loose` writes `0x0478` and
+    # `EncryptVaults.App` writes `0x0578`, under the same key.
+    @value "a value to keep"
+
+    # sabotage: made accepted_suite/3 in decrypt.ex answer :ok for every
+    # suite - red, the rekey reads the unlisted suite and writes a message.
+    test "a rekey refuses a message under a suite the vault does not accept" do
+      writer = start_vault(DecryptVaults.Loose)
+      rotator = start_vault(EncryptVaults.App)
+
+      old = writer.encrypt!(@value)
+
+      assert {:error,
+              %Error{
+                reason: :decrypt_failed,
+                vault: EncryptVaults.App,
+                operation: :rekey,
+                engine: {:algorithm_suite_not_accepted, 0x0478}
+              }} = rotator.rekey(old)
+    end
+
+    # sabotage: made accepted_suite/3 in decrypt.ex ignore `:accept_suites` -
+    # red, the listed suite is refused and nothing is rewritten.
+    test "a rekey reads a listed suite and writes the configured one" do
+      writer = start_vault(DecryptVaults.Loose)
+      rotator = start_vault(EncryptVaults.App, accept_suites: [0x0478])
+
+      old = writer.encrypt!(@value)
+      assert {:ok, new} = rotator.rekey(old)
+
+      assert {:ok, %Message.Info{algorithm_suite_id: 0x0478}} = Message.describe(old)
+      assert {:ok, %Message.Info{algorithm_suite_id: 0x0578}} = Message.describe(new)
+      assert {:ok, @value} = rotator.decrypt(new)
     end
   end
 
