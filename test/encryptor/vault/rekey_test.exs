@@ -500,6 +500,51 @@ defmodule Encryptor.Vault.RekeyTest do
     end
   end
 
+  describe "a message written without a per-call key" do
+    # ADR-0004 Amendment C: decrypt refuses a per-call key the message's
+    # stored context lacks. A rekey passes that check no per-call key: its
+    # option accepts only a key the vault requires, and it preserves the
+    # context it finds. So a message written without a key rekeys under
+    # either `:legacy_context` setting, and is still without it after.
+    @value "a value to keep"
+
+    # sabotage: passed the keys of the composed context from rekey/7 to
+    # agreed_stored/5 as per-call keys - red, the static key the message was
+    # written without is refused under the default.
+    test "rekeys under the default and under :accept, carrying its context" do
+      start_vault(DecryptVaults.Loose)
+      old = DecryptVaults.Loose.encrypt!(@value, encryption_context: %{"table" => "t"})
+      :ok = stop_supervised(DecryptVaults.Loose)
+
+      for setting <- [:refuse, :accept] do
+        start_vault(DecryptVaults.Loose,
+          legacy_context: setting,
+          static_encryption_context: %{"app" => "a_host"}
+        )
+
+        assert {:ok, new} = DecryptVaults.Loose.rekey(old)
+        assert context(new) == %{"table" => "t"}
+        :ok = stop_supervised(DecryptVaults.Loose)
+      end
+    end
+
+    # The option still refuses a key the vault does not require, under
+    # either setting, so a rekey never adds the key a message lacks.
+    # sabotage: made acceptable?/4 accept a key the vault does not require -
+    # red, the claim is read as a per-call key and the rekey proceeds.
+    test "the option refuses the missing key under either setting" do
+      for setting <- [:refuse, :accept] do
+        start_vault(DecryptVaults.Loose, legacy_context: setting)
+        old = DecryptVaults.Loose.encrypt!(@value, encryption_context: %{"table" => "t"})
+
+        result = DecryptVaults.Loose.rekey(old, encryption_context: %{"column" => "c"})
+
+        assert reason(result) == {:reserved_context_key, "column"}
+        :ok = stop_supervised(DecryptVaults.Loose)
+      end
+    end
+  end
+
   describe "the suite a message was written under" do
     # ADR-0001 Amendment D: the rekey's read half refuses a suite the vault
     # neither writes nor lists in `:accept_suites`, as decrypt does, so a

@@ -285,9 +285,12 @@ things follow, and both matter:
 - no pair can be edited or swapped without breaking the decrypt, which is what
   binds a message to the row and column it was written for.
 
-A pair binds the message only if it is in the message. A decrypt compares the
-keys present in both the message and the reader's context, so a value written
-without a `column` key would decrypt under any `column` a reader names.
+A decrypt compares the keys present in both the message and the reader's
+context, and refuses a key the reader passes that the message's stored context
+lacks, so a value written without a `column` key is refused under any `column`
+a reader names. A host whose older messages were written before its call sites
+passed a key sets the vault's `:legacy_context` to `:accept` while
+re-encrypting those pre-context ciphertexts; the default is `:refuse`.
 Because `required_context: ["table", "column"]` is configured above, a call
 that omits either is refused rather than silently written unbound:
 

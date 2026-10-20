@@ -157,14 +157,18 @@ key-store rows and the messages show how many key versions each scope has.
 A reader who can also *write* gains little more, within one limit. A wrapping
 moved to another scope's or version's row fails to unwrap, because the package
 binds every wrapping to where it was written. A value moved to another column
-fails to decrypt only when the message's context names the column it was
-written for. The vault compares the keys present in both the message's stored
-context and the reader's claim: a key the writer left out binds nothing, so a
-value written without a `column` key decrypts under any `column` a reader
-claims. The binding of a context key holds when the vault's `:required_context`
-names it, which refuses a write that leaves the key out and a read of a message
-written without it, or when every writer of that vault passes the key on every
-call.
+fails to decrypt when the reader claims a column. The vault compares the keys
+present in both the message's stored context and the reader's claim, and
+refuses a key the reader passes in that call's context when the message's
+stored context lacks it (ADR-0004 Amendment C), so a value written without a
+`column` key is refused under any `column` a reader claims. Two things loosen
+that. A host sets the vault's `:legacy_context` to `:accept` while
+re-encrypting pre-context ciphertexts, and under `:accept` a key the writer
+left out binds nothing: such a value decrypts under any `column` a reader
+claims. And a reader that claims no `column` reads a value written without
+one, under either setting. The binding of a context key holds whatever the
+reader claims when the vault's `:required_context` names it, which refuses a
+write that leaves the key out and a read of a message written without it.
 
 Pinned by: ADR-0003 decision 10, the blast radius table
 ([the envelope record](https://github.com/riddler/encryptor/blob/main/docs/adr/0003-per-tenant-envelope.md));
@@ -172,8 +176,10 @@ Pinned by: ADR-0003 decision 10, the blast radius table
 to another version's row does not unwrap"
 ([`test/encryptor/envelope_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/envelope_test.exs));
 "a column swap inside one scope fails, and the engine's term shape is ours",
-"a message written without a column reads under any column claim" and "a vault
-requiring the column refuses a message written without it"
+"a vault requiring the column refuses a message written without it", "a
+per-call key the message does not carry is refused by default, as a
+disagreeing value is" and "a per-call key the message does not carry is read
+under legacy_context: :accept, the migration switch"
 ([`test/encryptor/vault/decrypt_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/decrypt_test.exs));
 "is ADR-0003 decision 5's derivation, byte for byte" for the keyed reference
 ([`test/encryptor/envelope_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/envelope_test.exs)).
@@ -223,9 +229,11 @@ with the message on a key the message carries fails, on a cold cache, a warm
 cache and with caching off; a decrypt that leaves out a required key is a loud
 error the caller can fix; and no caller can claim a scope through the context,
 because the scope reference is the vault's to supply from the `:key` selector.
-A key the message does not carry is not compared, so the claim covers a table
-or a column only where the writer passed it, which `:required_context` is the
-way to guarantee (see
+A key the caller passes that the message does not carry is refused, unless
+the vault's `:legacy_context` is `:accept`, the setting a host uses while
+re-encrypting pre-context ciphertexts. A key the caller leaves out is not
+compared, so a reader that claims no column reads a value written without one;
+`:required_context` is the way to guarantee every reader makes the claim (see
 [someone who can read the database](#someone-who-can-read-the-database)).
 
 Two refusals at the edges keep that claim from leaking. A vault refuses to

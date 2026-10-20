@@ -359,6 +359,39 @@ defmodule Encryptor.Vault.ConfigTest do
     end
   end
 
+  describe "a per-call context key the message does not carry" do
+    # ADR-0004 Amendment C, C2.
+    # sabotage: dropped `legacy_context: :refuse` from defaults/0 - red, the
+    # unset option arrives as nil and the start is refused.
+    test "defaults to :refuse" do
+      assert {:ok, %Config{legacy_context: :refuse}} = single()
+      assert Keyword.fetch(Config.defaults(), :legacy_context) == {:ok, :refuse}
+    end
+
+    # sabotage: made legacy_context/2 accept only :refuse - red on :accept.
+    test "accepts :accept, the migration setting" do
+      assert {:ok, %Config{legacy_context: :accept}} = single(legacy_context: :accept)
+    end
+
+    # sabotage: made legacy_context/2 take any atom - red on the first
+    # value below.
+    test "refuses any other value" do
+      for value <- [:ignore, true, "accept", nil, [:accept]] do
+        assert {:invalid_config, :legacy_context, :unknown} =
+                 reason(single(legacy_context: value))
+      end
+    end
+
+    # sabotage: removed :legacy_context from @known_options - red, the
+    # option is refused as unknown.
+    test "is a known option in every layer" do
+      Application.put_env(:encryptor, TestVaults.NoInit, legacy_context: :accept)
+      on_exit(fn -> Application.delete_env(:encryptor, TestVaults.NoInit) end)
+
+      assert {:ok, %Config{legacy_context: :accept}} = single()
+    end
+  end
+
   describe "the suites a vault reads besides its own" do
     # sabotage: dropped `accept_suites: []` from defaults/0 - red, the unset
     # option arrives as nil and the start is refused.

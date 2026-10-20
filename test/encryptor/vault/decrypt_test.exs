@@ -303,11 +303,15 @@ defmodule Encryptor.Vault.DecryptTest do
 
     # ADR-0004 Amendment B, B3: decision 6's "a claim the message does not
     # carry is ignored", on a message whose required pairs are not stored.
+    # This test pinned that read under the default until ADR-0004 Amendment C
+    # made it the `legacy_context: :accept` arm; it keeps the read, scoped to
+    # that arm, which is the one where B3's filter still decides it.
+    #
     # sabotage: made engine_context/3 return the whole reproduced context -
     # red, the engine appends the extra key, the unwrap under it fails, its
     # retry under the stored context alone fails too, and the read is refused.
-    test "an extra claim beside the required pairs is ignored" do
-      vault = start_vault(EncryptVaults.Bound)
+    test "an extra claim beside the required pairs is ignored under legacy_context: :accept" do
+      vault = start_vault(EncryptVaults.Bound, legacy_context: :accept)
 
       ciphertext = vault.encrypt!(@pan, encryption_context: @columns)
       claim = Map.put(@columns, "purpose", "pii")
@@ -315,11 +319,15 @@ defmodule Encryptor.Vault.DecryptTest do
       assert {:ok, @pan} = vault.decrypt(ciphertext, encryption_context: claim)
     end
 
+    # This test pinned that read under the default until ADR-0004 Amendment C
+    # made it the `legacy_context: :accept` arm; it keeps the read, scoped to
+    # that arm.
+    #
     # sabotage: replaced `Map.get(stored, key, value)` with `Map.get(stored, key)`
-    # in compare/4 - red, because a reader's extra key then reads as a mismatch
+    # in compare/5 - red, because a reader's extra key then reads as a mismatch
     # and the comparison stops matching the engine's semantics.
-    test "a claim the message does not carry is ignored" do
-      vault = start_vault(DecryptVaults.Loose)
+    test "a claim the message does not carry is ignored under legacy_context: :accept" do
+      vault = start_vault(DecryptVaults.Loose, legacy_context: :accept)
 
       ciphertext = vault.encrypt!(@pan)
 
@@ -337,14 +345,18 @@ defmodule Encryptor.Vault.DecryptTest do
       assert {:ok, @pan} = vault.decrypt(ciphertext)
     end
 
-    # The two tests below pin where the binding stops, as the threat model
-    # states it: a key binds a message only when the writer passed it, which
-    # `:required_context` is the way to guarantee.
+    # The two tests below pinned where the binding stopped before ADR-0004
+    # Amendment C: a key bound a message only when the writer passed it. The
+    # first is now the `legacy_context: :accept` arm, kept and scoped to it
+    # (it was "a message written without a column reads under any column
+    # claim"); the default's refusal is pinned in "a per-call key the
+    # message does not carry", below. The second is unchanged: a key the
+    # vault requires is checked as before.
     #
     # sabotage: replaced `Map.get(stored, key, value)` with `Map.get(stored, key)`
-    # in compare/4 - red on the first read, which then fails as a mismatch.
-    test "a message written without a column reads under any column claim" do
-      vault = start_vault(DecryptVaults.Loose)
+    # in compare/5 - red on the first read, which then fails as a mismatch.
+    test "a message written without a column reads under any column claim under :accept" do
+      vault = start_vault(DecryptVaults.Loose, legacy_context: :accept)
 
       unbound = vault.encrypt!(@pan, encryption_context: %{"table" => "payment_methods"})
       bound = vault.encrypt!(@pan, encryption_context: @columns)
@@ -411,6 +423,151 @@ defmodule Encryptor.Vault.DecryptTest do
       result = reader.decrypt(ciphertext, encryption_context: @columns)
 
       assert reason(result) == :decrypt_failed
+    end
+  end
+
+  describe "a per-call key the message does not carry" do
+    # ADR-0004 Amendment C, as ruled by the operator, 2026-10-19: decrypt
+    # refuses a key the caller passes in this call's `:encryption_context`
+    # when the message's stored context lacks it, unless the vault's
+    # `:legacy_context` is `:accept`. A key the vault requires is checked as
+    # before, and a key from the static layer is still ignored.
+
+    # sabotage: made unstored_per_call_key/3 answer nil for every config -
+    # red, the claim the writer never passed is read.
+    test "is refused by default, as a disagreeing value is" do
+      vault = start_vault(DecryptVaults.Loose)
+      assert {:ok, %Config{legacy_context: :refuse}} = Config.fetch(vault)
+
+      unbound = vault.encrypt!(@pan, encryption_context: %{"table" => "payment_methods"})
+
+      assert {:error,
+              %Error{
+                reason: :decrypt_failed,
+                vault: DecryptVaults.Loose,
+                operation: :decrypt,
+                engine: {:encryption_context_mismatch, "column"}
+              }} = vault.decrypt(unbound, encryption_context: @columns)
+    end
+
+    # A message written with no per-call context at all, read under two
+    # claims it never carried: the key reported is the first in sorted
+    # order, on every run.
+    #
+    # sabotage: sorted the per-call keys `:desc` in unstored_per_call_key/3 -
+    # red, the refusal names "table".
+    test "a message written with no context is refused when the reader passes one" do
+      vault = start_vault(DecryptVaults.Loose)
+
+      bare = vault.encrypt!(@pan)
+
+      assert engine(vault.decrypt(bare, encryption_context: @columns)) ==
+               {:encryption_context_mismatch, "column"}
+    end
+
+    # The check is the vault's, above the engine and its cache, so a warm
+    # decryption cache answers as a cold one does.
+    #
+    # sabotage: passed no per-call keys from decrypt/7 to agreed_stored/5 -
+    # red, both reads succeed.
+    test "is refused on a warm decryption cache too" do
+      vault = start_vault(EncryptVaults.Cached)
+
+      unbound = vault.encrypt!(@pan, encryption_context: %{"table" => "payment_methods"})
+
+      assert {:ok, @pan} =
+               vault.decrypt(unbound, encryption_context: %{"table" => "payment_methods"})
+
+      assert engine(vault.decrypt(unbound, encryption_context: @columns)) ==
+               {:encryption_context_mismatch, "column"}
+    end
+
+    # sabotage: made unstored_per_call_key/3 refuse every per-call key,
+    # stored or not - red, the reader that passes what the writer passed is
+    # refused.
+    test "a message written with the key reads under the same value" do
+      vault = start_vault(DecryptVaults.Loose)
+
+      bound = vault.encrypt!(@pan, encryption_context: @columns)
+
+      assert {:ok, @pan} = vault.decrypt(bound, encryption_context: @columns)
+    end
+
+    # sabotage: dropped `&1 not in required` from unstored_per_call_key/3 -
+    # red, the 1.1 engine stores no required pair, so every read of a
+    # message written under a required set is refused.
+    test "a key :required_context names is checked as before" do
+      vault = start_vault(EncryptVaults.Bound)
+
+      ciphertext = vault.encrypt!(@pan, encryption_context: @columns)
+
+      assert {:ok, %Message.Info{encryption_context: stored}} = Message.describe(ciphertext)
+      refute Map.has_key?(stored, "column")
+      assert {:ok, @pan} = vault.decrypt(ciphertext, encryption_context: @columns)
+
+      swapped = %{"table" => "payment_methods", "column" => "notes"}
+      assert reason(vault.decrypt(ciphertext, encryption_context: swapped)) == :decrypt_failed
+    end
+
+    # Decision 6's advisory-key reason stands for the static layer: a vault
+    # that gains a static key still reads the messages written before it.
+    #
+    # sabotage: passed the keys of the whole composed context from decrypt/7
+    # instead of the per-call layer's - red, the static key is refused.
+    test "a static key the message does not carry is still ignored" do
+      start_vault(DecryptVaults.Loose)
+      before = DecryptVaults.Loose.encrypt!(@pan, encryption_context: @columns)
+      :ok = stop_supervised(DecryptVaults.Loose)
+
+      start_vault(DecryptVaults.Loose, static_encryption_context: %{"app" => "a_host"})
+
+      assert {:ok, @pan} = DecryptVaults.Loose.decrypt(before, encryption_context: @columns)
+    end
+
+    # sabotage: made unstored_per_call_key/3 ignore `:legacy_context` (refuse
+    # under `:accept` too) - red, the migration read is refused.
+    test "is read under legacy_context: :accept, the migration switch" do
+      vault = start_vault(DecryptVaults.Loose, legacy_context: :accept)
+
+      unbound = vault.encrypt!(@pan, encryption_context: %{"table" => "payment_methods"})
+
+      assert {:ok, @pan} = vault.decrypt(unbound, encryption_context: @columns)
+
+      moved = %{"table" => "receipts"}
+
+      assert engine(vault.decrypt(unbound, encryption_context: moved)) ==
+               {:encryption_context_mismatch, "table"}
+    end
+
+    # The same vault reads the message under either setting when its reader
+    # does not claim the missing key, so no message becomes unreadable.
+    # sabotage: made unstored_per_call_key/3 refuse every per-call key,
+    # stored or not - red, the read under the claim the writer passed fails.
+    test "a reader that does not claim the missing key reads under the default" do
+      vault = start_vault(DecryptVaults.Loose)
+
+      unbound = vault.encrypt!(@pan, encryption_context: %{"table" => "payment_methods"})
+
+      assert {:ok, @pan} =
+               vault.decrypt(unbound, encryption_context: %{"table" => "payment_methods"})
+
+      assert {:ok, @pan} = vault.decrypt(unbound)
+    end
+
+    # agree/5 directly: the per-call keys are the argument that decides it.
+    # sabotage: made unstored_per_call_key/3 answer nil for every config -
+    # red, the call naming "table" is :ok.
+    test "agree/5 refuses a per-call key the message does not store, and only that" do
+      vault = start_vault(DecryptVaults.Loose)
+      {:ok, config} = Config.fetch(vault)
+
+      bare = vault.encrypt!(@pan)
+
+      assert Decrypt.agree(config, bare, @columns) == :ok
+
+      assert {:error,
+              %Error{reason: :decrypt_failed, engine: {:encryption_context_mismatch, "table"}}} =
+               Decrypt.agree(config, bare, @columns, :decrypt, ["table"])
     end
   end
 

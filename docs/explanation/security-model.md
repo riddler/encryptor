@@ -112,15 +112,22 @@ The point is to bind a ciphertext to where it was written, so that bytes moved
 from one column to another, or from one scope's row to another's, fail to
 decrypt instead of decrypting into the wrong place.
 
-That binding reaches only the keys the message carries. A decrypt compares
-the keys present in both the message's stored context and the reader's claim:
-a key the reader adds that the message does not carry is ignored, and so is a
-key of yours the message carries that the reader leaves out. So a value
-written without a `column` key is bound to no column, and it decrypts under
-any column a reader names. The keys that must bind belong in the vault's `:required_context`. The
-vault then refuses a write that leaves one out, a read that leaves one out, and
-a read of a message written without one. A vault without a required set binds
-a key only if every one of its writers passes that key on every call.
+A decrypt compares the keys present in both the message's stored context and
+the reader's claim, and it refuses a key the reader passes in that call's
+context when the message's stored context lacks it. So a value written without
+a `column` key is refused under any column a reader names. A key of yours the
+message carries that the reader leaves out is ignored, and so is a key from the
+vault's static configuration that the message does not carry, so a vault that
+gains a static key still reads what it wrote before.
+
+The refusal has a migration switch, the vault option `:legacy_context`. Its
+default is `:refuse`; a host sets `:legacy_context` to `:accept` while
+re-encrypting pre-context ciphertexts, and under `:accept` a key the reader
+adds that the message does not carry is ignored, as it was before ADR-0004
+Amendment C. The keys that must bind whatever a reader claims belong in the
+vault's `:required_context`. The vault then refuses a write that leaves one
+out, a read that leaves one out, and a read of a message written without one,
+under either setting.
 
 The engine checks the context too, so it would be natural to rely on that.
 The reason this package does not is that the 1.0.x engine's check sat below

@@ -99,9 +99,17 @@ defmodule Encryptor.Vault.Docs do
         before the engine and before any cache, so it holds on the first
         read of a row and on the thousandth alike.
 
-        A key the message does not carry is ignored, and a key the message
-        carries that the claim omits is ignored too. What closes that gap is
-        the vault's configured `:required_context`: omitting one of those is
+        A key the claim passes that the message does not carry is
+        `:decrypt_failed` too: a vault refuses on decrypt a per-call context
+        key the message's stored context lacks, and a key the vault's
+        `:required_context` names is checked as before (ADR-0004
+        Amendment C). The vault's `:legacy_context` is the migration switch:
+        its default is `:refuse`, and a host sets it to `:accept` while
+        re-encrypting pre-context ciphertexts, which ignores such a key as
+        before. A key the message carries that the claim omits is ignored,
+        and so is a key of the vault's static configuration the message does
+        not carry. What makes a reader pass a key is the vault's configured
+        `:required_context`: omitting one of those is
         `{:missing_required_context_keys, keys}`, which is the one context
         failure a caller can act on. On a `:scoped` vault the scope pair is
         the vault's, derived from `:key`, so `"scope_ref"`, `"scope_id"`

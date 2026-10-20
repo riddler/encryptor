@@ -476,6 +476,20 @@ finding is FIXED or DEFERRED.
 
   Refusing a per-call key the stored context lacks is DEFERRED to enc-5vyn.
 
+  2026-10-20: the refusal landed with enc-5vyn, recorded as ADR-0004
+  Amendment C, as ruled by the operator, 2026-10-19: decrypt refuses a
+  caller-supplied per-call context key that the message's stored context
+  lacks, and a key `:required_context` names is checked as before. A vault
+  option `:legacy_context` (default `:refuse`) is the migration switch: a
+  host sets `:legacy_context` to `:accept` while re-encrypting pre-context
+  ciphertexts. The first test quoted above is re-scoped to that setting, as
+  "a message written without a column reads under any column claim under
+  :accept"; the second is unchanged. "a per-call key the message does not
+  carry is refused by default, as a disagreeing value is" pins the refusal.
+  All three are in
+  [`test/encryptor/vault/decrypt_test.exs`](https://github.com/riddler/encryptor/blob/main/test/encryptor/vault/decrypt_test.exs).
+  The entries above are not edited.
+
 ### F10. A root vault used as an application vault returns a scope master key
 
 - **Where:** encryptor at `aac183b`, `lib/encryptor/vault/decrypt.ex:131-165`

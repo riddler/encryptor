@@ -18,7 +18,9 @@ defmodule Encryptor.Error do
     * `:engine` - the underlying error term, unchanged, or `nil`. Three values
       are this package's own rather than the engine's:
       `{:encryption_context_mismatch, key}`, which the vault puts there when
-      its own context comparison refuses (shaped exactly as the engine's);
+      its own context comparison refuses (shaped exactly as the engine's),
+      a per-call context key the message's stored context lacks included
+      (ADR-0004 Amendment C);
       `{:algorithm_suite_not_accepted, suite_id}`, which it puts there when a
       message's suite is neither the vault's `:algorithm_suite_id` nor listed
       in its `:accept_suites` (ADR-0001 Amendment D); and
@@ -38,9 +40,10 @@ defmodule Encryptor.Error do
 
   **Every decrypt-side failure that depends on the message collapses to
   `:decrypt_failed`.** A wrong key, a failed authentication tag, an encryption
-  context mismatch, a required key absent from the message, a commitment
-  policy rejection, and a suite the vault does not accept are
-  indistinguishable in `:reason`. The detail lives in
+  context mismatch, a per-call context key the message does not carry, a
+  required key absent from the message, a commitment policy rejection, and a
+  suite the vault does not accept are indistinguishable in `:reason`. The
+  detail lives in
   `:engine`, for logs only.
 
   Distinguishable decrypt failures are a decryption oracle, and the caller

@@ -76,6 +76,13 @@ defmodule Encryptor.Vault.Rekey do
   # path makes, on purpose: a second copy of it would be a second thing to keep
   # in step with upstream issue #96.
   #
+  # It passes the comparison no per-call key, so the decrypt's refusal of a
+  # per-call key the message does not carry (ADR-0004 Amendment C) has nothing
+  # to refuse here, under either `:legacy_context` setting. The option below
+  # accepts only a key the vault requires, which that refusal exempts, and
+  # refuses every other key itself; and a rekey preserves the context it
+  # finds, so it never adds a key a message was written without.
+  #
   # The same call is what refuses a scope-key wrapping on the public door. A
   # stored pair under this package's own prefix that the composed context
   # does not reproduce is `:decrypt_failed` there (`Encryptor.Vault.Decrypt`,
