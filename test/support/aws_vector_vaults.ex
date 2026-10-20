@@ -17,7 +17,7 @@ defmodule Encryptor.AwsVectorVaults do
     * `Scoped` is a `:scoped` vault: it requires the `"scope_ref"` it injects
       into the reproduced context, which no vector's message carries.
 
-  `Committed` and `Legacy` list every suite the corpus writes in
+  `Committed`, `Legacy` and `Scoped` list every suite the corpus writes in
   `:accept_suites`, so the suite check of ADR-0001 Amendment D passes every
   vector and the rest of the read path is what the vectors test. The vector
   test starts `Committed` with `accept_suites: []` once, to show that check
@@ -72,6 +72,19 @@ defmodule Encryptor.AwsVectorVaults do
 
     use Encryptor.Vault,
       otp_app: :encryptor,
-      context_profile: :scoped
+      context_profile: :scoped,
+      accept_suites: [
+        0x0578,
+        0x0478,
+        0x0378,
+        0x0346,
+        0x0214,
+        0x0178,
+        0x0146,
+        0x0114,
+        0x0078,
+        0x0046,
+        0x0014
+      ]
   end
 end
