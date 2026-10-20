@@ -6,9 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Entries for unreleased work are not written here directly. Each issue drops a
-fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/v0.8.1/changelog.d/README.md); the fragments are assembled
+fragment in [`changelog.d/`](https://github.com/riddler/encryptor/blob/v0.9.0/changelog.d/README.md); the fragments are assembled
 into a version section at release. See that README for the format and for when a
 change warrants an entry at all.
+
+## [0.9.0] - 2026-10-20
+
+### **Breaking**
+
+- A vault now refuses on decrypt and rekey, as `:decrypt_failed`, a message whose algorithm suite is neither its configured `:algorithm_suite_id` nor listed in the new `:accept_suites` option (default empty); a host whose stored messages use another suite lists that suite in `:accept_suites` while it re-encrypts them with `rekey/2`, then removes it (ADR-0001 Amendment D).
+- A vault now refuses on decrypt, as `:decrypt_failed`, a per-call context key the message's stored context lacks; a key `:required_context` names is checked as before. A host whose stored messages were written without a key its readers now pass sets the new `:legacy_context` option to `:accept` (default `:refuse`) while re-encrypting those pre-context ciphertexts, then sets it back (ADR-0004 Amendment C).
 
 ## [0.8.1] - 2026-10-12
 
