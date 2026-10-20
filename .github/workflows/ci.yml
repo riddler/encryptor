@@ -120,15 +120,17 @@ jobs:
 
       # Keyed on the resolved pair and mix.lock, so it never shares an entry
       # with the gate job's cache.
+      # setup-beam's outputs already carry their own prefixes (OTP-..., v...),
+      # so they are joined as they are.
       - name: Cache deps and build
         uses: actions/cache@v4
         with:
           path: |
             deps
             _build
-          key: mix-test-${{ runner.os }}-otp${{ steps.beam.outputs.otp-version }}-ex${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          key: mix-test-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
           restore-keys: |
-            mix-test-${{ runner.os }}-otp${{ steps.beam.outputs.otp-version }}-ex${{ steps.beam.outputs.elixir-version }}-
+            mix-test-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
 
       - name: Fetch dependencies
         run: mix deps.get
