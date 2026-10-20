@@ -1568,3 +1568,129 @@ paragraph of `guides/rotation-runbook.md`. The sentence quoted above is not
 edited.
 
 This Note carries no status of its own.
+
+## Amendment D (2026-10-20): decrypt refuses a suite the vault neither writes nor lists in `:accept_suites`
+
+Status: **proposed (2026-10-20)**. This amendment only adds: no line above is
+edited. It amends decision 9 on the read side and adds one vault option,
+`:accept_suites`. It adds no reason term to decision 10's vocabulary. The
+decision was ruled by the operator, 2026-10-19. The lib/ cites below name
+functions this change adds or edits, so they are anchors, not line numbers.
+
+### The gap it closes
+
+The "Note (2026-10-12): decision 9's reason for signing holds only under two
+conditions" names, as its second condition, "No unsigned message exists under
+that key", and records why the vault did not meet it: "Decrypt does not check
+a message's suite against the vault's `:algorithm_suite_id`: a `0x0578` vault
+reads a `0x0478` message under the same key". The configured suite was the
+suite a vault writes, never one it required. A host that kept the signing
+suite did not get what it chose: a vault on `0x0578` read every unsigned
+message under its key.
+
+### D1. The decision
+
+In the ruling's words:
+
+> Refuse unless in :accept_suites. Default refuses any suite other than the
+> configured one; a host lists old suites in :accept_suites (default empty)
+> during migration.
+
+So decrypt reads a message only when the suite its header names is the
+vault's `:algorithm_suite_id` or is listed in `:accept_suites`, and refuses
+any other suite.
+
+### D2. The option
+
+`:accept_suites` is a list of suite ids and defaults to `[]`. Each id is a
+suite the engine reads (`AwsEncryptionSdk.AlgorithmSuite.by_id/1` answers it):
+the two committed suites a vault can write, and the nine without key
+commitment, which this package never writes but another writer may have. A
+list holding anything else, or a value that is not a list, refuses the start
+with `{:invalid_config, :accept_suites, :unsupported}`, the detail the
+`:algorithm_suite_id` check uses (`accept_suites/2` in
+`lib/encryptor/vault/config.ex`).
+
+The list is wider than the two suites a vault writes because the standing
+rule is that no message already written becomes unreadable. Before this
+amendment a vault configured `commitment_policy:
+:require_encrypt_allow_decrypt` (decision 8's one relaxation) read a message
+under a suite without key commitment; with the list held to the two writable
+suites, no setting would read it again. A suite without key commitment is
+still read only when `:commitment_policy` allows it as well: the list opens
+the suite check, and decision 8's policy is checked after it, unchanged.
+
+Listing the configured suite itself changes nothing: that suite is always
+read. The option is read on the decrypt side only; a vault writes its
+`:algorithm_suite_id` and nothing else.
+
+### D3. Where the check runs, and which paths refuse
+
+The check runs in `agreed_stored/4` (`lib/encryptor/vault/decrypt.ex`), on
+the header the vault already parses for ADR-0004 decision 6's comparison,
+ahead of that comparison and before the engine is called. Every path that
+reads a message through the engine goes through it, so these refuse alike:
+
+- `decrypt/3` and `decrypt!/3`, the public read;
+- `rekey/3` and `rekey!/3`, whose read half calls `agreed_stored/4`: a
+  rekey of a message under an unlisted suite is refused, so a host that
+  rekeys old messages lists their suite for as long as the rekey runs;
+- `Encryptor.Envelope.unwrap/2` and `Encryptor.Envelope.rewrap/2`, which
+  open a wrapping through the root vault's decrypt and rekey. A wrapping is
+  a message the root vault wrote, so the root vault's `:algorithm_suite_id`
+  and `:accept_suites` decide whether it is read; the envelope's own
+  binding check before that (`require_binding/4`) reads the context only
+  and does not look at the suite.
+
+`Encryptor.Message.describe/1` still reads any header and decides nothing.
+Encrypt is unchanged.
+
+### D4. The refusal's shape
+
+A message under a suite the vault does not accept is `:decrypt_failed`. The
+suite is read from the message, so this is decision 10's collapse, the same
+one a commitment policy rejection takes. `:engine` carries
+`{:algorithm_suite_not_accepted, suite_id}` for an operator's log line; it is
+never rendered by `Exception.message/1`, as no `:engine` term is.
+
+### Upgrade note
+
+A host that changes nothing reads every message written under its vault's
+configured suite, as before. What changes is a message under any other
+suite: it is now refused. That reaches a host that changed
+`:algorithm_suite_id` after writing (moving from the `0x0578` default to the
+`0x0478` the getting-started guide recommends for one trust domain, or back),
+a host that reads messages another writer produced under the other suite,
+and a host that relaxed `:commitment_policy` to read messages under a suite
+without key commitment.
+
+Such a host lists the old suite in `:accept_suites` while it re-encrypts:
+
+```elixir
+config :my_app, MyApp.Vault,
+  algorithm_suite_id: 0x0478,
+  accept_suites: [0x0578]
+```
+
+It rekeys each stored message (`rekey/3`, which writes the configured suite
+and needs the same listing to read the old one), then removes the old suite
+from the list once no message under it remains. A host reading messages
+without key commitment lists each of their suites beside the relaxed
+policy. No message already written becomes unreadable: listing its suite
+reads it as before.
+
+### What this changes
+
+Decision 9's text above is unchanged. On the read side the configured suite
+is now also the suite a vault requires, less any suite `:accept_suites`
+lists. The 2026-10-12 Note's second condition no longer has to hold for a
+vault's own reads: while `:accept_suites` does not list `0x0478`, a `0x0578`
+vault refuses an unsigned message whether or not one exists under its key.
+The Note is not edited.
+
+The documents that described the old answer are rewritten by the same
+change: the `:algorithm_suite_id` and `:accept_suites` option documentation
+in `lib/encryptor/vault/config.ex`, the "Why `0x0478`" section of
+`guides/getting-started.md` and the malicious-ciphertext section of
+`docs/explanation/threat-model.md`. The changed answer ships in encryptor
+0.9.0.
