@@ -1491,3 +1491,40 @@ Provenance: bead `enc-6qb2`.
 
 Nothing above changes. No decision is amended, no line above is edited, and
 this Note carries no status of its own.
+
+## Note (2026-10-20): the status a disabled `CryptoKeyVersion` answers `Decrypt` with is undocumented
+
+One reading, which changes no decision. The cites are read at enc `3c3ad24`.
+
+Two passages of this record state as fact what Cloud KMS answers a `Decrypt`
+under a disabled `CryptoKeyVersion`. Amendment B's paragraph "The reversible
+400" (`:1289-1295`) says "Cloud KMS also answers 400 to a `Decrypt` under a
+`CryptoKeyVersion` that is disabled, and enabling the version again makes the
+same call succeed". The Note of 2026-09-30 that accepts Amendment B
+(`:1408-1411`) names that claim as the one about Cloud KMS rather than this
+package, and says it was not re-checked against the service. Neither passage
+is edited.
+
+The status is undocumented. The provider's moduledoc, section "What a failed
+`Decrypt` answers" (`lib/encryptor/provider/gcp_kms.ex:187-189`), says the
+status a disabled `CryptoKeyVersion` answers `Decrypt` with is not
+documented, and that if it is a 400 it lands in the section table's refused
+descriptors, `{:invalid_key_descriptor, {:kms_refused, status}}` (`:179`).
+Both passages above are read the same way: the status stays undocumented
+until a live call against a disabled test key version records it.
+
+The live Cloud KMS suite cannot reach a disabled version, because the
+provider never names a key version on `Decrypt`. `Decrypt` and `Encrypt` post
+to the `CryptoKey`'s own resource name, never a `CryptoKeyVersion`'s
+(`Encryptor.Provider.GcpKms.Api`, `decrypt/4` and `encrypt/4`), and the
+version is the one the ciphertext names. A disabled version wraps nothing
+new, so no call through the provider writes a ciphertext under one. The
+suite's moduledoc says the same (`Encryptor.Provider.GcpKmsLiveTest`, in
+`test/encryptor/provider/gcp_kms_live_test.exs`). Recording the status takes
+a ciphertext under a test key version that is disabled afterwards, a change
+to the key itself, which this package does not make.
+
+Provenance: bead `enc-m2m9`.
+
+Nothing above changes. No decision is amended and no line above is edited.
+This Note carries no status of its own.
