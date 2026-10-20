@@ -2403,7 +2403,7 @@ carries no status of its own.
 
 ## Amendment C (2026-10-20): decrypt refuses a per-call context key the message's stored context lacks, unless `:legacy_context` is `:accept`
 
-Status: **proposed (2026-10-20)**. This amendment only adds: no line above is
+Status: **accepted (2026-10-20, encryptor 0.9.0)**, proposed 2026-10-20. This amendment only adds: no line above is
 edited. It amends decision 6's reach on the read side and adds one vault
 option, `:legacy_context`. It adds no term to decision 8's vocabulary. The
 decision was ruled by the operator, 2026-10-19. The lib/ cites below name
@@ -2538,3 +2538,67 @@ encryption context binds" in
 `docs/explanation/threat-model.md`, the context section of
 `guides/getting-started.md` and the README's decrypt example. The changed
 answer ships in encryptor 0.9.0.
+
+## Note (2026-10-20): Amendment C is accepted on 0.9.0
+
+Amendment C's Status line now reads `accepted (2026-10-20, encryptor
+0.9.0)`. The record's own Status line, `accepted (2026-08-27, with
+amendments)`, and its index row, `accepted (2026-08-27, amended)`, do not
+change.
+
+The amendment's code shipped in encryptor 0.9.0: the commit tagged `v0.9.0`
+(`34cfcf0`), published on Hex by the release workflow's run
+https://github.com/riddler/encryptor/actions/runs/39448513107, which
+succeeded. Every claim below was re-verified at `34cfcf0`, which was also the
+tip of `main` when this Note was written. The only commit on the files the
+amendment cites after the one that implemented it is that release commit,
+which changes the changelog, the version and the install pins.
+
+- **C1.** `unstored_per_call_key/3` (`lib/encryptor/vault/decrypt.ex:370`)
+  returns the first per-call key, in sorted order, that the stored context
+  lacks and the vault's `:required_context` does not name; `per_call_keys/1`
+  (`:239`) reads only the keys of this call's `:encryption_context`, so a key
+  from the static layer never reaches the check. The other two scans of
+  `compare/5` (`:336`), `unreproduced_package_key/2` and `disagreeing_key/2`,
+  are unchanged. `test/encryptor/vault/decrypt_test.exs`'s describe block "a
+  per-call key the message does not carry" pins "is refused by default, as a
+  disagreeing value is", "a message written with no context is refused when
+  the reader passes one", "a key :required_context names is checked as
+  before" and "a static key the message does not carry is still ignored".
+- **C2.** `Encryptor.Vault.Config.defaults/0` carries `legacy_context:
+  :refuse`; `legacy_context/2` (`lib/encryptor/vault/config.ex:784`) accepts
+  `:refuse` and `:accept` and answers any other value with
+  `{:invalid_config, :legacy_context, :unknown}`; under `:accept`
+  `unstored_per_call_key/3` (`decrypt.ex:368`) refuses nothing. No encrypt
+  path reads the option: outside the config, `lib/` names it only in the
+  decrypt module, in the rekey module's comment and in two documentation
+  strings.
+- **C3.** `agreed_stored/5` (`decrypt.ex:283`) runs `accepted_suite/3` and
+  then `compare/5`, before the engine is called. `decrypt/3` passes
+  `per_call_keys(opts)`. The rekey (`lib/encryptor/vault/rekey.ex:187`) runs
+  `accept_context/4` (`:277`), whose `accept_pairs/4` (`:303`) refuses every
+  key the vault does not require with `{:reserved_context_key, key}`, before
+  it calls `Decrypt.agreed_stored/4` with no per-call key.
+  `Encryptor.Envelope.unwrap/2` and `rewrap/2` (`lib/encryptor/envelope.ex`,
+  `:398` and `:450`) call the root vault's decrypt and rekey with empty
+  options.
+- **C4.** `compare/5` answers each of its three scans with
+  `Error.decrypt_failed(vault, operation, {:encryption_context_mismatch,
+  key})`, and `Encryptor.Error.message/1` renders the reason and where it
+  happened, never the `:engine` term.
+- **The upgrade note and what this changes.** The documents the amendment
+  lists carry the new answer at `34cfcf0`: the `decrypt/2` documentation in
+  `lib/encryptor/vault/docs.ex`, the `Encryptor.Context` and
+  `Encryptor.Error` moduledocs, the option documentation in
+  `lib/encryptor/vault/config.ex`, "What the encryption context binds" in
+  `docs/explanation/security-model.md`, "Someone who can read the database"
+  and "A caller with the wrong context" in
+  `docs/explanation/threat-model.md`, the context section of
+  `guides/getting-started.md` and the README's decrypt example. The 0.9.0
+  changelog section lists the refusal and the `:legacy_context` switch under
+  Breaking.
+
+No sentence of Amendment C names its own status other than its Status line.
+
+No decision changes, no line above is edited other than Amendment C's Status
+line, and this Note carries no status of its own.
